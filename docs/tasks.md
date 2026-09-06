@@ -33,14 +33,14 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Session reconciliation records derived on end-session without mutating the
   transcript; `r` opens approve/reject review (Argus #26).
 - Delete (`d` confirm) and soft-supersede (`x`) for campaign entities.
+- Planned session notes (`p`): markdown prep docs with `@` / `#location`,
+  distinct from live transcripts; `s` starts live play seeded from those notes
+  (Argus #28–#29).
 
 ## In progress
 
 ## Next
 
-- Planned session *notes* (prep docs, not live sessions): markdown with `@`
-  links and location markers; start live play using those notes as context
-  (Argus #28–#29).
 - Draft future planned notes in the context of previous live sessions
   (Argus #33).
 - Associate entities to sessions while keeping world/campaign globals visible

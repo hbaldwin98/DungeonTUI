@@ -35,8 +35,8 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 |---|---|
 | `/` | Open typed fuzzy search |
 | `j` / `k` | Navigate records |
-| `n` | Create a new draft entity |
-| `e` | Edit the selected entity |
+| `n` | Create a new draft entity (markdown) |
+| `e` | Edit the selected entity (markdown) |
 | `d` | Delete selected entity (press twice to confirm) |
 | `x` | Mark selected entity superseded (soft remove) |
 | `t` / `Tab` | Cycle focused campaign type section |
@@ -44,7 +44,8 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `p` | Draft planned session notes (prep markdown, not live) |
 | `s` | Start a live session (uses planned notes as context when present) |
 | `Tab` / `Shift+Tab` | In editor: move fields; in session: suggest/cycle focus |
-| `Ctrl+S` | Save the editor, or change search scope while searching |
+| `Ctrl+S` | Save markdown editor / planned notes, or change search scope while searching |
+| `Ctrl+T` | Cycle entity type while editing markdown |
 | `Enter` / `Ctrl+Enter` | Capture a transcript entry during a session |
 | `Shift+Enter` | Insert a newline in the transcript editor |
 | `Ctrl+E` | End the active session |

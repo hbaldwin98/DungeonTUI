@@ -38,10 +38,7 @@ type Model struct {
 	editing        bool
 	creating       bool
 	editID         string
-	editField      int
 	editType       domain.EntityType
-	editTitle      textinput.Model
-	editSummary    textinput.Model
 	editBody       textarea.Model
 	session        *domain.SessionRecord
 	sessionInput   textarea.Model
@@ -1177,33 +1174,32 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
-	title := textinput.New()
-	title.Prompt = "Title: "
-	title.CharLimit = 160
-	summary := textinput.New()
-	summary.Prompt = "Summary: "
-	summary.CharLimit = 240
 	body := textarea.New()
-	body.Prompt = "Body: "
-	body.SetWidth(max(30, m.width-12))
-	body.SetHeight(6)
+	body.Prompt = "│ "
+	body.SetWidth(max(40, m.width-14))
+	body.SetHeight(max(10, m.height-12))
+	body.Placeholder = "type: NPC\n\n# Title\n\nSummary paragraph.\n\nBody markdown…"
+
 	model := m
 	model.editing = true
 	model.creating = create
 	model.editID = ""
-	model.editField = 0
 	model.editType = domain.NPC
 	if entityType, ok := paneEntityType(m.layout.Focus); ok && m.layout.Focus != prefs.PaneList && entityType != "" {
 		model.editType = entityType
 	} else if m.typeFilter != "" {
 		model.editType = m.typeFilter
 	}
-	model.editTitle = title
-	model.editSummary = summary
 	model.editBody = body
 	if create {
-		model.editTitle.SetValue("New " + string(model.editType))
-		model.editBody.SetValue("")
+		draft := domain.Record{
+			Type:      model.editType,
+			Title:     "New " + string(model.editType),
+			Summary:   "",
+			Body:      "",
+			Authority: domain.Draft,
+		}
+		model.editBody.SetValue(domain.FormatEntityMarkdown(draft))
 	} else {
 		record := m.selectedRecord()
 		if record == nil {
@@ -1211,25 +1207,9 @@ func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
 		}
 		model.editID = record.ID
 		model.editType = record.Type
-		model.editTitle.SetValue(record.Title)
-		model.editSummary.SetValue(record.Summary)
-		model.editBody.SetValue(record.Body)
+		model.editBody.SetValue(domain.FormatEntityMarkdown(*record))
 	}
-	return model, model.focusEditor()
-}
-
-func (m *Model) focusEditor() tea.Cmd {
-	m.editTitle.Blur()
-	m.editSummary.Blur()
-	m.editBody.Blur()
-	switch m.editField {
-	case 0:
-		return m.editTitle.Focus()
-	case 1:
-		return m.editSummary.Focus()
-	default:
-		return m.editBody.Focus()
-	}
+	return model, model.editBody.Focus()
 }
 
 func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1238,44 +1218,42 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		model.editing = false
 		return model, nil
-	case "tab", "shift+tab":
-		if msg.String() == "tab" {
-			model.editField = (model.editField + 1) % 3
-		} else {
-			model.editField = (model.editField + 2) % 3
-		}
-		return model, model.focusEditor()
 	case "ctrl+t":
 		model.editType = nextEntityType(model.editType)
+		model.editBody.SetValue(rewriteMarkdownType(model.editBody.Value(), model.editType))
 		return model, nil
 	case "ctrl+s", "ctrl+enter":
 		return model.saveEditor()
 	}
 	var cmd tea.Cmd
-	switch model.editField {
-	case 0:
-		model.editTitle, cmd = model.editTitle.Update(msg)
-	case 1:
-		model.editSummary, cmd = model.editSummary.Update(msg)
-	default:
-		model.editBody, cmd = model.editBody.Update(msg)
-	}
+	model.editBody, cmd = model.editBody.Update(msg)
 	return model, cmd
 }
 
+func rewriteMarkdownType(doc string, entityType domain.EntityType) string {
+	lines := strings.Split(strings.ReplaceAll(doc, "\r\n", "\n"), "\n")
+	for index, line := range lines {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "type:") {
+			lines[index] = "type: " + string(entityType)
+			return strings.Join(lines, "\n")
+		}
+	}
+	return "type: " + string(entityType) + "\n\n" + doc
+}
+
 func (m Model) saveEditor() (tea.Model, tea.Cmd) {
-	title := strings.TrimSpace(m.editTitle.Value())
-	if title == "" {
-		m.status = "Title is required"
+	parsed, err := domain.ParseEntityMarkdown(m.editBody.Value(), m.editType)
+	if err != nil {
+		m.status = err.Error()
 		return m, nil
 	}
 	scope := m.workspace.Scope
 	record := domain.Record{
-		ID:        fmt.Sprintf("%s-%d", strings.ToLower(strings.ReplaceAll(title, " ", "-")), time.Now().UnixNano()),
-		Type:      m.editType,
-		Title:     title,
-		Summary:   strings.TrimSpace(m.editSummary.Value()),
-		Body:      m.editBody.Value(),
+		ID:        fmt.Sprintf("%s-%d", strings.ToLower(strings.ReplaceAll(parsed.Title, " ", "-")), time.Now().UnixNano()),
+		Type:      parsed.Type,
+		Title:     parsed.Title,
+		Summary:   parsed.Summary,
+		Body:      parsed.Body,
 		Authority: domain.Draft,
 		Scope:     scope,
 		Source:    "DM draft",
@@ -1285,9 +1263,10 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 		for index := range m.workspace.Records {
 			if m.workspace.Records[index].ID == m.editID {
 				record = m.workspace.Records[index]
-				record.Title = title
-				record.Summary = strings.TrimSpace(m.editSummary.Value())
-				record.Body = m.editBody.Value()
+				record.Type = parsed.Type
+				record.Title = parsed.Title
+				record.Summary = parsed.Summary
+				record.Body = parsed.Body
 				found = true
 				break
 			}
@@ -1316,7 +1295,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 	m.search = searchsvc.New(m.workspace.Records)
 	m.refreshResults()
 	m.editing = false
-	m.status = "Saved draft: " + record.Title
+	m.status = "Saved markdown draft: " + record.Title
 	if m.store != nil {
 		if err := m.store.Save(m.workspace); err != nil {
 			m.status = "Saved in memory; persistence failed: " + err.Error()
@@ -1939,23 +1918,21 @@ func (m Model) renderSearchOverlay() string {
 }
 
 func (m Model) renderEditorOverlay() string {
-	width := min(88, max(52, m.width-10))
+	width := min(92, max(56, m.width-8))
 	label := "EDIT ENTITY"
 	if m.creating {
 		label = "NEW DRAFT ENTITY"
 	}
 	var builder strings.Builder
 	builder.WriteString(searchTitleStyle.Render(label))
+	builder.WriteString("  ")
+	builder.WriteString(mutedStyle.Render("markdown"))
 	builder.WriteString("  type: ")
 	builder.WriteString(filterStyle.Render(string(m.editType)))
 	builder.WriteString("\n\n")
-	builder.WriteString(m.editTitle.View())
-	builder.WriteString("\n")
-	builder.WriteString(m.editSummary.View())
-	builder.WriteString("\n")
 	builder.WriteString(m.editBody.View())
 	builder.WriteString("\n")
-	builder.WriteString(helpStyle.Render("Tab/Shift+Tab next field  Ctrl+S save draft  Esc cancel"))
+	builder.WriteString(helpStyle.Render("Ctrl+T cycle type  Ctrl+S save  Esc cancel  ·  type: NPC / # Title / summary / body"))
 	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 		lipgloss.WithWhitespaceChars(" "),

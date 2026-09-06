@@ -172,13 +172,45 @@ func TestCreateDraftEntity(t *testing.T) {
 	if !model.editing || !model.creating {
 		t.Fatal("expected new draft editor")
 	}
+	if !strings.Contains(model.editBody.Value(), "# New NPC") {
+		t.Fatalf("expected markdown template, got %q", model.editBody.Value())
+	}
+	model.editBody.SetValue("type: LOCATION\n\n# Quiet Alcove\n\nA side chamber.\n\nDust and old chalk.\n")
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModCtrl}))
 	model = updated.(Model)
 	if model.editing {
 		t.Fatal("expected editor to close after saving")
 	}
-	if got := model.workspace.Records[len(model.workspace.Records)-1]; got.Authority != domain.Draft || got.Type != domain.NPC {
-		t.Fatalf("expected saved NPC draft, got %#v", got)
+	got := model.workspace.Records[len(model.workspace.Records)-1]
+	if got.Authority != domain.Draft || got.Type != domain.Location || got.Title != "Quiet Alcove" {
+		t.Fatalf("expected saved location draft from markdown, got %#v", got)
+	}
+	if got.Summary != "A side chamber." {
+		t.Fatalf("summary=%q", got.Summary)
+	}
+}
+
+func TestEditEntityUsesMarkdownDocument(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	for _, record := range model.workspace.Records {
+		if record.Title == "Captain Vale" {
+			model.selectRecord(record)
+			break
+		}
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
+	model = updated.(Model)
+	if !model.editing || model.creating {
+		t.Fatal("expected edit markdown editor")
+	}
+	doc := model.editBody.Value()
+	if !strings.Contains(doc, "type: NPC") || !strings.Contains(doc, "# Captain Vale") {
+		t.Fatalf("expected entity markdown document, got %q", doc)
+	}
+	if strings.Contains(model.View().Content, "Title:") && strings.Contains(model.View().Content, "Summary:") {
+		t.Fatal("form fields should not appear in markdown editor")
 	}
 }
 
