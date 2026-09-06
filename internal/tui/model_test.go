@@ -218,3 +218,18 @@ func TestPlainEnterSubmitsTranscript(t *testing.T) {
 		t.Fatalf("plain Enter did not submit transcript: %#v", model.session.Entries)
 	}
 }
+
+func TestShiftEnterAddsMultilineTextWithoutSubmitting(t *testing.T) {
+	model := New()
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	model.sessionInput.SetValue("first line")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift}))
+	model = updated.(Model)
+	if len(model.session.Entries) != 0 {
+		t.Fatal("Shift+Enter must not submit a transcript")
+	}
+	if model.sessionInput.Value() != "first line\n" {
+		t.Fatalf("expected multiline input, got %q", model.sessionInput.Value())
+	}
+}

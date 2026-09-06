@@ -86,7 +86,7 @@ func newModel(workspace domain.Workspace, store storage.Store) Model {
 	model.sessionInput = textarea.New()
 	model.sessionInput.Prompt = "│ "
 	model.sessionInput.Placeholder = "Start a session to capture play…"
-	model.sessionInput.SetHeight(2)
+	model.sessionInput.SetHeight(5)
 	model.refreshResults()
 	return model
 }
@@ -154,7 +154,7 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 	m.session = &session
 	m.sessionInput.SetValue("")
 	m.sessionInput.SetWidth(max(30, m.width-8))
-	m.sessionInput.SetHeight(2)
+	m.sessionInput.SetHeight(5)
 	m.sessionInput.Focus()
 	m.status = "Session started · Ctrl+E ends capture"
 	return m, nil
@@ -167,6 +167,10 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return model.endSession()
 	case "enter", "ctrl+enter", "\r", "\n":
 		return model.submitTranscript()
+	case "shift+enter":
+		model.sessionInput.SetValue(model.sessionInput.Value() + "\n")
+		model.previousInput = model.sessionInput.Value()
+		return model, nil
 	case "ctrl+z":
 		if model.sessionInput.Value() != "" && model.previousInput != "" {
 			model.sessionInput.SetValue(model.previousInput)
@@ -857,9 +861,9 @@ func (m Model) View() tea.View {
 func (m Model) sessionView() tea.View {
 	width := max(60, m.width)
 	available := max(8, m.height-2)
-	inputHeight := 3
+	inputHeight := 7
 	if len(m.suggestions) > 0 {
-		inputHeight = 5
+		inputHeight = 9
 	}
 	upperHeight := max(6, min(8, available/3))
 	transcriptHeight := max(5, available-upperHeight-inputHeight)
