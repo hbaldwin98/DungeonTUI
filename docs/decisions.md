@@ -53,3 +53,10 @@ that drives `Update`/`View`, asserts exact terminal fill, and writes plain-text
 plus ANSI screencaps. This is preferred over flaky PTY golden files for agent
 and CI use.
 
+## D-008 — `#` rolls are linked transcript evidence
+
+Dice and arithmetic `#` expressions are evaluated locally and stored on the
+originating transcript entry with expression, faces, and total. They remain
+session evidence until the DM later reconciles them; `#random` and `#location`
+stay separate command verbs.
+
