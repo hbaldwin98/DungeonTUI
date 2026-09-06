@@ -67,6 +67,29 @@ func TestAddBrowserTypePaneShowsHiddenSection(t *testing.T) {
 	}
 }
 
+func TestCloseBrowserTypePaneHidesSection(t *testing.T) {
+	layout := DefaultLayout()
+	if !layout.CloseBrowserTypePane(PaneFaction) {
+		t.Fatal("expected to close faction pane")
+	}
+	if leafVisible(layout.Browser.Root, PaneFaction) {
+		t.Fatal("faction should be hidden")
+	}
+	// Close down to one type pane — further closes must fail.
+	for _, pane := range []Pane{PaneLocation, PaneThread, PaneItem, PaneNote} {
+		layout.CloseBrowserTypePane(pane)
+	}
+	if layout.CloseBrowserTypePane(PaneNPC) {
+		t.Fatal("should not close the last type pane")
+	}
+	if !leafVisible(layout.Browser.Root, PaneNPC) {
+		t.Fatal("last type pane must remain")
+	}
+	if layout.CloseBrowserTypePane(PaneDetail) {
+		t.Fatal("detail pane must not close")
+	}
+}
+
 func TestCycleSessionUpperVisibility(t *testing.T) {
 	layout := DefaultLayout()
 	layout.CycleSessionUpperVisibility()

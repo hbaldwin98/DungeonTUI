@@ -83,14 +83,24 @@ func TestDeleteSelectedEntity(t *testing.T) {
 	target := model.selectedID
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
 	model = updated.(Model)
-	if !model.deleteConfirm {
+	if !model.deleteConfirm || model.confirmKind != "delete" {
 		t.Fatal("first d should arm delete confirmation")
 	}
+	// Second d alone must not delete — requires explicit y.
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
 	model = updated.(Model)
 	for _, record := range model.workspace.Records {
 		if record.ID == target {
-			t.Fatalf("expected record %q to be deleted", target)
+			goto stillPresent
+		}
+	}
+	t.Fatal("delete must not proceed without y")
+stillPresent:
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+	model = updated.(Model)
+	for _, record := range model.workspace.Records {
+		if record.ID == target {
+			t.Fatalf("expected record %q to be deleted after y", target)
 		}
 	}
 	if model.selectedID == target {
@@ -111,9 +121,26 @@ func TestSupersedeSelectedCanonEntity(t *testing.T) {
 	}
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
 	model = updated.(Model)
+	if !model.deleteConfirm || model.confirmKind != "supersede" {
+		t.Fatal("x should arm supersede confirmation")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+	model = updated.(Model)
 	record := model.selectedRecord()
 	if record == nil || record.Authority != domain.Superseded {
-		t.Fatalf("expected superseded canon entity, got %#v", record)
+		t.Fatalf("expected superseded canon entity after y, got %#v", record)
+	}
+}
+
+func TestCloseFocusedBrowserPane(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	model.setBrowserFocus(prefs.PaneFaction)
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '-', Text: "-"}))
+	model = updated.(Model)
+	if prefs.FindVisibleLeaf(model.layout.Browser.Root, prefs.PaneFaction) {
+		t.Fatal("expected faction pane closed")
 	}
 }
 

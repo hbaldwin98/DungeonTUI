@@ -320,6 +320,29 @@ func (l *Layout) AddBrowserTypePane(pane Pane) bool {
 	return FindVisibleLeaf(l.Browser.Root, pane)
 }
 
+// CloseBrowserTypePane hides a typed section pane. Detail cannot be closed.
+// Refuses to hide the last remaining type section.
+func (l *Layout) CloseBrowserTypePane(pane Pane) bool {
+	if pane == PaneDetail || pane == "" {
+		return false
+	}
+	if !FindVisibleLeaf(l.Browser.Root, pane) {
+		return false
+	}
+	visibleTypes := 0
+	for _, candidate := range VisibleLeaves(l.Browser.Root) {
+		if candidate == PaneDetail || candidate == PaneList {
+			continue
+		}
+		visibleTypes++
+	}
+	if visibleTypes <= 1 {
+		return false
+	}
+	setLeafVisible(&l.Browser.Root, pane, false)
+	return !FindVisibleLeaf(l.Browser.Root, pane)
+}
+
 func insertBrowserLeaf(node *Node, pane Pane) {
 	if node == nil {
 		return
@@ -391,6 +414,22 @@ func (l *Layout) CycleBrowserTypeVisibility() {
 func FindVisibleLeaf(node Node, pane Pane) bool {
 	found, ok := FindLeaf(node, pane)
 	return ok && found.IsVisible()
+}
+
+// CloseSessionUpperPane hides campaign or context when the sibling remains.
+func (l *Layout) CloseSessionUpperPane(pane Pane) bool {
+	if pane != PaneCampaign && pane != PaneContext {
+		return false
+	}
+	other := PaneContext
+	if pane == PaneContext {
+		other = PaneCampaign
+	}
+	if !leafVisible(l.Session.Root, other) {
+		return false
+	}
+	setLeafVisible(&l.Session.Root, pane, false)
+	return !leafVisible(l.Session.Root, pane)
 }
 
 // CycleSessionUpperVisibility walks campaign/context visibility presets.

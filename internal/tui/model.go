@@ -58,6 +58,7 @@ type Model struct {
 	reconIndex     int
 	reconCursor    int
 	deleteConfirm  bool
+	confirmKind    string // "delete" or "supersede"
 	planning       bool
 	planID         string
 	planDraft      domain.PlannedNotes
@@ -161,6 +162,10 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			return m.openSearch()
 		case "n":
+			if m.deleteConfirm {
+				m.clearDestructiveConfirm("Cancelled")
+				return m, nil
+			}
 			return m.openEditor(true)
 		case "e":
 			return m.openEditor(false)
@@ -172,20 +177,26 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Cycled browser type panes"
 		case "+":
 			m.addNextBrowserTypePane()
+		case "-":
+			return m.closeFocusedPane()
 		case "p":
 			return m.openPlannedNotes(true)
 		case "s":
+			if m.deleteConfirm {
+				return m, nil
+			}
 			return m.startSession()
 		case "r":
 			return m.openReconciliation()
 		case "d":
-			return m.handleDeleteKey()
+			return m.armDestructiveConfirm("delete")
 		case "x":
-			return m.supersedeSelected()
+			return m.armDestructiveConfirm("supersede")
+		case "y":
+			return m.confirmDestructiveAction()
 		case "esc":
 			if m.deleteConfirm {
-				m.deleteConfirm = false
-				m.status = "Delete cancelled"
+				m.clearDestructiveConfirm("Cancelled")
 			}
 		case "tab":
 			m.cycleBrowserFocus()
@@ -305,6 +316,30 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+p":
 		model.layout.CycleSessionUpperVisibility()
 		model.persistPreferences()
+		return model, nil
+	case "-":
+		focus := model.sessionFocus()
+		switch focus {
+		case prefs.PaneCampaign:
+			if !model.layout.CloseSessionUpperPane(prefs.PaneCampaign) {
+				model.status = "Keep at least one upper pane"
+				return model, nil
+			}
+			model.persistPreferences()
+			model.setSessionFocus(prefs.PaneContext)
+			model.status = "Closed campaign pane · Ctrl+P to restore"
+			return model, nil
+		case prefs.PaneContext:
+			if !model.layout.CloseSessionUpperPane(prefs.PaneContext) {
+				model.status = "Keep at least one upper pane"
+				return model, nil
+			}
+			model.persistPreferences()
+			model.setSessionFocus(prefs.PaneCampaign)
+			model.status = "Closed context pane · Ctrl+P to restore"
+			return model, nil
+		}
+		model.status = "Focus campaign or context, then - to close"
 		return model, nil
 	case "tab":
 		if focus == prefs.PaneInput && len(model.suggestions) > 0 {
@@ -823,26 +858,73 @@ func (m Model) openReconciliation() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.reconciling = true
-	m.deleteConfirm = false
+	m.clearDestructiveConfirm("")
 	m.reconIndex = clamp(m.reconIndex, 0, len(m.workspace.Reconciliations)-1)
 	m.reconCursor = 0
 	m.status = "Reconciliation · a approve  x reject  Esc close"
 	return m, nil
 }
 
-func (m Model) handleDeleteKey() (tea.Model, tea.Cmd) {
+func (m *Model) clearDestructiveConfirm(status string) {
+	m.deleteConfirm = false
+	m.confirmKind = ""
+	if status != "" {
+		m.status = status
+	}
+}
+
+func (m Model) armDestructiveConfirm(kind string) (tea.Model, tea.Cmd) {
 	record := m.selectedRecord()
 	if record == nil {
-		m.status = "Nothing selected to delete"
+		m.status = "Nothing selected"
 		return m, nil
 	}
+	if kind == "supersede" && record.Authority == domain.Superseded {
+		m.status = record.Title + " is already superseded"
+		return m, nil
+	}
+	m.deleteConfirm = true
+	m.confirmKind = kind
+	verb := "Delete"
+	if kind == "supersede" {
+		verb = "Supersede"
+	}
+	m.status = verb + " “" + record.Title + "”?  y confirm · n/Esc cancel"
+	return m, nil
+}
+
+func (m Model) confirmDestructiveAction() (tea.Model, tea.Cmd) {
 	if !m.deleteConfirm {
-		m.deleteConfirm = true
-		m.status = "Delete " + record.Title + "? press d again · Esc cancel"
 		return m, nil
 	}
-	m.deleteConfirm = false
-	m.deleteSelected()
+	kind := m.confirmKind
+	m.clearDestructiveConfirm("")
+	switch kind {
+	case "delete":
+		m.deleteSelected()
+	case "supersede":
+		return m.supersedeSelected()
+	}
+	return m, nil
+}
+
+func (m Model) closeFocusedPane() (tea.Model, tea.Cmd) {
+	pane := m.layout.Focus
+	if _, ok := paneEntityType(pane); ok && pane != prefs.PaneList && pane != prefs.PaneDetail {
+		if !m.layout.CloseBrowserTypePane(pane) {
+			m.status = "Keep at least one type pane open"
+			return m, nil
+		}
+		m.persistPreferences()
+		m.cycleBrowserFocus()
+		m.status = "Closed " + string(pane) + " pane · + to restore"
+		return m, nil
+	}
+	if pane == prefs.PaneDetail {
+		m.status = "Detail pane stays open"
+		return m, nil
+	}
+	m.status = "Focus a type pane, then press - to close it"
 	return m, nil
 }
 
@@ -887,7 +969,7 @@ func (m Model) supersedeSelected() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.search = searchsvc.New(m.workspace.Records)
-	m.deleteConfirm = false
+	m.clearDestructiveConfirm("")
 	m.persistWorkspace()
 	m.status = "Superseded " + record.Title + " · still searchable as history"
 	return m, nil
@@ -1637,7 +1719,7 @@ func (m Model) View() tea.View {
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(1, m.height-2)
 	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-	help := "/ search  n new  e edit  p prep notes  d delete  x supersede  s live session  r reconcile  q quit"
+	help := "/ search  n new  e edit  p prep  +/− panes  d delete  x supersede  s live  r reconcile  q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}

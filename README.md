@@ -37,8 +37,9 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `j` / `k` | Navigate records |
 | `n` | Create a new draft entity (markdown) |
 | `e` | Edit the selected entity (markdown) |
-| `d` | Delete selected entity (press twice to confirm) |
-| `x` | Mark selected entity superseded (soft remove) |
+| `d` | Delete selected entity (`y` confirm / `n` cancel) |
+| `x` | Supersede selected entity (`y` confirm / `n` cancel) |
+| `+` / `-` | Add or close the focused type pane |
 | `t` / `Tab` | Cycle focused campaign type section |
 | `+` | Add another typed section pane |
 | `p` | Draft planned session notes (prep markdown, not live) |
