@@ -60,6 +60,7 @@ type Model struct {
 	reconciling    bool
 	reconIndex     int
 	reconCursor    int
+	deleteConfirm  bool
 }
 
 func New() Model {
@@ -169,6 +170,15 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m.startSession()
 		case "r":
 			return m.openReconciliation()
+		case "d":
+			return m.handleDeleteKey()
+		case "x":
+			return m.supersedeSelected()
+		case "esc":
+			if m.deleteConfirm {
+				m.deleteConfirm = false
+				m.status = "Delete cancelled"
+			}
 		case "tab":
 			m.cycleBrowserFocus()
 		}
@@ -778,9 +788,73 @@ func (m Model) openReconciliation() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.reconciling = true
+	m.deleteConfirm = false
 	m.reconIndex = clamp(m.reconIndex, 0, len(m.workspace.Reconciliations)-1)
 	m.reconCursor = 0
 	m.status = "Reconciliation · a approve  x reject  Esc close"
+	return m, nil
+}
+
+func (m Model) handleDeleteKey() (tea.Model, tea.Cmd) {
+	record := m.selectedRecord()
+	if record == nil {
+		m.status = "Nothing selected to delete"
+		return m, nil
+	}
+	if !m.deleteConfirm {
+		m.deleteConfirm = true
+		m.status = "Delete " + record.Title + "? press d again · Esc cancel"
+		return m, nil
+	}
+	m.deleteConfirm = false
+	m.deleteSelected()
+	return m, nil
+}
+
+func (m *Model) deleteSelected() {
+	record := m.selectedRecord()
+	if record == nil {
+		return
+	}
+	id := record.ID
+	out := make([]domain.Record, 0, len(m.workspace.Records))
+	for _, item := range m.workspace.Records {
+		if item.ID == id {
+			continue
+		}
+		out = append(out, item)
+	}
+	m.workspace.Records = out
+	m.search = searchsvc.New(m.workspace.Records)
+	m.selectedID = ""
+	m.ensureBrowserSelection()
+	m.refreshResults()
+	m.persistWorkspace()
+	m.status = "Deleted " + record.Title
+}
+
+func (m Model) supersedeSelected() (tea.Model, tea.Cmd) {
+	record := m.selectedRecord()
+	if record == nil {
+		m.status = "Nothing selected to supersede"
+		return m, nil
+	}
+	if record.Authority == domain.Superseded {
+		m.status = record.Title + " is already superseded"
+		return m, nil
+	}
+	for index := range m.workspace.Records {
+		if m.workspace.Records[index].ID == record.ID {
+			m.workspace.Records[index].Authority = domain.Superseded
+			updated := m.workspace.Records[index]
+			m.selectRecord(updated)
+			break
+		}
+	}
+	m.search = searchsvc.New(m.workspace.Records)
+	m.deleteConfirm = false
+	m.persistWorkspace()
+	m.status = "Superseded " + record.Title + " · still searchable as history"
 	return m, nil
 }
 
@@ -1520,7 +1594,7 @@ func (m Model) View() tea.View {
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(1, m.height-2)
 	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-	help := "/ search  n new  e edit  t/Tab section  + add pane  Ctrl+P cycle panes  s session  q quit"
+	help := "/ search  n new  e edit  d delete  x supersede  t/Tab section  + pane  s session  r reconcile  q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}

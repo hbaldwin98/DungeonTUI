@@ -32,11 +32,16 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   add panes and Ctrl+P to cycle section presets (Argus #25).
 - Session reconciliation records derived on end-session without mutating the
   transcript; `r` opens approve/reject review (Argus #26).
+- Delete (`d` confirm) and soft-supersede (`x`) for campaign entities.
 
 ## In progress
 
 ## Next
 
+- Planned session documents: markdown briefs with `@` links and location
+  markers; start live play from that context (Argus #28–#29).
+- Associate entities to sessions while keeping world/campaign globals visible
+  (Argus #30).
 - Deepen reconciliation: factual diffs, superseded history, and draft provenance.
 - Add export/import coverage for worlds, campaigns, sessions, links, and
   workspace preferences.

@@ -73,6 +73,50 @@ func TestMouseWheelNavigatesRecords(t *testing.T) {
 	}
 }
 
+func TestDeleteSelectedEntity(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	if model.selectedID == "" {
+		t.Fatal("expected a selected record")
+	}
+	target := model.selectedID
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	model = updated.(Model)
+	if !model.deleteConfirm {
+		t.Fatal("first d should arm delete confirmation")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	model = updated.(Model)
+	for _, record := range model.workspace.Records {
+		if record.ID == target {
+			t.Fatalf("expected record %q to be deleted", target)
+		}
+	}
+	if model.selectedID == target {
+		t.Fatal("selection should move off deleted record")
+	}
+}
+
+func TestSupersedeSelectedCanonEntity(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	// Captain Vale is canon in fixtures
+	for _, record := range model.workspace.Records {
+		if record.Title == "Captain Vale" {
+			model.selectRecord(record)
+			break
+		}
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	model = updated.(Model)
+	record := model.selectedRecord()
+	if record == nil || record.Authority != domain.Superseded {
+		t.Fatalf("expected superseded canon entity, got %#v", record)
+	}
+}
+
 func TestMouseClickSelectsRecord(t *testing.T) {
 	model := New()
 	model.width = 120

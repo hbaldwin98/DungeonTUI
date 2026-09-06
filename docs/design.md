@@ -416,6 +416,17 @@ arbitrary horizontal/vertical splits rather than adding one-off coordinates.
 
 ### Session capture
 
+Sessions have two phases that share one record shape:
+
+1. **Planned** — a draft session document written ahead of time in markdown.
+   The DM outlines the night, associates people and places with `@` links, and
+   marks locations/areas in the brief. World and campaign entities stay in the
+   global wiki; the planned session only *associates* the subset that matters
+   for that night instead of dumping everything into one faceful of context.
+2. **Live** — starting play from a planned session opens capture *in that
+   context*: the brief and its associations seed the scene/context panes, while
+   a fresh immutable transcript records what actually happens at the table.
+
 A campaign can have an explicit session lifecycle. Starting a session creates a
 session record and opens a transcript pane with a focused multiline input. The
 DM can type player actions, rulings, descriptions, and outcomes continuously

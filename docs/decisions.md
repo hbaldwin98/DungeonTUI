@@ -67,3 +67,11 @@ named panes (list, detail, campaign, context, transcript, input). Ratios and
 leaf visibility persist in `preferences.json`. Legacy pane_layout/pane_split
 integers migrate on load.
 
+## D-010 — Planned sessions are draft documents live play starts from
+
+Preparation is not a global app mode. A planned session is a draft session
+document (markdown body, `@` associations, location markers). World/campaign
+entities remain global; the session associates a subset for that night. Live
+play starts from that planned context so the table sees organized scene
+context rather than the whole wiki at once.
+
