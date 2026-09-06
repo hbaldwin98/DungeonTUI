@@ -36,13 +36,15 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Planned session notes (`p`): markdown prep docs with `@` / `#location`,
   distinct from live transcripts; `s` starts live play seeded from those notes
   (Argus #28–#29).
+- Entity create/edit uses a single markdown document (`type:` / `# Title` /
+  summary / body) instead of form fields (Argus #33).
 
 ## In progress
 
 ## Next
 
 - Draft future planned notes in the context of previous live sessions
-  (Argus #33).
+  (Argus #33 / continuity).
 - Associate entities to sessions while keeping world/campaign globals visible
   (Argus #30).
 - Deepen reconciliation: factual diffs, superseded history, and draft provenance.
