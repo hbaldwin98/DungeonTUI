@@ -18,12 +18,13 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   screencaps (`go run ./cmd/dungeon-harness -scenario all`).
 - Local `#` dice and arithmetic evaluation with results linked to transcript
   entries (`#d20+5`, `#damage 2d6+3`, `#10+2*3`).
+- Persist pane split positions and session pane layout cycle in
+  `preferences.json`, separate from campaign `workspace.json`.
 
 ## In progress
 
 - General configurable pane system: named pane types, visibility, ordering,
   focus, and arbitrary two-axis split tree.
-- Persist personal layout preferences separately from campaign JSON.
 - Replace static session scene/context fixture content with dynamic notes,
   character briefs, threads, location, and current-scene records.
 

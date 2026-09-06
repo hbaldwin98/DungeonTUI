@@ -11,8 +11,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/dice"
+	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/prefs"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 	"github.com/hbaldwin98/dungeon/internal/storage"
 )
@@ -31,6 +32,7 @@ type Model struct {
 	selected        int
 	typeFilter      domain.EntityType
 	store           storage.Store
+	prefs           prefs.Store
 	status          string
 	editing         bool
 	creating        bool
@@ -57,28 +59,32 @@ type Model struct {
 }
 
 func New() Model {
-	return newModel(demoWorkspace(), nil)
+	return newModel(demoWorkspace(), nil, nil)
 }
 
 // NewPersistent loads the owner's workspace from the platform config
 // directory. A first run starts with the small demo workspace and persists it
-// on the first successful edit.
+// on the first successful edit. Layout preferences load from a sibling file.
 func NewPersistent() Model {
 	path, err := storage.DefaultPath()
 	if err != nil {
-		return newModel(demoWorkspace(), nil)
+		return newModel(demoWorkspace(), nil, nil)
 	}
 	store := storage.NewJSON(path)
+	prefStore := prefs.NewJSON(prefs.BesideWorkspace(path))
 	workspace, err := store.Load()
 	if err != nil {
-		model := newModel(demoWorkspace(), store)
+		model := newModel(demoWorkspace(), store, prefStore)
+		model.applyPreferences()
 		model.status = "New workspace · edit or create an entity to save"
 		return model
 	}
-	return newModel(workspace, store)
+	model := newModel(workspace, store, prefStore)
+	model.applyPreferences()
+	return model
 }
 
-func newModel(workspace domain.Workspace, store storage.Store) Model {
+func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.Store) Model {
 	input := textinput.New()
 	input.Placeholder = "Search titles, aliases, notes, and sources"
 	input.Prompt = "> "
@@ -87,6 +93,7 @@ func newModel(workspace domain.Workspace, store storage.Store) Model {
 	model := Model{
 		workspace:    workspace,
 		store:        store,
+		prefs:        prefStore,
 		search:       searchsvc.New(workspace.Records),
 		searchInput:  input,
 		searchScope:  searchsvc.CurrentCampaign,
@@ -174,8 +181,12 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.MouseReleaseMsg:
+		wasDragging := m.draggingSplit
 		m.draggingSplit = false
 		m.dragAxis = ""
+		if wasDragging {
+			m.persistPreferences()
+		}
 		return m, nil
 	}
 
@@ -219,6 +230,7 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return model.endSession()
 	case "ctrl+p":
 		model.paneLayout = (model.paneLayout + 1) % 3
+		model.persistPreferences()
 		return model, nil
 	case "enter", "ctrl+enter", "\r", "\n":
 		return model.submitTranscript()
@@ -596,6 +608,33 @@ func (m *Model) persistWorkspace() {
 	}
 	if err := m.store.Save(m.workspace); err != nil {
 		m.status = "Saved in memory; persistence failed: " + err.Error()
+	}
+}
+
+func (m *Model) applyPreferences() {
+	if m.prefs == nil {
+		return
+	}
+	layout, err := m.prefs.Load()
+	if err != nil {
+		return
+	}
+	m.paneLayout = clamp(layout.PaneLayout, 0, 2)
+	m.paneSplit = layout.PaneSplit
+	m.horizontalSplit = layout.HorizontalSplit
+}
+
+func (m *Model) persistPreferences() {
+	if m.prefs == nil {
+		return
+	}
+	err := m.prefs.Save(prefs.Layout{
+		PaneLayout:      m.paneLayout,
+		PaneSplit:       m.paneSplit,
+		HorizontalSplit: m.horizontalSplit,
+	})
+	if err != nil && m.status == "" {
+		m.status = "Layout preference save failed: " + err.Error()
 	}
 }
 

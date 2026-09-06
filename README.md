@@ -72,8 +72,9 @@ Inline `#d20+5` / `#damage 2d6+3` expressions are evaluated locally and stored
 with the transcript entry (expression, faces, and total) without becoming canon.
 The session log scrolls with the mouse wheel; clicking the context pane selects
 an entity for review. Drag vertical gutters to reallocate left/right panes and
-horizontal gutters to reallocate upper/transcript panes. Split positions are
-currently session-local and will become persisted workspace preferences.
+horizontal gutters to reallocate upper/transcript panes. Split positions and the
+Ctrl+P session pane layout are stored in `preferences.json` beside the campaign
+workspace file.
 
 See [the decision record](docs/decisions.md) and [task snapshot](docs/tasks.md)
 for the current implementation boundaries and queue.

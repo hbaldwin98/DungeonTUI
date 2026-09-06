@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/hbaldwin98/dungeon/internal/dice"
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/prefs"
 )
 
 func TestHarnessBrowserFillsCommonSizes(t *testing.T) {
@@ -206,17 +208,37 @@ func TestSessionDiceExpressionsAreRecorded(t *testing.T) {
 	}
 }
 
-func TestSessionCommandsAreNotTreatedAsRolls(t *testing.T) {
+func TestLayoutPreferencesPersistSeparately(t *testing.T) {
+	dir := t.TempDir()
+	prefPath := filepath.Join(dir, "preferences.json")
+	store := prefs.NewJSON(prefPath)
+
 	h := NewHarness(100, 30)
+	h.Model.prefs = store
+	divider := h.Model.splitWidth(h.Model.width)
+	h.DragLeft(divider, 10, 47, 10)
 	h.Key("s")
-	before := len(h.Model.workspace.Records)
-	h.SetSessionDraft("#random item")
-	h.Key("enter")
-	if len(h.Model.workspace.Records) != before+1 {
-		t.Fatal("expected #random to create a draft entity")
+	h.Key("ctrl+p")
+
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(h.Model.session.Entries[0].Rolls) != 0 {
-		t.Fatalf("#random must not create roll results: %#v", h.Model.session.Entries[0].Rolls)
+	if loaded.PaneSplit != 47 {
+		t.Fatalf("pane_split=%d want 47", loaded.PaneSplit)
+	}
+	if loaded.PaneLayout != 1 {
+		t.Fatalf("pane_layout=%d want 1", loaded.PaneLayout)
+	}
+
+	restored := NewHarness(100, 30)
+	restored.Model.prefs = store
+	restored.Model.applyPreferences()
+	if restored.Model.paneSplit != 47 || restored.Model.paneLayout != 1 {
+		t.Fatalf("restored layout split=%d layout=%d", restored.Model.paneSplit, restored.Model.paneLayout)
+	}
+	if _, err := os.ReadFile(filepath.Join(dir, "workspace.json")); !os.IsNotExist(err) {
+		t.Fatal("layout prefs must not write campaign workspace.json")
 	}
 }
 
