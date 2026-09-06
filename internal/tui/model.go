@@ -22,6 +22,7 @@ type Model struct {
 	workspace      domain.Workspace
 	search         searchsvc.Service
 	cursor         int
+	selectedID     string
 	width          int
 	height         int
 	searching      bool
@@ -36,7 +37,7 @@ type Model struct {
 	status         string
 	editing        bool
 	creating       bool
-	editIndex      int
+	editID         string
 	editField      int
 	editType       domain.EntityType
 	editTitle      textinput.Model
@@ -109,6 +110,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	model.layout = prefs.DefaultLayout()
 	model.rollRNG = dice.DefaultRNG()
 	model.refreshResults()
+	model.ensureBrowserSelection()
 	return model
 }
 
@@ -140,13 +142,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "j", "down":
-			if m.cursor < len(m.visibleRecords())-1 {
-				m.cursor++
-			}
+			m.moveBrowserCursor(1)
 		case "k", "up":
-			if m.cursor > 0 {
-				m.cursor--
-			}
+			m.moveBrowserCursor(-1)
 		case "/":
 			return m.openSearch()
 		case "n":
@@ -154,9 +152,17 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			return m.openEditor(false)
 		case "t":
-			m.cycleTypeFilter()
+			m.cycleBrowserFocus()
+		case "ctrl+p":
+			m.layout.CycleBrowserTypeVisibility()
+			m.persistPreferences()
+			m.status = "Cycled browser type panes"
+		case "+":
+			m.addNextBrowserTypePane()
 		case "s":
 			return m.startSession()
+		case "tab":
+			m.cycleBrowserFocus()
 		}
 	case tea.MouseClickMsg:
 		if m.session != nil {
@@ -757,14 +763,48 @@ func (m *Model) persistWorkspace() {
 func (m *Model) applyPreferences() {
 	if m.prefs == nil {
 		m.layout = prefs.DefaultLayout()
+		m.ensureBrowserSelection()
 		return
 	}
 	layout, err := m.prefs.Load()
 	if err != nil {
 		m.layout = prefs.DefaultLayout()
+		m.ensureBrowserSelection()
 		return
 	}
 	m.layout = layout.Normalize()
+	m.ensureBrowserSelection()
+}
+
+func (m *Model) moveBrowserCursor(delta int) {
+	pane := m.layout.Focus
+	if _, ok := paneEntityType(pane); !ok {
+		if panes := m.browserFocusOrder(); len(panes) > 0 {
+			pane = panes[0]
+			m.setBrowserFocus(pane)
+		}
+	}
+	records := m.recordsForPane(pane)
+	if len(records) == 0 {
+		return
+	}
+	m.cursor = clamp(m.cursor+delta, 0, len(records)-1)
+	m.selectRecord(records[m.cursor])
+}
+
+func (m *Model) addNextBrowserTypePane() {
+	for _, pane := range prefs.BrowserTypePanes {
+		if prefs.FindVisibleLeaf(m.layout.Browser.Root, pane) {
+			continue
+		}
+		if m.layout.AddBrowserTypePane(pane) {
+			m.persistPreferences()
+			m.setBrowserFocus(pane)
+			m.status = "Added " + string(pane) + " pane"
+			return
+		}
+	}
+	m.status = "All type panes already visible"
 }
 
 func (m *Model) persistPreferences() {
@@ -867,10 +907,9 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		if len(m.results) > 0 {
-			selectedID := m.results[m.selected].Record.ID
-			for index, record := range m.visibleRecords() {
-				if record.ID == selectedID {
-					m.cursor = index
+			for _, record := range m.workspace.Records {
+				if record.ID == m.results[m.selected].Record.ID {
+					m.selectRecord(record)
 					break
 				}
 			}
@@ -907,31 +946,27 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.openSearch()
 	}
 
-	listWidth := m.splitWidth(m.width)
-	if abs(msg.X-listWidth) <= 1 {
+	gutter := m.browserDetailGutterX()
+	if abs(msg.X-gutter) <= 1 {
 		m.draggingSplit = true
 		m.dragAxis = "vertical"
 		return m, nil
 	}
-	if msg.X >= 0 && msg.X < listWidth {
-		const firstRecordRow = 5
-		index := msg.Y - firstRecordRow
-		if index >= 0 && index < len(m.visibleRecords()) {
-			m.cursor = index
+	for _, region := range m.browserRegions() {
+		if msg.X < region.MinX || msg.X > region.MaxX || msg.Y < region.MinY || msg.Y > region.MaxY {
+			continue
 		}
+		m.setBrowserFocus(region.Pane)
+		if region.Pane == prefs.PaneDetail || len(region.Rows) == 0 {
+			return m, nil
+		}
+		index := msg.Y - region.Offset
+		if index >= 0 && index < len(region.Rows) {
+			m.selectRecord(region.Rows[index])
+		}
+		return m, nil
 	}
 	return m, nil
-}
-
-func (m *Model) cycleTypeFilter() {
-	types := []domain.EntityType{"", domain.NPC, domain.Character, domain.Location, domain.Faction, domain.Item, domain.Thread, domain.Session, domain.Event, domain.Note, domain.Rule}
-	for index, entityType := range types {
-		if entityType == m.typeFilter {
-			m.typeFilter = types[(index+1)%len(types)]
-			m.cursor = 0
-			return
-		}
-	}
 }
 
 func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
@@ -948,21 +983,26 @@ func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
 	model := m
 	model.editing = true
 	model.creating = create
-	model.editIndex = m.cursor
+	model.editID = ""
 	model.editField = 0
 	model.editType = domain.NPC
+	if entityType, ok := paneEntityType(m.layout.Focus); ok && m.layout.Focus != prefs.PaneList && entityType != "" {
+		model.editType = entityType
+	} else if m.typeFilter != "" {
+		model.editType = m.typeFilter
+	}
 	model.editTitle = title
 	model.editSummary = summary
 	model.editBody = body
 	if create {
-		model.editTitle.SetValue("New NPC")
+		model.editTitle.SetValue("New " + string(model.editType))
 		model.editBody.SetValue("")
 	} else {
-		records := m.visibleRecords()
-		if len(records) == 0 || m.cursor >= len(records) {
+		record := m.selectedRecord()
+		if record == nil {
 			return m, nil
 		}
-		record := records[m.cursor]
+		model.editID = record.ID
 		model.editType = record.Type
 		model.editTitle.SetValue(record.Title)
 		model.editSummary.SetValue(record.Summary)
@@ -1022,7 +1062,6 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 		m.status = "Title is required"
 		return m, nil
 	}
-	records := m.visibleRecords()
 	scope := m.workspace.Scope
 	record := domain.Record{
 		ID:        fmt.Sprintf("%s-%d", strings.ToLower(strings.ReplaceAll(title, " ", "-")), time.Now().UnixNano()),
@@ -1035,15 +1074,22 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 		Source:    "DM draft",
 	}
 	if !m.creating {
-		if m.editIndex < 0 || m.editIndex >= len(records) {
+		found := false
+		for index := range m.workspace.Records {
+			if m.workspace.Records[index].ID == m.editID {
+				record = m.workspace.Records[index]
+				record.Title = title
+				record.Summary = strings.TrimSpace(m.editSummary.Value())
+				record.Body = m.editBody.Value()
+				found = true
+				break
+			}
+		}
+		if !found {
 			m.status = "Entity no longer exists"
 			m.editing = false
 			return m, nil
 		}
-		record = records[m.editIndex]
-		record.Title = title
-		record.Summary = strings.TrimSpace(m.editSummary.Value())
-		record.Body = m.editBody.Value()
 	}
 	if err := record.Validate(); err != nil {
 		m.status = err.Error()
@@ -1051,7 +1097,6 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 	}
 	if m.creating {
 		m.workspace.Records = append(m.workspace.Records, record)
-		m.cursor = max(0, len(m.visibleRecords())-1)
 	} else {
 		for index := range m.workspace.Records {
 			if m.workspace.Records[index].ID == record.ID {
@@ -1060,6 +1105,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	m.selectRecord(record)
 	m.search = searchsvc.New(m.workspace.Records)
 	m.refreshResults()
 	m.editing = false
@@ -1088,9 +1134,9 @@ func (m Model) updateSearchClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		m.selected = start + index
 		selectedID := m.results[m.selected].Record.ID
-		for recordIndex, record := range m.visibleRecords() {
+		for _, record := range m.workspace.Records {
 			if record.ID == selectedID {
-				m.cursor = recordIndex
+				m.selectRecord(record)
 				m.searching = false
 				m.searchInput.Blur()
 				break
@@ -1115,7 +1161,7 @@ func (m Model) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	if m.searching {
 		m.selected = clamp(m.selected+delta, 0, max(0, len(m.results)-1))
 	} else {
-		m.cursor = clamp(m.cursor+delta, 0, max(0, len(m.visibleRecords())-1))
+		m.moveBrowserCursor(delta)
 	}
 	return m, nil
 }
@@ -1378,21 +1424,8 @@ func (m Model) View() tea.View {
 	contentWidth := max(1, m.width)
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(1, m.height-2)
-	listWidth := m.splitWidth(contentWidth)
-	detailWidth := max(1, contentWidth-listWidth)
-
-	list := panelStyle.
-		Width(listWidth).
-		Height(bodyHeight).
-		MaxHeight(bodyHeight).
-		Render(m.renderList())
-	detail := panelStyle.
-		Width(detailWidth).
-		Height(bodyHeight).
-		MaxHeight(bodyHeight).
-		Render(m.renderDetail())
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, detail)
-	help := "/ search  n new draft  e edit  t filter type  s start session  drag gutters  q quit"
+	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
+	help := "/ search  n new  e edit  t/Tab section  + add pane  Ctrl+P cycle panes  s session  q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
@@ -1576,39 +1609,11 @@ func (m Model) renderHeader(width int) string {
 		Render(left + strings.Repeat(" ", gap) + right)
 }
 
-func (m Model) renderList() string {
-	var builder strings.Builder
-	section := "CAMPAIGN RECORDS"
-	if m.typeFilter != "" {
-		section = string(m.typeFilter) + " RECORDS"
-	}
-	builder.WriteString(sectionStyle.Render(section))
-	builder.WriteString("\n\n")
-
-	for index, record := range m.visibleRecords() {
-		cursor := "  "
-		style := normalItemStyle
-		if index == m.cursor {
-			cursor = "▸ "
-			style = selectedItemStyle
-		}
-		line := fmt.Sprintf("%s%s %-8s %s", cursor, record.Authority.Marker(), record.Type, record.Title)
-		builder.WriteString(style.Render(line))
-		builder.WriteRune('\n')
-	}
-
-	return builder.String()
-}
-
 func (m Model) renderDetail() string {
-	records := m.visibleRecords()
-	if len(records) == 0 {
+	record := m.selectedRecord()
+	if record == nil {
 		return mutedStyle.Render("No records in this campaign.")
 	}
-	if m.cursor >= len(records) {
-		m.cursor = len(records) - 1
-	}
-	record := records[m.cursor]
 
 	var builder strings.Builder
 	builder.WriteString(typeStyle.Render(string(record.Type)))
@@ -1756,6 +1761,9 @@ func clamp(value, low, high int) int {
 }
 
 func (m Model) splitWidth(total int) int {
+	if m.session == nil {
+		return m.browserDetailGutterX()
+	}
 	ratio := m.layout.VerticalRatio()
 	return clamp(int(float64(total)*ratio), 24, max(25, total-24))
 }

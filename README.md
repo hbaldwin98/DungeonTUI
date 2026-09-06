@@ -37,14 +37,15 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `j` / `k` | Navigate records |
 | `n` | Create a new draft entity |
 | `e` | Edit the selected entity |
-| `t` | Cycle the visible entity type |
+| `t` / `Tab` | Cycle focused campaign type section |
+| `+` | Add another typed section pane |
 | `s` | Start a session |
-| `Tab` / `Shift+Tab` | Move between editor fields; in session, accept a suggestion or cycle pane focus |
+| `Tab` / `Shift+Tab` | In editor: move fields; in session: suggest/cycle focus |
 | `Ctrl+S` | Save the editor, or change search scope while searching |
 | `Enter` / `Ctrl+Enter` | Capture a transcript entry during a session |
 | `Shift+Enter` | Insert a newline in the transcript editor |
 | `Ctrl+E` | End the active session |
-| `Ctrl+P` | Cycle visible session panes |
+| `Ctrl+P` | Cycle browser type panes, or session campaign/context panes |
 | `Ctrl+A` | Include or exclude AI proposals from search |
 | `Enter` | Open a search result |
 | `Esc` | Close search |
@@ -61,7 +62,10 @@ included. Results carry entity-type and authority labels.
 The workspace stores the active campaign and records through a UI-independent
 JSON storage boundary. The type filter keeps NPCs, locations, items, sessions,
 and other entity kinds visibly separate while preserving one shared domain model
-for future clients.
+for future clients. The default campaign browser tiles typed section panes
+(NPC, location, faction, thread, item, note) beside detail so the terminal is
+filled; `+` adds more type panes and `Ctrl+P` cycles denser/core presets.
+Classic `list|detail` preferences upgrade automatically.
 
 During a session, click any pane (campaign, context, transcript, or input) to
 focus it — the focused pane gets an accent border. `Tab` / `Shift+Tab` cycle

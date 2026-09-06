@@ -78,10 +78,26 @@ func TestMouseClickSelectsRecord(t *testing.T) {
 	model.width = 120
 	model.height = 40
 
-	updated, _ := model.Update(tea.MouseClickMsg{X: 6, Y: 7, Button: tea.MouseLeft})
+	var target domain.Record
+	var x, y int
+	found := false
+	for _, region := range model.browserRegions() {
+		if region.Pane != prefs.PaneNPC || len(region.Rows) < 2 {
+			continue
+		}
+		target = region.Rows[1]
+		x = region.MinX + 2
+		y = region.Offset + 1
+		found = true
+		break
+	}
+	if !found {
+		t.Fatal("expected NPC pane hit region")
+	}
+	updated, _ := model.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 	model = updated.(Model)
-	if model.cursor != 2 {
-		t.Fatalf("expected clicked record 2, got %d", model.cursor)
+	if model.selectedID != target.ID {
+		t.Fatalf("expected clicked record %q, got %q", target.ID, model.selectedID)
 	}
 }
 
@@ -99,6 +115,9 @@ func TestViewFillsTerminal(t *testing.T) {
 		if width := lipgloss.Width(line); width != model.width {
 			t.Fatalf("row %d: expected width %d, got %d", index, model.width, width)
 		}
+	}
+	if !strings.Contains(content, "NPC") || !strings.Contains(content, "LOCATION") {
+		t.Fatalf("expected typed section panes in browser view: %q", content)
 	}
 }
 
@@ -121,15 +140,32 @@ func TestCreateDraftEntity(t *testing.T) {
 
 func TestTypeFilterSeparatesRecords(t *testing.T) {
 	model := New()
+	if model.layout.Focus != prefs.PaneNPC {
+		t.Fatalf("expected initial NPC section focus, got %q", model.layout.Focus)
+	}
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 't', Text: "t"}))
 	model = updated.(Model)
-	if model.typeFilter != domain.NPC {
-		t.Fatalf("expected NPC filter, got %q", model.typeFilter)
+	if model.layout.Focus != prefs.PaneLocation || model.typeFilter != domain.Location {
+		t.Fatalf("expected location section after Tab/t, got focus=%q type=%q", model.layout.Focus, model.typeFilter)
 	}
-	for _, record := range model.visibleRecords() {
-		if record.Type != domain.NPC {
-			t.Fatalf("type filter leaked %q record", record.Type)
+	for _, record := range model.recordsForPane(model.layout.Focus) {
+		if record.Type != domain.Location {
+			t.Fatalf("location pane leaked %q record", record.Type)
 		}
+	}
+}
+
+func TestBrowserAddTypePane(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	model.layout.CycleBrowserTypeVisibility() // core 4
+	before := len(prefs.VisibleLeaves(model.layout.Browser.Root))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '+', Text: "+"}))
+	model = updated.(Model)
+	after := len(prefs.VisibleLeaves(model.layout.Browser.Root))
+	if after <= before {
+		t.Fatalf("expected + to add a type pane, before=%d after=%d", before, after)
 	}
 }
 

@@ -16,6 +16,57 @@ func TestDefaultLayoutHasNamedSessionPanes(t *testing.T) {
 	}
 }
 
+func TestDefaultBrowserUsesTypedSectionPanes(t *testing.T) {
+	leaves := VisibleLeaves(DefaultBrowser().Root)
+	want := map[Pane]bool{
+		PaneNPC: true, PaneLocation: true, PaneFaction: true,
+		PaneThread: true, PaneItem: true, PaneNote: true,
+		PaneDetail: true,
+	}
+	if len(leaves) != 7 {
+		t.Fatalf("expected 6 type sections + detail, got %v", leaves)
+	}
+	for _, pane := range leaves {
+		if !want[pane] {
+			t.Fatalf("unexpected leaf %q", pane)
+		}
+	}
+	if FindVisibleLeaf(DefaultBrowser().Root, PaneList) {
+		t.Fatal("default browser should not use the sparse all-records list pane")
+	}
+}
+
+func TestNormalizeUpgradesClassicListDetailBrowser(t *testing.T) {
+	classic := Layout{Browser: SplitTree{Root: Node{
+		Type: "split", Axis: AxisVertical, Ratio: 0.34,
+		Children: []Node{
+			{Type: "leaf", Pane: PaneList, Visible: Bool(true)},
+			{Type: "leaf", Pane: PaneDetail, Visible: Bool(true)},
+		},
+	}}}.Normalize()
+	leaves := VisibleLeaves(classic.Browser.Root)
+	if len(leaves) < 5 {
+		t.Fatalf("classic list|detail should upgrade to typed sections, got %v", leaves)
+	}
+	if FindVisibleLeaf(classic.Browser.Root, PaneList) {
+		t.Fatal("upgraded browser should drop the all-records list leaf")
+	}
+}
+
+func TestAddBrowserTypePaneShowsHiddenSection(t *testing.T) {
+	layout := DefaultLayout()
+	setLeafVisible(&layout.Browser.Root, PaneFaction, false)
+	if leafVisible(layout.Browser.Root, PaneFaction) {
+		t.Fatal("setup failed")
+	}
+	if !layout.AddBrowserTypePane(PaneFaction) {
+		t.Fatal("expected add to succeed")
+	}
+	if !leafVisible(layout.Browser.Root, PaneFaction) {
+		t.Fatal("faction pane should be visible after add")
+	}
+}
+
 func TestCycleSessionUpperVisibility(t *testing.T) {
 	layout := DefaultLayout()
 	layout.CycleSessionUpperVisibility()

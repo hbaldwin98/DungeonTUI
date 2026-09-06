@@ -8,11 +8,26 @@ type Pane string
 const (
 	PaneList       Pane = "list"
 	PaneDetail     Pane = "detail"
+	PaneNPC        Pane = "npc"
+	PaneLocation   Pane = "location"
+	PaneFaction    Pane = "faction"
+	PaneItem       Pane = "item"
+	PaneThread     Pane = "thread"
+	PaneNote       Pane = "note"
+	PaneCharacter  Pane = "character"
+	PaneCreature   Pane = "creature"
+	PaneEvent      Pane = "event"
 	PaneCampaign   Pane = "campaign"
 	PaneContext    Pane = "context"
 	PaneTranscript Pane = "transcript"
 	PaneInput      Pane = "input"
 )
+
+// BrowserTypePanes are the typed section leaves the campaign browser can show.
+var BrowserTypePanes = []Pane{
+	PaneNPC, PaneLocation, PaneFaction, PaneThread, PaneItem, PaneNote,
+	PaneCharacter, PaneCreature, PaneEvent,
+}
 
 // Axis is the split direction for an interior node.
 type Axis string
@@ -69,17 +84,45 @@ type SplitTree struct {
 // Bool returns a *bool for JSON visibility fields.
 func Bool(value bool) *bool { return &value }
 
-// DefaultBrowser returns list|detail with a vertical split.
+// DefaultBrowser returns typed section panes beside detail so the workspace fills the terminal.
 func DefaultBrowser() SplitTree {
 	return SplitTree{Root: Node{
 		Type:  "split",
 		Axis:  AxisVertical,
-		Ratio: 0.34,
+		Ratio: 0.55,
 		Children: []Node{
-			{Type: "leaf", Pane: PaneList, Visible: Bool(true)},
+			{
+				Type:  "split",
+				Axis:  AxisHorizontal,
+				Ratio: 0.5,
+				Children: []Node{
+					balancedSplit(AxisVertical, PaneNPC, PaneLocation, PaneFaction),
+					balancedSplit(AxisVertical, PaneThread, PaneItem, PaneNote),
+				},
+			},
 			{Type: "leaf", Pane: PaneDetail, Visible: Bool(true)},
 		},
 	}}
+}
+
+func balancedSplit(axis Axis, panes ...Pane) Node {
+	if len(panes) == 0 {
+		return Node{Type: "leaf", Pane: PaneList, Visible: Bool(true)}
+	}
+	if len(panes) == 1 {
+		return Node{Type: "leaf", Pane: panes[0], Visible: Bool(true)}
+	}
+	mid := len(panes) / 2
+	ratio := float64(mid) / float64(len(panes))
+	return Node{
+		Type:  "split",
+		Axis:  axis,
+		Ratio: clampRatio(ratio),
+		Children: []Node{
+			balancedSplit(axis, panes[:mid]...),
+			balancedSplit(axis, panes[mid:]...),
+		},
+	}
 }
 
 // DefaultSession returns the table-oriented session composition.
@@ -125,6 +168,8 @@ func (l Layout) Normalize() Layout {
 	out := l
 	if out.Browser.Root.Type == "" && out.Browser.Root.Pane == "" {
 		out.Browser = DefaultBrowser()
+	} else if isClassicListDetail(out.Browser.Root) {
+		out.Browser = DefaultBrowser()
 	}
 	if out.Session.Root.Type == "" && out.Session.Root.Pane == "" {
 		out.Session = DefaultSession()
@@ -138,6 +183,25 @@ func (l Layout) Normalize() Layout {
 		out.Focus = PaneInput
 	}
 	return out
+}
+
+func isClassicListDetail(node Node) bool {
+	leaves := VisibleLeaves(node)
+	if len(leaves) != 2 {
+		return false
+	}
+	hasList, hasDetail := false, false
+	for _, pane := range leaves {
+		switch pane {
+		case PaneList:
+			hasList = true
+		case PaneDetail:
+			hasDetail = true
+		default:
+			return false
+		}
+	}
+	return hasList && hasDetail
 }
 
 func (l *Layout) migrateLegacySession() {
@@ -235,6 +299,98 @@ func clampRatio(value float64) float64 {
 		return 0.8
 	}
 	return value
+}
+
+// AddBrowserTypePane makes a typed section visible, inserting it when missing.
+func (l *Layout) AddBrowserTypePane(pane Pane) bool {
+	if pane == PaneDetail || pane == PaneList {
+		return false
+	}
+	if _, ok := FindLeaf(l.Browser.Root, pane); ok {
+		setLeafVisible(&l.Browser.Root, pane, true)
+		return true
+	}
+	detail, ok := FindLeaf(l.Browser.Root, PaneDetail)
+	if !ok {
+		return false
+	}
+	_ = detail
+	// Attach the new leaf beside an existing type section under the left stack.
+	insertBrowserLeaf(&l.Browser.Root, pane)
+	return FindVisibleLeaf(l.Browser.Root, pane)
+}
+
+func insertBrowserLeaf(node *Node, pane Pane) {
+	if node == nil {
+		return
+	}
+	if node.IsLeaf() {
+		if node.Pane == PaneDetail {
+			return
+		}
+		*node = Node{
+			Type:  "split",
+			Axis:  AxisVertical,
+			Ratio: 0.5,
+			Children: []Node{
+				{Type: "leaf", Pane: node.Pane, Visible: node.Visible},
+				{Type: "leaf", Pane: pane, Visible: Bool(true)},
+			},
+		}
+		return
+	}
+	if node.Axis == AxisVertical && len(node.Children) == 2 && node.Children[1].IsLeaf() && node.Children[1].Pane == PaneDetail {
+		insertBrowserLeaf(&node.Children[0], pane)
+		return
+	}
+	for index := range node.Children {
+		if node.Children[index].IsLeaf() && node.Children[index].Pane == PaneDetail {
+			continue
+		}
+		insertBrowserLeaf(&node.Children[index], pane)
+		if FindVisibleLeaf(*node, pane) {
+			return
+		}
+	}
+}
+
+// CycleBrowserTypeVisibility toggles denser section presets for the campaign browser.
+func (l *Layout) CycleBrowserTypeVisibility() {
+	core := []Pane{PaneNPC, PaneLocation, PaneItem, PaneThread}
+	extended := []Pane{PaneNPC, PaneLocation, PaneFaction, PaneThread, PaneItem, PaneNote}
+	visible := 0
+	for _, pane := range BrowserTypePanes {
+		if leafVisible(l.Browser.Root, pane) {
+			visible++
+		}
+	}
+	switch {
+	case visible >= 6:
+		for _, pane := range BrowserTypePanes {
+			setLeafVisible(&l.Browser.Root, pane, false)
+		}
+		for _, pane := range core {
+			if _, ok := FindLeaf(l.Browser.Root, pane); ok {
+				setLeafVisible(&l.Browser.Root, pane, true)
+			} else {
+				l.AddBrowserTypePane(pane)
+			}
+		}
+	default:
+		for _, pane := range extended {
+			if _, ok := FindLeaf(l.Browser.Root, pane); ok {
+				setLeafVisible(&l.Browser.Root, pane, true)
+			} else {
+				l.AddBrowserTypePane(pane)
+			}
+		}
+	}
+}
+
+// FindVisibleLeaf reports whether a pane exists and is currently visible.
+func FindVisibleLeaf(node Node, pane Pane) bool {
+	found, ok := FindLeaf(node, pane)
+	return ok && found.IsVisible()
 }
 
 // CycleSessionUpperVisibility walks campaign/context visibility presets.

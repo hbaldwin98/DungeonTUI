@@ -28,14 +28,13 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   persisted ratios and campaign/context visibility cycling via Ctrl+P.
 - Click-to-focus session panes (accent border); Tab cycles focus; empty input
   always offers `@` / `$` / `#` starters with filtered completions.
+- Denser campaign browser: typed section panes fill the terminal, with `+` to
+  add panes and Ctrl+P to cycle section presets (Argus #25).
 
 ## In progress
 
 ## Next
 
-- Denser campaign browser: split entity types into their own sections/panes,
-  support adding extra panes/views, and fill the empty space in the default
-  records view (Argus #25).
 - Add session reconciliation records without mutating the raw transcript.
 - Add export/import coverage for worlds, campaigns, sessions, links, and
   workspace preferences.
