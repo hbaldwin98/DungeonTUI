@@ -58,6 +58,10 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   beats without mutating the transcript (Argus #32; D-011).
 - Named collections as a filter on the campaign tree (`c` / `g` / `a`)
   (Argus #39; D-017).
+- Session folders: collapsible named paths inside the Sessions list, month
+  buckets for unfiled sits, `m` to file (Argus #44; D-018).
+- Wiki `@` mentions resolve in prose; missing targets stay broken; LINKED /
+  REFERENCES / CAST / prep links are followable from detail (Argus #45; D-019).
 
 ## In progress
 

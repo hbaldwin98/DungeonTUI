@@ -1,0 +1,421 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/prefs"
+)
+
+type hopKind string
+
+const (
+	hopWiki    hopKind = "wiki"
+	hopBroken  hopKind = "broken"
+	hopPrep    hopKind = "prep"
+	hopSession hopKind = "session"
+	hopHistory hopKind = "history"
+)
+
+type detailHop struct {
+	Kind      hopKind
+	Section   string
+	Prefix    string
+	Label     string
+	RecordID  string
+	SessionID string
+	PlanID    string
+}
+
+func (m Model) detailHops() []detailHop {
+	switch m.currentNav().Kind {
+	case NavSessions:
+		return m.sessionDetailHops()
+	case NavPrep:
+		return m.prepDetailHops()
+	default:
+		return m.wikiDetailHops()
+	}
+}
+
+func (m Model) wikiDetailHops() []detailHop {
+	record := m.selectedRecord()
+	if record == nil {
+		return nil
+	}
+	hops := make([]detailHop, 0)
+	resolved, broken := domain.EntityOutgoingRefs(*record, m.workspace.Records)
+	for _, mention := range resolved {
+		title := mention.Text
+		if target, ok := recordByID(m.workspace.Records, mention.RecordID); ok {
+			title = target.Title
+		}
+		hops = append(hops, detailHop{Kind: hopWiki, Section: "ref", Prefix: "wiki · ", Label: title, RecordID: mention.RecordID})
+	}
+	for _, mention := range broken {
+		hops = append(hops, detailHop{Kind: hopBroken, Section: "ref", Prefix: "missing · @", Label: mention.Text})
+	}
+	seenSession := map[string]bool{}
+	for _, link := range domain.EntityBacklinks(m.workspace, record.ID) {
+		switch link.Kind {
+		case domain.BacklinkWiki:
+			hops = append(hops, detailHop{Kind: hopWiki, Section: "linked", Prefix: "wiki · ", Label: link.Title, RecordID: link.ID})
+		case domain.BacklinkPrep:
+			hops = append(hops, detailHop{Kind: hopPrep, Section: "linked", Prefix: "prep · ", Label: link.Title, PlanID: link.ID})
+		case domain.BacklinkSessionAssoc, domain.BacklinkTranscript:
+			if seenSession[link.ID] {
+				continue
+			}
+			seenSession[link.ID] = true
+			hops = append(hops, detailHop{Kind: hopSession, Section: "linked", Prefix: "session · ", Label: link.Title, SessionID: link.ID})
+		}
+	}
+	for _, row := range domain.EntitySessionHistory(m.workspace, record.ID) {
+		hops = append(hops, detailHop{Kind: hopHistory, Section: "history", Label: row.Title, SessionID: row.SessionID})
+	}
+	return hops
+}
+
+func (m Model) sessionDetailHops() []detailHop {
+	session := m.selectedSession()
+	if session == nil {
+		return nil
+	}
+	hops := make([]detailHop, 0)
+	if session.LocationID != "" {
+		title := session.LocationName
+		if title == "" {
+			title = session.LocationID
+		}
+		hops = append(hops, detailHop{Kind: hopWiki, Section: "cast", Prefix: "location · ", Label: title, RecordID: session.LocationID})
+	}
+	if session.PlannedNotesID != "" {
+		label := "Prep notes"
+		if plan := m.plannedByID(session.PlannedNotesID); plan != nil {
+			label = plan.Title
+		}
+		hops = append(hops, detailHop{Kind: hopPrep, Section: "cast", Prefix: "prep · ", Label: label, PlanID: session.PlannedNotesID})
+	}
+	for _, link := range session.Links {
+		title := link.Text
+		kind := hopBroken
+		if target, ok := recordByID(m.workspace.Records, link.RecordID); ok {
+			title = target.Title
+			kind = hopWiki
+		} else if strings.TrimSpace(title) == "" {
+			title = link.RecordID
+		}
+		prefix := "@ "
+		if kind == hopBroken {
+			prefix = "missing · @"
+		}
+		hops = append(hops, detailHop{Kind: kind, Section: "cast", Prefix: prefix, Label: title, RecordID: link.RecordID})
+	}
+	return hops
+}
+
+func (m Model) prepDetailHops() []detailHop {
+	if m.selectedPlanID == "" {
+		return nil
+	}
+	plan := m.plannedByID(m.selectedPlanID)
+	if plan == nil {
+		return nil
+	}
+	hops := make([]detailHop, 0)
+	if plan.LocationID != "" {
+		title := plan.LocationName
+		if title == "" {
+			title = plan.LocationID
+		}
+		hops = append(hops, detailHop{Kind: hopWiki, Section: "cast", Prefix: "location · ", Label: title, RecordID: plan.LocationID})
+	}
+	for _, link := range plan.Links {
+		title := link.Text
+		kind := hopBroken
+		if target, ok := recordByID(m.workspace.Records, link.RecordID); ok {
+			title = target.Title
+			kind = hopWiki
+		}
+		prefix := "@ "
+		if kind == hopBroken {
+			prefix = "missing · @"
+		}
+		hops = append(hops, detailHop{Kind: kind, Section: "cast", Prefix: prefix, Label: title, RecordID: link.RecordID})
+	}
+	for _, sit := range domain.ResolvePriorSits(m.workspace.Sessions, m.workspace.Records, plan.PriorSessionIDs) {
+		hops = append(hops, detailHop{Kind: hopSession, Section: "cast", Prefix: "prior · ", Label: sit.Title, SessionID: sit.ID})
+	}
+	for _, sit := range domain.SessionsSeededFrom(m.workspace.Sessions, plan.ID) {
+		hops = append(hops, detailHop{Kind: hopSession, Section: "cast", Prefix: "live · ", Label: sit.Title, SessionID: sit.ID})
+	}
+	return hops
+}
+
+func (m *Model) moveDetailCursor(delta int) {
+	hops := m.detailHops()
+	if len(hops) == 0 {
+		return
+	}
+	m.historyCursor = clamp(m.historyCursor+delta, 0, len(hops)-1)
+}
+
+func (m Model) followDetailHop() (tea.Model, tea.Cmd, bool) {
+	hops := m.detailHops()
+	if len(hops) == 0 {
+		return m, nil, false
+	}
+	hop := hops[clamp(m.historyCursor, 0, len(hops)-1)]
+	switch hop.Kind {
+	case hopBroken:
+		m.status = "Missing @" + hop.Label + " · e to edit and fix"
+		return m, nil, true
+	case hopWiki:
+		target, ok := recordByID(m.workspace.Records, hop.RecordID)
+		if !ok {
+			m.status = "Missing @" + hop.Label + " · e to edit and fix"
+			return m, nil, true
+		}
+		m.selectRecord(target)
+		m.layout.Focus = prefs.PaneDetail
+		m.status = "Opened " + target.Title
+		return m, nil, true
+	case hopPrep:
+		m.focusPrep(hop.PlanID)
+		m.status = "Opened prep · " + hop.Label
+		return m, nil, true
+	case hopSession:
+		m.focusSession(hop.SessionID)
+		m.status = "Opened session · " + hop.Label
+		return m, nil, true
+	case hopHistory:
+		m.focusSession(hop.SessionID)
+		m.status = "Opened session · " + hop.Label
+		return m, nil, true
+	}
+	return m, nil, false
+}
+
+func (m *Model) focusPrep(id string) {
+	m.focusNavKind(NavPrep)
+	m.selectedPlanID = id
+	m.selectedID = ""
+	m.selectedSessionID = ""
+	m.selectedFolderPath = ""
+	m.historyCursor = 0
+	m.layout.Focus = prefs.PaneDetail
+	plans := m.scopedPlannedNotes()
+	for index, plan := range plans {
+		if plan.ID == id {
+			m.cursor = index
+			return
+		}
+	}
+}
+
+func (m *Model) focusSession(id string) {
+	m.focusNavKind(NavSessions)
+	m.selectedSessionID = id
+	m.selectedID = ""
+	m.selectedPlanID = ""
+	m.historyCursor = 0
+	m.layout.Focus = prefs.PaneDetail
+	m.syncSessionTreeCursor()
+}
+
+func (m *Model) focusNavKind(kind NavKind) {
+	for index, entry := range m.navEntries() {
+		if entry.Kind != kind {
+			continue
+		}
+		m.navCursor = index
+		m.navKind = entry.Kind
+		m.navType = entry.Type
+		if kind == NavType {
+			m.typeFilter = entry.Type
+		} else {
+			m.typeFilter = ""
+		}
+		return
+	}
+}
+
+func (m Model) hopMarker(index int) (cursor string, style lipgloss.Style) {
+	if m.layout.Focus == prefs.PaneDetail && index == m.historyCursor {
+		return "▸ ", selectedItemStyle
+	}
+	return "  ", normalItemStyle
+}
+
+func (m Model) renderProseWithMentions(text string) string {
+	mentions := domain.MentionsIn(text, m.workspace.Records)
+	if len(mentions) == 0 {
+		return text
+	}
+	var builder strings.Builder
+	last := 0
+	for _, mention := range mentions {
+		if mention.Start < last || mention.Start > len(text) || mention.End > len(text) {
+			continue
+		}
+		builder.WriteString(text[last:mention.Start])
+		token := text[mention.Start:mention.End]
+		if mention.RecordID == "" {
+			builder.WriteString(brokenRefStyle.Render(token))
+		} else {
+			builder.WriteString(refStyle.Render(token))
+		}
+		last = mention.End
+	}
+	builder.WriteString(text[last:])
+	return builder.String()
+}
+
+func (m Model) renderHopLine(index int, prefix, label string, broken bool) string {
+	cursor, style := m.hopMarker(index)
+	if broken {
+		style = brokenRefStyle
+		if m.layout.Focus == prefs.PaneDetail && index == m.historyCursor {
+			style = selectedItemStyle
+		}
+	}
+	return style.Render(fmt.Sprintf("%s%s%s", cursor, prefix, label))
+}
+
+func (m Model) renderCastHops() string {
+	hops := m.detailHops()
+	var builder strings.Builder
+	builder.WriteString(labelStyle.Render("LINKS"))
+	builder.WriteString("\n")
+	wrote := false
+	for index, hop := range hops {
+		if hop.Section != "cast" {
+			continue
+		}
+		wrote = true
+		builder.WriteString(m.renderHopLine(index, hop.Prefix, hop.Label, hop.Kind == hopBroken))
+		builder.WriteRune('\n')
+	}
+	if !wrote {
+		builder.WriteString(mutedStyle.Render("  —"))
+		builder.WriteRune('\n')
+	}
+	if m.layout.Focus == prefs.PaneDetail {
+		builder.WriteString(mutedStyle.Render("j/k · Enter follows"))
+		builder.WriteRune('\n')
+	}
+	return builder.String()
+}
+
+func recordByID(records []domain.Record, id string) (domain.Record, bool) {
+	for _, record := range records {
+		if record.ID == id {
+			return record, true
+		}
+	}
+	return domain.Record{}, false
+}
+
+func (m Model) renderEntityGraph(record domain.Record) string {
+	hops := m.wikiDetailHops()
+	history := domain.EntitySessionHistory(m.workspace, record.ID)
+	historyByID := map[string]domain.SessionHistoryRow{}
+	for _, row := range history {
+		historyByID[row.SessionID] = row
+	}
+	var builder strings.Builder
+	builder.WriteString(labelStyle.Render("REFERENCES"))
+	builder.WriteString("\n")
+	wroteRef := false
+	for index, hop := range hops {
+		if hop.Section != "ref" {
+			continue
+		}
+		wroteRef = true
+		if hop.Kind == hopBroken {
+			builder.WriteString(m.renderHopLine(index, hop.Prefix, hop.Label, true))
+		} else {
+			builder.WriteString(m.renderHopLine(index, hop.Prefix, hop.Label, false))
+		}
+		builder.WriteRune('\n')
+	}
+	if !wroteRef {
+		builder.WriteString(mutedStyle.Render("  — no @ mentions in this record"))
+		builder.WriteRune('\n')
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(labelStyle.Render("LINKED"))
+	builder.WriteString("\n")
+	wroteLinked := false
+	for index, hop := range hops {
+		if hop.Section != "linked" {
+			continue
+		}
+		wroteLinked = true
+		builder.WriteString(m.renderHopLine(index, hop.Prefix, hop.Label, hop.Kind == hopBroken))
+		builder.WriteRune('\n')
+	}
+	if !wroteLinked {
+		builder.WriteString(mutedStyle.Render("  — no backlinks yet"))
+		builder.WriteRune('\n')
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(labelStyle.Render("HISTORY"))
+	builder.WriteString("\n")
+	wroteHistory := false
+	for index, hop := range hops {
+		if hop.Section != "history" {
+			continue
+		}
+		wroteHistory = true
+		row, ok := historyByID[hop.SessionID]
+		stamp := ""
+		parts := make([]string, 0, 3)
+		if ok {
+			stamp = row.StartedAt.Local().Format("2006-01-02") + " · "
+			if row.Associated {
+				parts = append(parts, "cast")
+			}
+			if row.TranscriptHits > 0 {
+				parts = append(parts, fmt.Sprintf("%d @", row.TranscriptHits))
+			}
+			if row.ReconItems > 0 {
+				parts = append(parts, fmt.Sprintf("%d recon", row.ReconItems))
+			}
+		}
+		expand := ""
+		showEvents := ok && len(row.Events) > 0 && m.layout.Focus == prefs.PaneDetail && index == m.historyCursor
+		if showEvents {
+			expand = " ▼"
+		} else if ok && len(row.Events) > 0 {
+			expand = " ▸"
+		}
+		meta := hop.Label
+		if len(parts) > 0 {
+			meta += " · " + strings.Join(parts, ", ")
+		}
+		builder.WriteString(m.renderHopLine(index, stamp, meta+expand, false))
+		builder.WriteRune('\n')
+		if showEvents {
+			for _, event := range row.Events {
+				builder.WriteString(mutedStyle.Render("      · " + event.Summary))
+				builder.WriteString("\n")
+			}
+		}
+	}
+	if !wroteHistory {
+		builder.WriteString(mutedStyle.Render("  — no session history yet"))
+		builder.WriteRune('\n')
+	}
+	if m.layout.Focus == prefs.PaneDetail {
+		builder.WriteString(mutedStyle.Render("j/k followable rows · Enter open/expand"))
+		builder.WriteRune('\n')
+	}
+	return builder.String()
+}

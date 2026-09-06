@@ -149,7 +149,8 @@ type SessionRecord struct {
 	EndedAt        *time.Time
 	LocationID     string
 	LocationName   string
-	PlannedNotesID string // optional prep notes that seeded this live sit
+	PlannedNotesID string       // optional prep notes that seeded this live sit
+	Folder         string       // optional slash path; empty sits group by month
 	Links          []EntityLink // durable present/cast; wiki records stay global
 	Entries        []TranscriptEntry
 }

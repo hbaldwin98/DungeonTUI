@@ -12,6 +12,7 @@ const (
 	BacklinkSessionAssoc BacklinkKind = "session_assoc"
 	BacklinkTranscript   BacklinkKind = "transcript"
 	BacklinkPrep         BacklinkKind = "prep"
+	BacklinkWiki         BacklinkKind = "wiki"
 )
 
 // Backlink is one place a RecordID is referenced.
@@ -29,6 +30,23 @@ func EntityBacklinks(ws Workspace, recordID string) []Backlink {
 		return nil
 	}
 	var out []Backlink
+	for _, record := range ws.Records {
+		if record.ID == recordID {
+			continue
+		}
+		resolved, _ := EntityOutgoingRefs(record, ws.Records)
+		for _, mention := range resolved {
+			if mention.RecordID != recordID {
+				continue
+			}
+			out = append(out, Backlink{
+				Kind:  BacklinkWiki,
+				Title: record.Title,
+				ID:    record.ID,
+			})
+			break
+		}
+	}
 	for _, plan := range ws.PlannedNotes {
 		for _, link := range plan.Links {
 			if link.RecordID == recordID {
@@ -79,9 +97,9 @@ func EntityBacklinks(ws Workspace, recordID string) []Backlink {
 type HistoryEventKind string
 
 const (
-	HistoryAssoc       HistoryEventKind = "associated"
-	HistoryTranscript  HistoryEventKind = "transcript"
-	HistoryRecon       HistoryEventKind = "reconciliation"
+	HistoryAssoc      HistoryEventKind = "associated"
+	HistoryTranscript HistoryEventKind = "transcript"
+	HistoryRecon      HistoryEventKind = "reconciliation"
 )
 
 // HistoryEvent is one expandable detail under a session history row.
@@ -93,14 +111,14 @@ type HistoryEvent struct {
 
 // SessionHistoryRow is one session-grouped changelog entry for an entity hub.
 type SessionHistoryRow struct {
-	SessionID string
-	Title     string
-	StartedAt time.Time
-	EndedAt   *time.Time
-	Associated bool
+	SessionID      string
+	Title          string
+	StartedAt      time.Time
+	EndedAt        *time.Time
+	Associated     bool
 	TranscriptHits int
-	ReconItems int
-	Events    []HistoryEvent
+	ReconItems     int
+	Events         []HistoryEvent
 }
 
 // EntitySessionHistory builds session-grouped career rows for recordID (changelog A+C).

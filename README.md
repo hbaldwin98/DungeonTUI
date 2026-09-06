@@ -47,6 +47,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `b` | Back to world/campaign library picker |
 | `p` | Draft planned session notes (prep markdown, not live) |
 | `s` | Start a live session (uses selected/latest planned notes as context) |
+| `m` | File the selected sit (or folder group) into a session folder |
 | `Tab` / `Shift+Tab` | In editor: move fields; in session: suggest/cycle focus |
 | `Ctrl+S` | Save markdown editor / planned notes, or change search scope while searching |
 | `Ctrl+T` | Cycle entity type while editing markdown |
@@ -71,7 +72,9 @@ JSON storage boundary. The type filter keeps NPCs, locations, items, sessions,
 and other entity kinds visibly separate while preserving one shared domain model
 for future clients. Inside a campaign, the browser is an IDE-style tree:
 **nav | list | detail**. The left branch lists Sessions, Prep, and typed wiki
-sections; the center list and right detail follow the selected branch. Older
+sections; the center list and right detail follow the selected branch. Sessions
+nest under collapsible folders (`m` files a sit; unfiled nights bucket by
+month). Older
 dense typed-pane and classic `list|detail` preferences upgrade automatically.
 
 During a session, click any pane (campaign, context, transcript, or input) to

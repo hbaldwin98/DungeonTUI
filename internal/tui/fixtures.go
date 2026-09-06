@@ -14,21 +14,21 @@ func demoWorkspace() domain.Workspace {
 		{
 			ID: "npc-captain-vale", Type: domain.NPC, Title: "Captain Vale",
 			Summary:   "Captain of the Greywatch Guard; wary of the party.",
-			Body:      "Vale is investigating the broken crypt seal and openly distrusts Father Merrow.",
+			Body:      "Vale is investigating the broken crypt seal and openly distrusts @Father Merrow. He will not leave the watch house unmanned at night.",
 			Authority: domain.Canon, Scope: scope, Source: "Session 16",
 			Aliases: []string{"Alaric Vale"}, Tags: []string{"greywatch", "guard"},
 		},
 		{
 			ID: "npc-father-merrow", Type: domain.NPC, Title: "Father Merrow",
 			Summary:   "A priest who arrived in Greywatch six months ago.",
-			Body:      "His purpose at the abandoned monastery remains deliberately unresolved.",
+			Body:      "His purpose at the abandoned monastery remains deliberately unresolved. @Captain Vale does not have proof.",
 			Authority: domain.Secret, Scope: scope, Source: "DM notes",
 			Tags: []string{"greywatch", "clergy"},
 		},
 		{
 			ID: "location-monastery", Type: domain.Location, Title: "Ruined Monastery",
 			Summary:   "An abandoned monastery beneath Greywatch.",
-			Body:      "The party entered through the collapsed eastern transept.",
+			Body:      "The party entered through the collapsed eastern transept. @Captain Vale arrived an hour later.",
 			Authority: domain.Canon, Scope: scope, Source: "Session 17",
 			Tags: []string{"current-scene", "greywatch"},
 		},
@@ -42,7 +42,7 @@ func demoWorkspace() domain.Workspace {
 		{
 			ID: "thread-reliquary", Type: domain.Thread, Title: "Missing Reliquary",
 			Summary:   "The monastery reliquary is missing.",
-			Body:      "Vale suspects Merrow, but no evidence establishes responsibility.",
+			Body:      "Vale suspects @Father Merrow, but no evidence establishes responsibility.",
 			Authority: domain.Canon, Scope: scope, Source: "Session 16",
 			Tags: []string{"open", "greywatch"},
 		},

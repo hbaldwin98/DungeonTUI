@@ -122,3 +122,21 @@ Collections are campaign-scoped named groups of wiki record IDs. They filter
 the existing tree; they are not a second navigator. `c` cycles the filter, `g`
 creates a collection, and `a` toggles membership of the selected entity.
 
+## D-018 — Session folders live inside the Sessions branch
+
+The Sessions list is a collapsible folder tree, not a flat scroll of sits.
+`SessionRecord.Folder` is an optional slash path (`Greywatch/Crypt`). Unfiled
+sits group by started month (or `Unfiled` when undated). Folders are an
+organization aid on that one branch — they do not replace the typed campaign
+navigator (D-013). `m` files a sit or the sits under a selected folder header;
+Enter on a header collapses or expands it; Enter on an ended sit still opens
+playback. New live sits inherit the selected named folder.
+
+## D-019 — Wiki mentions resolve in place and stay when targets vanish
+
+`@` in a wiki record's summary or body is a derived reference, not a separate
+edge table. Resolution uses the longest matching title or alias. If the target
+is removed, the mention remains in the prose as unresolved and is listed as
+missing so it can be fixed. Backlinks (wiki, prep, session) are followable
+from entity detail; they do not replace the campaign tree.
+

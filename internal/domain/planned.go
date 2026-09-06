@@ -36,39 +36,12 @@ func (p PlannedNotes) Validate() error {
 // from markdown prep notes without mutating the body text.
 func ParsePlannedBody(body string, records []Record) (links []EntityLink, locationID, locationName string) {
 	seen := map[string]bool{}
-	for index := 0; index < len(body); {
-		at := strings.IndexByte(body[index:], '@')
-		if at < 0 {
-			break
-		}
-		at += index
-		if at > 0 {
-			prev := body[at-1]
-			if prev != ' ' && prev != '\n' && prev != '(' && prev != '[' {
-				index = at + 1
-				continue
-			}
-		}
-		end := at + 1
-		for end < len(body) {
-			r := body[end]
-			if r == ' ' || r == '\n' || r == ',' || r == '.' || r == ';' || r == ':' || r == ')' || r == ']' {
-				break
-			}
-			end++
-		}
-		token := body[at+1 : end]
-		if token == "" {
-			index = end
+	for _, mention := range MentionsIn(body, records) {
+		if mention.RecordID == "" || seen[mention.RecordID] {
 			continue
 		}
-		if record, ok := matchRecordTitle(records, token); ok {
-			if !seen[record.ID] {
-				links = append(links, EntityLink{Text: token, RecordID: record.ID})
-				seen[record.ID] = true
-			}
-		}
-		index = end
+		links = append(links, EntityLink{Text: mention.Text, RecordID: mention.RecordID})
+		seen[mention.RecordID] = true
 	}
 
 	for _, line := range strings.Split(body, "\n") {

@@ -208,7 +208,10 @@ func (m Model) targetCollection() *domain.Collection {
 }
 
 func (m Model) openCollectionName() (tea.Model, tea.Cmd) {
+	m.namingFolder = false
 	m.namingCollection = true
+	m.collectionName.Placeholder = "Collection name"
+	m.collectionName.Prompt = "Name: "
 	m.collectionName.SetValue("")
 	m.collectionName.SetWidth(max(24, m.width-16))
 	m.collectionName.Focus()

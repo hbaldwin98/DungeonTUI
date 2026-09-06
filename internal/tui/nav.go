@@ -66,6 +66,7 @@ func (m *Model) setNavCursor(index int) {
 	m.selectedID = ""
 	m.selectedSessionID = ""
 	m.selectedPlanID = ""
+	m.selectedFolderPath = ""
 	switch entry.Kind {
 	case NavType:
 		m.typeFilter = entry.Type
@@ -75,10 +76,7 @@ func (m *Model) setNavCursor(index int) {
 		}
 	case NavSessions:
 		m.typeFilter = ""
-		sessions := m.scopedSessions()
-		if len(sessions) > 0 {
-			m.selectedSessionID = sessions[0].ID
-		}
+		m.selectFirstSessionTreeRow()
 	case NavPrep:
 		m.typeFilter = ""
 		plans := m.scopedPlannedNotes()
@@ -132,6 +130,14 @@ func (m Model) usesCampaignTree() bool {
 	return prefs.FindVisibleLeaf(m.layout.Browser.Root, prefs.PaneNav)
 }
 
+func sessionRowIndent(row domain.SessionTreeRow) int {
+	indent := row.Depth * 2
+	if row.Kind == domain.SessionTreeSession {
+		indent += 2
+	}
+	return indent
+}
+
 func (m Model) renderNavTree() string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("CAMPAIGN"))
@@ -179,24 +185,36 @@ func (m Model) renderListPane() string {
 
 	switch entry.Kind {
 	case NavSessions:
-		sessions := m.scopedSessions()
-		if len(sessions) == 0 {
-			builder.WriteString(mutedStyle.Render("  — no sessions yet"))
+		rows := m.sessionTreeRows()
+		if len(rows) == 0 {
+			builder.WriteString(mutedStyle.Render("  — no sessions yet · s starts live · m files into folders"))
 			return builder.String()
 		}
-		for index, session := range sessions {
+		for index, row := range rows {
 			cursor := "  "
 			style := normalItemStyle
-			if session.ID == m.selectedSessionID || (m.layout.Focus == prefs.PaneList && index == m.cursor) {
+			selected := (m.layout.Focus == prefs.PaneList && index == m.cursor) ||
+				(row.Kind == domain.SessionTreeSession && row.Session.ID == m.selectedSessionID) ||
+				(row.Kind == domain.SessionTreeFolder && m.selectedSessionID == "" && row.Path == m.selectedFolderPath)
+			if selected {
 				cursor = "▸ "
 				style = selectedItemStyle
 			}
-			state := "live"
-			if session.EndedAt != nil {
-				state = "ended"
+			var rest string
+			if row.Kind == domain.SessionTreeFolder {
+				glyph := "▾"
+				if m.collapsedFolders[row.Path] {
+					glyph = "▸"
+				}
+				rest = fmt.Sprintf("%s %s · %d", glyph, row.Label, row.Count)
+			} else {
+				state := "live"
+				if row.Session.EndedAt != nil {
+					state = "ended"
+				}
+				rest = fmt.Sprintf("%s · %s", row.Label, state)
 			}
-			line := fmt.Sprintf("%s%s · %s", cursor, session.Title, state)
-			builder.WriteString(style.Render(line))
+			builder.WriteString(style.PaddingLeft(sessionRowIndent(row)).Render(cursor + rest))
 			builder.WriteRune('\n')
 		}
 	case NavPrep:
@@ -241,6 +259,9 @@ func (m Model) renderTreeDetail() string {
 	entry := m.currentNav()
 	switch entry.Kind {
 	case NavSessions:
+		if m.selectedSessionID == "" {
+			return m.renderSessionFolderDetail(m.selectedFolderPath)
+		}
 		for _, session := range m.scopedSessions() {
 			if session.ID != m.selectedSessionID {
 				continue
@@ -255,6 +276,10 @@ func (m Model) renderTreeDetail() string {
 			builder.WriteString(titleStyle.Render(session.Title))
 			builder.WriteString("\n")
 			builder.WriteString(mutedStyle.Render(state))
+			if folder := domain.NormalizeFolder(session.Folder); folder != "" {
+				builder.WriteString("\n")
+				builder.WriteString("Folder: " + strings.ReplaceAll(folder, "/", " / "))
+			}
 			if session.LocationName != "" {
 				builder.WriteString("\n")
 				builder.WriteString("Location: " + session.LocationName)
@@ -267,23 +292,10 @@ func (m Model) renderTreeDetail() string {
 					builder.WriteString("\nSeeded from prep notes")
 				}
 			}
-			if len(session.Links) > 0 {
-				builder.WriteString("\n\n")
-				builder.WriteString(labelStyle.Render("CAST"))
-				builder.WriteString("\n")
-				for _, link := range session.Links {
-					title := link.Text
-					for _, record := range m.workspace.Records {
-						if record.ID == link.RecordID {
-							title = record.Title
-							break
-						}
-					}
-					builder.WriteString("  · " + title + "\n")
-				}
-			}
 			builder.WriteString("\n\n")
-			builder.WriteString(mutedStyle.Render("Enter playback · s starts live · d deletes this session"))
+			builder.WriteString(m.renderCastHops())
+			builder.WriteString("\n")
+			builder.WriteString(mutedStyle.Render("List Enter playback · detail Enter follows · m files · s live · d deletes"))
 			return builder.String()
 		}
 		return mutedStyle.Render("Select a session")
@@ -300,40 +312,17 @@ func (m Model) renderTreeDetail() string {
 				builder.WriteString("\n")
 				builder.WriteString("Location: " + plan.LocationName)
 			}
-			if len(plan.Links) > 0 {
-				builder.WriteString(fmt.Sprintf("\nLinks: %d", len(plan.Links)))
-			}
-			if len(plan.PriorSessionIDs) > 0 {
-				sits := domain.ResolvePriorSits(m.workspace.Sessions, m.workspace.Records, plan.PriorSessionIDs)
-				builder.WriteString("\n")
-				builder.WriteString(labelStyle.Render("PRIOR SITS"))
-				for _, sit := range sits {
-					builder.WriteString("\n  " + sit.Title)
-					if sit.LocationName != "" {
-						builder.WriteString(" · " + sit.LocationName)
-					}
-				}
-			}
-			if live := domain.SessionsSeededFrom(m.workspace.Sessions, plan.ID); len(live) > 0 {
-				builder.WriteString("\n")
-				builder.WriteString(labelStyle.Render("LIVE SITS"))
-				for _, sit := range live {
-					state := "live"
-					if sit.EndedAt != nil {
-						state = sit.StartedAt.Local().Format("2006-01-02")
-					}
-					builder.WriteString(fmt.Sprintf("\n  %s · %s", sit.Title, state))
-				}
-			}
 			builder.WriteString("\n\n")
+			builder.WriteString(m.renderCastHops())
+			builder.WriteString("\n")
 			body := strings.TrimSpace(plan.Body)
 			if body == "" {
 				builder.WriteString(mutedStyle.Render("(empty)"))
 			} else {
-				builder.WriteString(body)
+				builder.WriteString(m.renderProseWithMentions(body))
 			}
 			builder.WriteString("\n\n")
-			builder.WriteString(mutedStyle.Render("Enter/e edits · s starts another live sit from this prep"))
+			builder.WriteString(mutedStyle.Render("List Enter/e edits · detail Enter follows · s starts another live sit"))
 			return builder.String()
 		}
 		return mutedStyle.Render("Select prep notes · p to draft")

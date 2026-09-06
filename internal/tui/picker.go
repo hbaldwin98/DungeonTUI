@@ -23,6 +23,7 @@ func (m *Model) openPicker() {
 	m.reconciling = false
 	m.playingBack = false
 	m.namingCollection = false
+	m.namingFolder = false
 	m.clearDestructiveConfirm("")
 	if m.layout.ActiveWorldID != "" {
 		for index, world := range m.workspace.Library {

@@ -41,6 +41,10 @@ func (m Model) helpSections() [][]string {
 		return [][]string{
 			{"Playback", "← / h rewind", "→ / l fast-forward", "Home first · End last", "Esc close"},
 		}
+	case m.namingFolder:
+		return [][]string{
+			{"Session folder", "Type a slash path", "Enter save", "Empty unfiles to month groups", "Esc cancel"},
+		}
 	case m.namingCollection:
 		return [][]string{
 			{"New collection", "Type a name", "Enter save", "Esc cancel"},
@@ -51,7 +55,7 @@ func (m Model) helpSections() [][]string {
 		}
 	default:
 		return [][]string{
-			{"Browser", "j/k move", "←/→ or Tab panes", "Enter open/playback", "n new · e edit", "p prep · s live", "d delete · x supersede", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "r reconcile · q quit"},
+			{"Browser", "j/k move", "←/→ or Tab panes", "Enter open/follow/playback/collapse", "n new · e edit", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "r reconcile · q quit"},
 		}
 	}
 }

@@ -71,6 +71,9 @@ var (
 				BorderForeground(colorAccent).
 				Padding(1, 2)
 
+	brokenRefStyle = lipgloss.NewStyle().Foreground(colorProposal)
+	refStyle       = lipgloss.NewStyle().Foreground(colorAccent)
+
 	searchResultStyle         = lipgloss.NewStyle().Foreground(colorText)
 	selectedSearchResultStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 )

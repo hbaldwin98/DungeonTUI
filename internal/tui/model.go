@@ -19,75 +19,77 @@ import (
 )
 
 type Model struct {
-	workspace         domain.Workspace
-	search            searchsvc.Service
-	cursor            int
-	selectedID        string
-	width             int
-	height            int
-	searching         bool
-	searchInput       textinput.Model
-	searchScope       searchsvc.Scope
-	includeIdeas      bool
-	results           []searchsvc.Result
-	selected          int
-	typeFilter        domain.EntityType
-	store             storage.Store
-	prefs             prefs.Store
-	status            string
-	editing           bool
-	creating          bool
-	editID            string
-	editType          domain.EntityType
-	editBody          textarea.Model
-	session           *domain.SessionRecord
-	sessionInput      textarea.Model
-	review            *domain.Record
-	reviewPinned      bool
-	suggestions       []Suggestion
-	suggestion        int
-	campaignCursor    int
-	contextCursor     int
-	previousInput     string
-	transcriptView    viewport.Model
-	layout            prefs.Layout
-	draggingSplit     bool
-	dragAxis          string
-	rollRNG           dice.RNG
-	reconciling       bool
-	reconIndex        int
-	reconCursor       int
-	deleteConfirm     bool
-	confirmKind       string // "delete" or "supersede"
-	planning          bool
-	planID            string
-	planDraft         domain.PlannedNotes
-	planTitle         textinput.Model
-	planBody          textarea.Model
-	planField         int
-	picking           bool
-	pickerLevel       string // "world" or "campaign"
-	pickerCursor      int
-	pickerWorldID     string
-	navCursor         int
-	navKind           NavKind
-	navType           domain.EntityType
-	selectedSessionID string
-	selectedPlanID    string
-	draggingNavSplit  bool
-	tagFilter         string
-	listScope         searchsvc.Scope
-	helping           bool
-	peek              *domain.Record
-	peekScroll        int
-	historyCursor     int
-	historyExpanded   string
-	playingBack       bool
-	playbackCursor    int
-	collectionFilter  string
-	lastCollectionID  string
-	namingCollection  bool
-	collectionName    textinput.Model
+	workspace          domain.Workspace
+	search             searchsvc.Service
+	cursor             int
+	selectedID         string
+	width              int
+	height             int
+	searching          bool
+	searchInput        textinput.Model
+	searchScope        searchsvc.Scope
+	includeIdeas       bool
+	results            []searchsvc.Result
+	selected           int
+	typeFilter         domain.EntityType
+	store              storage.Store
+	prefs              prefs.Store
+	status             string
+	editing            bool
+	creating           bool
+	editID             string
+	editType           domain.EntityType
+	editBody           textarea.Model
+	session            *domain.SessionRecord
+	sessionInput       textarea.Model
+	review             *domain.Record
+	reviewPinned       bool
+	suggestions        []Suggestion
+	suggestion         int
+	campaignCursor     int
+	contextCursor      int
+	previousInput      string
+	transcriptView     viewport.Model
+	layout             prefs.Layout
+	draggingSplit      bool
+	dragAxis           string
+	rollRNG            dice.RNG
+	reconciling        bool
+	reconIndex         int
+	reconCursor        int
+	deleteConfirm      bool
+	confirmKind        string // "delete" or "supersede"
+	planning           bool
+	planID             string
+	planDraft          domain.PlannedNotes
+	planTitle          textinput.Model
+	planBody           textarea.Model
+	planField          int
+	picking            bool
+	pickerLevel        string // "world" or "campaign"
+	pickerCursor       int
+	pickerWorldID      string
+	navCursor          int
+	navKind            NavKind
+	navType            domain.EntityType
+	selectedSessionID  string
+	selectedPlanID     string
+	draggingNavSplit   bool
+	tagFilter          string
+	listScope          searchsvc.Scope
+	helping            bool
+	peek               *domain.Record
+	peekScroll         int
+	historyCursor      int
+	playingBack        bool
+	playbackCursor     int
+	collectionFilter   string
+	lastCollectionID   string
+	namingCollection   bool
+	collectionName     textinput.Model
+	collapsedFolders   map[string]bool
+	selectedFolderPath string
+	namingFolder       bool
 }
 
 func New() Model {
@@ -142,15 +144,16 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	name.CharLimit = 80
 
 	model := Model{
-		workspace:      workspace,
-		store:          store,
-		prefs:          prefStore,
-		search:         searchsvc.New(workspace.Records),
-		searchInput:    input,
-		searchScope:    searchsvc.CurrentCampaign,
-		includeIdeas:   false,
-		listScope:      searchsvc.CurrentCampaign,
-		collectionName: name,
+		workspace:        workspace,
+		store:            store,
+		prefs:            prefStore,
+		search:           searchsvc.New(workspace.Records),
+		searchInput:      input,
+		searchScope:      searchsvc.CurrentCampaign,
+		includeIdeas:     false,
+		listScope:        searchsvc.CurrentCampaign,
+		collectionName:   name,
+		collapsedFolders: map[string]bool{},
 	}
 	model.sessionInput = textarea.New()
 	model.sessionInput.Prompt = "│ "
@@ -221,6 +224,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.updateSession(msg)
 		}
+		if m.namingFolder {
+			return m.updateFolderName(msg)
+		}
 		if m.namingCollection {
 			return m.updateCollectionName(msg)
 		}
@@ -239,16 +245,16 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "j", "down":
 			if m.layout.Focus == prefs.PaneNav {
 				m.moveNavCursor(1)
-			} else if m.layout.Focus == prefs.PaneDetail && m.currentNav().Kind == NavType {
-				m.moveHistoryCursor(1)
+			} else if m.layout.Focus == prefs.PaneDetail {
+				m.moveDetailCursor(1)
 			} else {
 				m.moveBrowserCursor(1)
 			}
 		case "k", "up":
 			if m.layout.Focus == prefs.PaneNav {
 				m.moveNavCursor(-1)
-			} else if m.layout.Focus == prefs.PaneDetail && m.currentNav().Kind == NavType {
-				m.moveHistoryCursor(-1)
+			} else if m.layout.Focus == prefs.PaneDetail {
+				m.moveDetailCursor(-1)
 			} else {
 				m.moveBrowserCursor(-1)
 			}
@@ -308,6 +314,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.cycleCollectionFilter()
 		case "g":
 			return m.openCollectionName()
+		case "m":
+			return m.openFolderName()
 		case "a":
 			return m.toggleCollectionMembership()
 		case "o":
@@ -381,6 +389,9 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 		Title:     "Session " + started.Format("2006-01-02 15:04"),
 		Scope:     m.workspace.Scope,
 		StartedAt: started,
+	}
+	if folder := m.folderForNewSit(); folder != "" {
+		session.Folder = folder
 	}
 	plan := m.activePlannedNotes()
 	if plan != nil {
@@ -1114,6 +1125,11 @@ func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
 	if !m.usesCampaignTree() {
 		return m, nil
 	}
+	if m.layout.Focus == prefs.PaneDetail {
+		if updated, cmd, ok := m.followDetailHop(); ok {
+			return updated, cmd
+		}
+	}
 	switch m.currentNav().Kind {
 	case NavPrep:
 		if m.selectedPlanID == "" {
@@ -1122,52 +1138,25 @@ func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
 		m.planID = m.selectedPlanID
 		return m.openPlannedNotes(false)
 	case NavSessions:
+		rows := m.sessionTreeRows()
+		if len(rows) > 0 {
+			row := rows[clamp(m.cursor, 0, len(rows)-1)]
+			if row.Kind == domain.SessionTreeFolder {
+				m.toggleSelectedFolder()
+				return m, nil
+			}
+		}
 		session := m.selectedSession()
 		if session != nil && session.EndedAt != nil {
 			return m.openPlayback()
 		}
 		return m.startSession()
 	default:
-		if m.layout.Focus == prefs.PaneDetail {
-			m.toggleHistoryExpand()
-			return m, nil
-		}
 		if m.selectedRecord() != nil {
 			return m.openEditor(false)
 		}
 	}
 	return m, nil
-}
-
-func (m *Model) moveHistoryCursor(delta int) {
-	record := m.selectedRecord()
-	if record == nil {
-		return
-	}
-	rows := domain.EntitySessionHistory(m.workspace, record.ID)
-	if len(rows) == 0 {
-		return
-	}
-	m.historyCursor = clamp(m.historyCursor+delta, 0, len(rows)-1)
-}
-
-func (m *Model) toggleHistoryExpand() {
-	record := m.selectedRecord()
-	if record == nil {
-		return
-	}
-	rows := domain.EntitySessionHistory(m.workspace, record.ID)
-	if len(rows) == 0 {
-		return
-	}
-	row := rows[clamp(m.historyCursor, 0, len(rows)-1)]
-	if m.historyExpanded == row.SessionID {
-		m.historyExpanded = ""
-		m.status = "Collapsed history"
-		return
-	}
-	m.historyExpanded = row.SessionID
-	m.status = "Expanded " + row.Title
 }
 
 func (m *Model) moveBrowserCursor(delta int) {
@@ -1178,14 +1167,11 @@ func (m *Model) moveBrowserCursor(delta int) {
 	if m.usesCampaignTree() && (m.layout.Focus == prefs.PaneList || m.layout.Focus == prefs.PaneDetail) {
 		switch m.currentNav().Kind {
 		case NavSessions:
-			sessions := m.scopedSessions()
-			if len(sessions) == 0 {
+			rows := m.sessionTreeRows()
+			if len(rows) == 0 {
 				return
 			}
-			m.cursor = clamp(m.cursor+delta, 0, len(sessions)-1)
-			m.selectedSessionID = sessions[m.cursor].ID
-			m.selectedID = ""
-			m.selectedPlanID = ""
+			m.applySessionTreeCursor(m.cursor + delta)
 			return
 		case NavPrep:
 			plans := m.scopedPlannedNotes()
@@ -1294,13 +1280,8 @@ func (m *Model) deleteSelectedSession() {
 		m.session = nil
 	}
 	m.selectedSessionID = ""
-	sessions := m.scopedSessions()
-	if len(sessions) > 0 {
-		m.cursor = clamp(m.cursor, 0, len(sessions)-1)
-		m.selectedSessionID = sessions[m.cursor].ID
-	} else {
-		m.cursor = 0
-	}
+	m.selectedFolderPath = ""
+	m.syncSessionTreeCursor()
 	m.persistWorkspace()
 	m.status = "Deleted session " + session.Title
 }
@@ -1616,12 +1597,10 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		case prefs.PaneDetail:
 			return m, nil
 		case prefs.PaneList:
-			if len(region.SessionRows) > 0 {
-				if index >= 0 && index < len(region.SessionRows) {
+			if len(region.SessionTree) > 0 {
+				if index >= 0 && index < len(region.SessionTree) {
 					m.cursor = index
-					m.selectedSessionID = region.SessionRows[index].ID
-					m.selectedID = ""
-					m.selectedPlanID = ""
+					m.bindSessionTreeRow(region.SessionTree[index])
 				}
 				return m, nil
 			}
@@ -2160,6 +2139,8 @@ func (m Model) View() tea.View {
 
 	if m.searching {
 		view = m.renderSearchOverlay()
+	} else if m.namingFolder {
+		view = m.renderFolderNameOverlay()
 	} else if m.namingCollection {
 		view = m.renderCollectionNameOverlay()
 	} else if m.editing {
@@ -2353,10 +2334,14 @@ func (m Model) renderDetail() string {
 	builder.WriteString("\n")
 	builder.WriteString(detailTitleStyle.Render(record.Title))
 	builder.WriteString("\n\n")
-	builder.WriteString(record.Summary)
-	builder.WriteString("\n\n")
-	builder.WriteString(record.Body)
-	builder.WriteString("\n\n")
+	if record.Summary != "" {
+		builder.WriteString(m.renderProseWithMentions(record.Summary))
+		builder.WriteString("\n\n")
+	}
+	if record.Body != "" {
+		builder.WriteString(m.renderProseWithMentions(record.Body))
+		builder.WriteString("\n\n")
+	}
 	builder.WriteString(labelStyle.Render("SCOPE"))
 	builder.WriteString("  " + record.Scope.Label() + "\n")
 	if len(record.Tags) > 0 {
@@ -2385,94 +2370,7 @@ func (m Model) renderDetail() string {
 	}
 
 	builder.WriteString("\n")
-	builder.WriteString(m.renderEntityLinked(*record))
-	builder.WriteString("\n")
-	builder.WriteString(m.renderEntityHistory(*record))
-	return builder.String()
-}
-
-func (m Model) renderEntityLinked(record domain.Record) string {
-	links := domain.EntityBacklinks(m.workspace, record.ID)
-	var builder strings.Builder
-	builder.WriteString(labelStyle.Render("LINKED"))
-	builder.WriteString("\n")
-	if len(links) == 0 {
-		builder.WriteString(mutedStyle.Render("  — no backlinks yet"))
-		return builder.String()
-	}
-	seenSession := map[string]bool{}
-	transcriptHits := 0
-	wrote := false
-	for _, link := range links {
-		switch link.Kind {
-		case domain.BacklinkPrep:
-			builder.WriteString(fmt.Sprintf("  prep · %s\n", link.Title))
-			wrote = true
-		case domain.BacklinkSessionAssoc, domain.BacklinkTranscript:
-			if link.Kind == domain.BacklinkTranscript {
-				transcriptHits += link.Count
-			}
-			if seenSession[link.ID] {
-				continue
-			}
-			seenSession[link.ID] = true
-			builder.WriteString(fmt.Sprintf("  session · %s\n", link.Title))
-			wrote = true
-		}
-	}
-	if transcriptHits > 0 {
-		builder.WriteString(mutedStyle.Render(fmt.Sprintf("  (%d transcript hits)", transcriptHits)))
-		builder.WriteString("\n")
-	}
-	if !wrote {
-		builder.WriteString(mutedStyle.Render("  — no backlinks yet"))
-	}
-	return builder.String()
-}
-
-func (m Model) renderEntityHistory(record domain.Record) string {
-	rows := domain.EntitySessionHistory(m.workspace, record.ID)
-	var builder strings.Builder
-	builder.WriteString(labelStyle.Render("HISTORY"))
-	builder.WriteString("\n")
-	if len(rows) == 0 {
-		builder.WriteString(mutedStyle.Render("  — no session history yet"))
-		return builder.String()
-	}
-	for index, row := range rows {
-		marker := "  "
-		if m.layout.Focus == prefs.PaneDetail && index == m.historyCursor {
-			marker = "▸ "
-		}
-		stamp := row.StartedAt.Local().Format("2006-01-02")
-		parts := make([]string, 0, 3)
-		if row.Associated {
-			parts = append(parts, "cast")
-		}
-		if row.TranscriptHits > 0 {
-			parts = append(parts, fmt.Sprintf("%d @", row.TranscriptHits))
-		}
-		if row.ReconItems > 0 {
-			parts = append(parts, fmt.Sprintf("%d recon", row.ReconItems))
-		}
-		expand := ""
-		if m.historyExpanded == row.SessionID {
-			expand = " ▼"
-		} else if len(row.Events) > 0 {
-			expand = " ▸"
-		}
-		builder.WriteString(fmt.Sprintf("%s%s · %s · %s%s\n", marker, stamp, row.Title, strings.Join(parts, ", "), expand))
-		if m.historyExpanded == row.SessionID {
-			for _, event := range row.Events {
-				builder.WriteString(mutedStyle.Render("      · " + event.Summary))
-				builder.WriteString("\n")
-			}
-		}
-	}
-	if m.layout.Focus == prefs.PaneDetail {
-		builder.WriteString(mutedStyle.Render("j/k history · Enter expand"))
-		builder.WriteString("\n")
-	}
+	builder.WriteString(m.renderEntityGraph(*record))
 	return builder.String()
 }
 

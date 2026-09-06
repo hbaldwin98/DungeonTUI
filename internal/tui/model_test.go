@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -629,7 +630,7 @@ func TestOnePrepCoversMultipleLiveSits(t *testing.T) {
 	model.selectedPlanID = planID
 	model.setNavCursor(1) // Prep branch
 	detail := model.renderTreeDetail()
-	if !strings.Contains(detail, "LIVE SITS") || !strings.Contains(detail, "Crypt arc") {
+	if !strings.Contains(detail, "live ·") || !strings.Contains(detail, "Crypt arc") {
 		t.Fatalf("prep detail should list live sits: %q", detail)
 	}
 }
@@ -980,7 +981,12 @@ func TestEntityCoherenceBacklinksHistoryAndPeek(t *testing.T) {
 		t.Fatalf("expected history section: %q", detail)
 	}
 	model.layout.Focus = prefs.PaneDetail
-	model.toggleHistoryExpand()
+	for index, hop := range model.detailHops() {
+		if hop.Kind == hopHistory {
+			model.historyCursor = index
+			break
+		}
+	}
 	detail = model.renderDetail()
 	if !strings.Contains(detail, "Associated with session cast") && !strings.Contains(detail, "Review @") {
 		t.Fatalf("expected expandable history events: %q", detail)
@@ -1000,4 +1006,159 @@ func TestEntityCoherenceBacklinksHistoryAndPeek(t *testing.T) {
 	if !strings.Contains(model.renderPeekPanel(6), "PEEK") {
 		t.Fatal("expected peek panel chrome")
 	}
+}
+
+func TestSessionFoldersGroupCollapseAndFile(t *testing.T) {
+	ended := time.Date(2026, 3, 2, 21, 0, 0, 0, time.UTC)
+	end := ended
+	model := New()
+	model.width = 100
+	model.height = 36
+	model.workspace.Sessions = []domain.SessionRecord{
+		{
+			ID: "crypt-2", Title: "Crypt night 2", Folder: "Greywatch/Crypt",
+			Scope: model.workspace.Scope, StartedAt: ended, EndedAt: &end,
+		},
+		{
+			ID: "crypt-1", Title: "Crypt night 1", Folder: "Greywatch/Crypt",
+			Scope: model.workspace.Scope, StartedAt: ended.Add(-24 * time.Hour), EndedAt: &end,
+		},
+		{
+			ID: "loose", Title: "Loose march sit",
+			Scope: model.workspace.Scope, StartedAt: time.Date(2026, 3, 8, 18, 0, 0, 0, time.UTC), EndedAt: &end,
+		},
+	}
+	model.setNavCursor(0)
+	model.setBrowserFocus(prefs.PaneList)
+	list := model.renderListPane()
+	if !strings.Contains(list, "Greywatch") || !strings.Contains(list, "Crypt") || !strings.Contains(list, "Crypt night 2") {
+		t.Fatalf("expected nested folders: %q", list)
+	}
+	if pad := leadingPad(list, "Greywatch"); pad >= leadingPad(list, "Crypt night 2") {
+		t.Fatalf("sits should indent under their folder, greywatch=%d sit=%d\n%s", pad, leadingPad(list, "Crypt night 2"), list)
+	}
+	if pad := leadingPad(list, "Greywatch"); pad >= leadingPad(list, "Crypt ·") {
+		t.Fatalf("nested folder should indent under parent, greywatch=%d crypt=%d\n%s", pad, leadingPad(list, "Crypt ·"), list)
+	}
+	if !strings.Contains(list, "2026-03") {
+		t.Fatalf("unfiled sit should bucket by month: %q", list)
+	}
+
+	model.applySessionTreeCursor(0)
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	list = model.renderListPane()
+	if strings.Contains(list, "Crypt night 2") {
+		t.Fatalf("enter on folder should collapse sits: %q", list)
+	}
+	detail := model.renderTreeDetail()
+	if !strings.Contains(detail, "FOLDER") || !strings.Contains(detail, "Greywatch") {
+		t.Fatalf("folder detail: %q", detail)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	selectSessionRow(&model, "crypt-2")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if !model.playingBack {
+		t.Fatal("enter on ended sit should open playback")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	model = updated.(Model)
+
+	selectSessionRow(&model, "loose")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'm', Text: "m"}))
+	model = updated.(Model)
+	if !model.namingFolder {
+		t.Fatal("m should open folder overlay")
+	}
+	model.collectionName.SetValue("Greywatch/Crypt")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	found := false
+	for _, session := range model.workspace.Sessions {
+		if session.ID == "loose" && session.Folder == "Greywatch/Crypt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("loose sit should be filed under Greywatch/Crypt")
+	}
+	if strings.Contains(model.renderListPane(), "2026-03") {
+		t.Fatal("month bucket should disappear once its sits are filed")
+	}
+
+	selectSessionRow(&model, "crypt-2")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	if model.session == nil || model.session.Folder != "Greywatch/Crypt" {
+		t.Fatalf("new sit should inherit folder, got %#v", model.session)
+	}
+}
+
+func TestWikiMentionsFollowAndBreak(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	var vale domain.Record
+	for _, record := range model.workspace.Records {
+		if record.ID == "npc-captain-vale" {
+			vale = record
+			model.selectRecord(record)
+			break
+		}
+	}
+	model.layout.Focus = prefs.PaneDetail
+	detail := model.renderDetail()
+	if !strings.Contains(detail, "REFERENCES") || !strings.Contains(detail, "Father Merrow") {
+		t.Fatalf("expected outgoing wiki ref: %q", detail)
+	}
+	if !strings.Contains(detail, "wiki ·") {
+		t.Fatalf("expected wiki backlink chrome: %q", detail)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.selectedID != "npc-father-merrow" {
+		t.Fatalf("Enter should follow @Father Merrow, selected=%q", model.selectedID)
+	}
+
+	kept := make([]domain.Record, 0, len(model.workspace.Records))
+	for _, record := range model.workspace.Records {
+		if record.ID == "npc-father-merrow" {
+			continue
+		}
+		kept = append(kept, record)
+	}
+	model.workspace.Records = kept
+	model.selectRecord(vale)
+	_, broken := domain.EntityOutgoingRefs(vale, model.workspace.Records)
+	if len(broken) == 0 {
+		t.Fatal("deleted target should leave a broken @ mention")
+	}
+	detail = model.renderDetail()
+	if !strings.Contains(detail, "missing · @") {
+		t.Fatalf("expected missing-ref row: %q", detail)
+	}
+}
+
+func selectSessionRow(model *Model, id string) {
+	for index, row := range model.sessionTreeRows() {
+		if row.Kind == domain.SessionTreeSession && row.Session.ID == id {
+			model.applySessionTreeCursor(index)
+			return
+		}
+	}
+}
+
+var testANSI = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+
+func leadingPad(view, needle string) int {
+	for _, line := range strings.Split(testANSI.ReplaceAllString(view, ""), "\n") {
+		if !strings.Contains(line, needle) {
+			continue
+		}
+		return len(line) - len(strings.TrimLeft(line, " "))
+	}
+	return -1
 }

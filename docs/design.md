@@ -401,6 +401,19 @@ a sit's likely cast, a mystery board). They sit on top of tags and never
 replace the campaign tree. `c` filters the current section to a collection,
 `g` names a new one, and `a` adds or removes the selected entity.
 
+The **Sessions** list is itself a small folder tree so long campaigns stay
+scannable. Named slash paths live on `SessionRecord.Folder`; nights without a
+folder bucket by month. `m` files a sit (or every sit under a folder header).
+Enter collapses a folder header and still opens playback on an ended sit. This
+is not a second navigator — Prep and wiki types stay sibling branches.
+
+Wiki records can `@` one another in summary and body. Mentions resolve by
+longest title or alias and stay in the prose if the target is deleted (shown
+as a missing ref to fix). Entity detail lists **REFERENCES** (outgoing),
+**LINKED** (incoming wiki/prep/session), and **HISTORY**. With detail focused,
+`j`/`k` moves those rows and **Enter follows** — including back to a session
+or prep.
+
 ## TUI interaction model
 
 ### Stable workspace and contextual actions
