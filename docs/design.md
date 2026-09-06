@@ -98,14 +98,17 @@ Important information should answer:
 - Who in the game knows it?
 - Has a later event overridden it?
 
-### The interface follows the campaign loop
+### One workspace, not global workflow modes
 
-Preparation, live play, and review are views over the same world state and event
-history rather than isolated utilities.
+Preparation, play, and post-session reconciliation are activities within the
+same stable workspace. Dungeon must not force the entire application into
+Prep, Live, or Review modes. Search, notes, entities, rules, and assistance
+remain available at all times.
 
-```text
-PREP -> LIVE -> REVIEW -> UPDATED CAMPAIGN STATE -> PREP
-```
+Draftness belongs to an individual entity. A draft NPC or location can sit
+beside established campaign facts while remaining visibly non-canon. Session
+notes can similarly produce proposed changes without changing the state of the
+whole application.
 
 ### Local-first and personal-first
 
@@ -165,7 +168,7 @@ Every relevant record or assertion has an authority state:
 |---|---|
 | Canon | Established as true by the DM or an approved play event. |
 | Secret canon | True, but not generally known to the players. |
-| Provisional | Prepared by the DM but not committed as truth. |
+| Draft | Created or prepared by the DM but not committed as truth. |
 | AI proposal | Generated material with no factual authority. |
 | Unknown | Explicitly undecided or currently unknowable. |
 | Superseded | Previously valid but replaced by a later fact or event. |
@@ -177,7 +180,7 @@ because they match how a DM thinks during play.
 Suggested consistent indicators:
 
 ```text
-● canon        ◆ secret        ◇ provisional
+● canon        ◆ secret        ◇ draft
 △ AI proposal  ? unknown       × superseded
 ```
 
@@ -326,35 +329,27 @@ changes. It is explicitly outside canon.
 
 ## TUI interaction model
 
-### Modes
+### Stable workspace and contextual actions
 
-The application has three operating modes over the same campaign:
+The application opens into one campaign workspace. The current selection
+determines available actions; the user never has to switch the whole interface
+into a workflow mode.
 
-#### Prep
+From that workspace the DM can, at any time:
 
 - Review open threads, likely consequences, and stale entities.
-- Assemble the next session from canon and provisional material.
-- Generate constrained possibilities.
-- Run continuity, clue, encounter, and rules checks.
+- Create or edit draft entities for an upcoming session.
 - Pin selected facts and references to a session brief.
-
-#### Live
-
-- Keep the current scene, participants, clocks, and important threads visible.
-- Capture terse notes with minimal keystrokes.
+- Capture terse session notes with minimal keystrokes.
 - Search facts and sources quickly.
 - Ask contextual questions about the selected subject.
-- Generate disposable names, descriptions, dialogue options, or complications.
-- Mark temporary scene state without prematurely committing it to long-term
-  canon.
-
-#### Review
-
+- Generate clearly separate AI proposals.
 - Convert notes into proposed events and state changes.
-- Separate explicit observations from inferred implications.
-- Approve, edit, reject, or defer each proposed change.
-- Update timelines, entity state, possessions, relationships, and knowledge.
-- Surface new unresolved questions for the next prep cycle.
+- Approve, edit, reject, or defer individual changes.
+
+Creating content starts it as a draft unless the DM explicitly creates or
+promotes it as canon. Draft status is shown on the entity itself and does not
+restrict access to any other feature.
 
 ### Contextual AI
 
@@ -515,14 +510,14 @@ Each phase should leave a usable personal tool rather than only infrastructure.
 Build a throwaway but runnable vertical scenario with a tiny fixed campaign:
 
 1. Browse two NPCs, a location, and an open thread.
-2. Enter a live session and capture several quick notes.
+2. Capture several quick session notes without changing application mode.
 3. Search across the fixed data with typed results.
 4. Request one clearly labelled AI proposal.
 5. Review proposed post-session changes.
 6. Approve changes and see them in the next prep view.
 
 The goal is to validate navigation, terminology, authority indicators, and the
-prep/live/review loop before stabilizing schemas.
+full capture-to-canon loop before stabilizing schemas.
 
 ### Phase 1: Factual campaign workspace
 
@@ -531,16 +526,16 @@ Deliver value without requiring AI:
 - Local library, world, campaign, and session creation.
 - Multiple campaigns per world with explicit scopes.
 - CRUD for the first core entity types.
-- Canon, secret, provisional, unknown, and superseded states.
+- Canon, secret, draft, unknown, and superseded states.
 - Manual cross-links and source/provenance fields.
 - Fast typed fuzzy and full-text search.
 - Portable backup/export and restore/import.
-- Prep, live, and review shells with manual note capture.
+- One stable workspace with manual note capture and entity-level drafts.
 
 Likely first entity types: NPC, location, faction, item, thread, session, event,
 and note. Additional types should be added when the owner's campaign needs them.
 
-### Phase 2: Review pipeline and campaign memory
+### Phase 2: Session reconciliation and campaign memory
 
 - Convert live notes into review items.
 - Manually create and approve factual diffs.
@@ -612,13 +607,14 @@ A useful acceptance narrative for early development is:
 
 1. The owner opens `The Ashen Crown`, one of two campaigns in `The Ashen
    Realms`.
-2. Prep shows established facts, provisional material, and unresolved threads
+2. The workspace shows established facts, draft material, and unresolved threads
    without mixing their authority states.
 3. During play, the owner searches `silver`; the overlay visibly searches the
    current campaign and labels NPC, item, session, rule, and proposal results.
 4. The owner records “Lena gave Osric the silver key.”
 5. An AI action offers several possible consequences, all marked as proposals.
-6. Review extracts two confident changes and one ambiguity from the note.
+6. Session reconciliation extracts two confident changes and one ambiguity from
+   the note.
 7. The owner edits and approves the factual changes.
 8. Another campaign in the same world remains unchanged.
 9. The next prep session retrieves the approved possession and knowledge facts,

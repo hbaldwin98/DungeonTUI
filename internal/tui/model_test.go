@@ -1,0 +1,99 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
+
+func TestSearchStartsCampaignScopedAndFactsOnly(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 40
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '/', Text: "/"}))
+	model = updated.(Model)
+	view := model.View().Content
+
+	if model.searchScope != 0 {
+		t.Fatalf("expected campaign search scope, got %v", model.searchScope)
+	}
+	if model.includeIdeas {
+		t.Fatal("expected facts-only search")
+	}
+	if strings.Contains(view, "Church Investigator Arrives") {
+		t.Fatal("AI proposal appeared before proposals were explicitly enabled")
+	}
+}
+
+func TestSearchCanExplicitlyIncludeAIProposals(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 40
+	model.searching = true
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	view := model.View().Content
+
+	if !model.includeIdeas {
+		t.Fatal("expected proposal-inclusive search")
+	}
+	if !strings.Contains(view, "Church Investigator Arrives") {
+		t.Fatal("expected AI proposal after proposals were explicitly enabled")
+	}
+}
+
+func TestViewEnablesMouseTracking(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 40
+
+	view := model.View()
+	if view.MouseMode != tea.MouseModeCellMotion {
+		t.Fatalf("expected cell-motion mouse support, got %v", view.MouseMode)
+	}
+}
+
+func TestMouseWheelNavigatesRecords(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 40
+
+	updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	model = updated.(Model)
+	if model.cursor != 1 {
+		t.Fatalf("expected mouse wheel to select record 1, got %d", model.cursor)
+	}
+}
+
+func TestMouseClickSelectsRecord(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 40
+
+	updated, _ := model.Update(tea.MouseClickMsg{X: 6, Y: 7, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if model.cursor != 2 {
+		t.Fatalf("expected clicked record 2, got %d", model.cursor)
+	}
+}
+
+func TestViewFillsTerminal(t *testing.T) {
+	model := New()
+	model.width = 80
+	model.height = 24
+
+	content := model.View().Content
+	lines := strings.Split(content, "\n")
+	if len(lines) != model.height {
+		t.Fatalf("expected %d rendered rows, got %d", model.height, len(lines))
+	}
+	for index, line := range lines {
+		if width := lipgloss.Width(line); width != model.width {
+			t.Fatalf("row %d: expected width %d, got %d", index, model.width, width)
+		}
+	}
+}

@@ -1,3 +1,4 @@
 # Local agent configuration and skills
 .agents/
+.claude/
 .codex/
