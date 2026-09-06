@@ -51,6 +51,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Deferred
 
+- Planned briefs that span multiple live timed runs (Argus #31).
+- Post-session change view with rewind/fast-forward playback (Argus #32).
 - SQLite operational store and FTS5 migration.
 - Context-aware AI generators and rules/source ingestion.
 - Web/API client over the shared domain services.
