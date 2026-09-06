@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/dice"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 	"github.com/hbaldwin98/dungeon/internal/storage"
 )
@@ -52,6 +53,7 @@ type Model struct {
 	horizontalSplit int
 	draggingSplit   bool
 	dragAxis        string
+	rollRNG         dice.RNG
 }
 
 func New() Model {
@@ -98,6 +100,7 @@ func newModel(workspace domain.Workspace, store storage.Store) Model {
 	model.transcriptView.SoftWrap = true
 	model.transcriptView.MouseWheelEnabled = true
 	model.paneLayout = 0
+	model.rollRNG = dice.DefaultRNG()
 	model.refreshResults()
 	return model
 }
@@ -327,6 +330,7 @@ func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	links := m.resolveLinks(text)
+	rolls := m.evaluateRolls(text)
 	m.handleSessionCommand(text)
 	now := time.Now().UTC()
 	m.session.Entries = append(m.session.Entries, domain.TranscriptEntry{
@@ -334,15 +338,59 @@ func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
 		Text:      text,
 		CreatedAt: now,
 		Links:     links,
+		Rolls:     rolls,
 		Revision:  1,
 	})
 	m.sessionInput.SetValue("")
 	m.refreshTranscriptViewport()
 	m.status = "Captured transcript entry"
+	if len(rolls) > 0 {
+		m.status = formatRollStatus(rolls)
+	}
 	if m.store != nil {
 		m.persistWorkspace()
 	}
 	return m, nil
+}
+
+func (m Model) evaluateRolls(text string) []domain.RollResult {
+	matches := dice.Extract(text)
+	if len(matches) == 0 {
+		return nil
+	}
+	rng := m.rollRNG
+	if rng == nil {
+		rng = dice.DefaultRNG()
+	}
+	now := time.Now().UTC().UnixNano()
+	results := make([]domain.RollResult, 0, len(matches))
+	for index, match := range matches {
+		evaluated, err := dice.Evaluate(match.Expression, rng)
+		if err != nil {
+			continue
+		}
+		results = append(results, domain.RollResult{
+			ID:         fmt.Sprintf("roll-%d-%d", now, index),
+			Label:      match.Label,
+			Expression: match.Expression,
+			Total:      evaluated.Total,
+			Detail:     evaluated.Detail,
+			Rolls:      evaluated.Rolls,
+		})
+	}
+	return results
+}
+
+func formatRollStatus(rolls []domain.RollResult) string {
+	parts := make([]string, 0, len(rolls))
+	for _, roll := range rolls {
+		label := roll.Expression
+		if roll.Label != "" {
+			label = roll.Label + " " + roll.Expression
+		}
+		parts = append(parts, fmt.Sprintf("%s → %s", label, roll.Detail))
+	}
+	return "Rolled " + strings.Join(parts, " · ")
 }
 
 func (m *Model) refreshTranscriptViewport() {
@@ -359,6 +407,17 @@ func (m *Model) refreshTranscriptViewport() {
 		}
 		builder.WriteString(entry.Text)
 		builder.WriteRune('\n')
+		for _, roll := range entry.Rolls {
+			builder.WriteString("      roll ")
+			if roll.Label != "" {
+				builder.WriteString(roll.Label)
+				builder.WriteString(" ")
+			}
+			builder.WriteString(roll.Expression)
+			builder.WriteString(" → ")
+			builder.WriteString(roll.Detail)
+			builder.WriteRune('\n')
+		}
 	}
 	m.transcriptView.SetContent(builder.String())
 	m.transcriptView.GotoBottom()

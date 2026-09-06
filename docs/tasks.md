@@ -16,6 +16,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Vertical and horizontal gutter dragging with complementary pane resizing.
 - In-process agentic TUI harness with keyboard/mouse driving and text/ANSI
   screencaps (`go run ./cmd/dungeon-harness -scenario all`).
+- Local `#` dice and arithmetic evaluation with results linked to transcript
+  entries (`#d20+5`, `#damage 2d6+3`, `#10+2*3`).
 
 ## In progress
 
@@ -27,7 +29,6 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Next
 
-- Implement local dice/arithmetic `#` evaluation with recorded results.
 - Make session commands and review actions fully mouse-addressable across all
   pane types.
 - Add session reconciliation records without mutating the raw transcript.

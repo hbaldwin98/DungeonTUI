@@ -68,6 +68,8 @@ highlighted entity and opens its full details in the review pane above the
 transcript. `Ctrl+Enter` captures the entry. `$npc Name: description` creates a
 draft entity from the active session, while `#random item` creates a local draft
 generator result and `#location ...` records the current location context.
+Inline `#d20+5` / `#damage 2d6+3` expressions are evaluated locally and stored
+with the transcript entry (expression, faces, and total) without becoming canon.
 The session log scrolls with the mouse wheel; clicking the context pane selects
 an entity for review. Drag vertical gutters to reallocate left/right panes and
 horizontal gutters to reallocate upper/transcript panes. Split positions are

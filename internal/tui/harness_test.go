@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hbaldwin98/dungeon/internal/dice"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 )
 
@@ -174,6 +175,48 @@ func TestSessionPanelsKeepBottomBorders(t *testing.T) {
 	bottomBorders := strings.Count(frame.Plain, "╰")
 	if bottomBorders < 3 {
 		t.Fatalf("expected closed borders for upper/transcript/input panes, found %d:\n%s", bottomBorders, frame.Plain)
+	}
+}
+
+func TestSessionDiceExpressionsAreRecorded(t *testing.T) {
+	h := NewHarness(100, 40)
+	h.Key("s")
+	h.Model.rollRNG = dice.FixedRNG(17, 4, 5)
+	h.SetSessionDraft("The key opens the seal. #d20+5 #damage 2d6+3")
+	h.Key("enter")
+	if len(h.Model.session.Entries) != 1 {
+		t.Fatalf("expected one entry, got %d", len(h.Model.session.Entries))
+	}
+	rolls := h.Model.session.Entries[0].Rolls
+	if len(rolls) != 2 {
+		t.Fatalf("expected two rolls, got %#v", rolls)
+	}
+	if rolls[0].Expression != "d20+5" || rolls[0].Total != 22 {
+		t.Fatalf("first roll %#v", rolls[0])
+	}
+	if rolls[1].Label != "damage" || rolls[1].Total != 12 {
+		t.Fatalf("second roll %#v", rolls[1])
+	}
+	frame := h.Frame()
+	if !frame.Contains("roll damage 2d6+3 → [4+5]+3 = 12") && !frame.Contains("roll d20+5 → [17]+5 = 22") {
+		t.Fatalf("transcript missing roll detail:\n%s", frame.Plain)
+	}
+	if !strings.Contains(h.Model.status, "d20+5") || !strings.Contains(h.Model.status, "damage") {
+		t.Fatalf("status should summarize rolls: %q", h.Model.status)
+	}
+}
+
+func TestSessionCommandsAreNotTreatedAsRolls(t *testing.T) {
+	h := NewHarness(100, 30)
+	h.Key("s")
+	before := len(h.Model.workspace.Records)
+	h.SetSessionDraft("#random item")
+	h.Key("enter")
+	if len(h.Model.workspace.Records) != before+1 {
+		t.Fatal("expected #random to create a draft entity")
+	}
+	if len(h.Model.session.Entries[0].Rolls) != 0 {
+		t.Fatalf("#random must not create roll results: %#v", h.Model.session.Entries[0].Rolls)
 	}
 }
 

@@ -107,11 +107,23 @@ type EntityLink struct {
 	RecordID string
 }
 
+// RollResult records a local # dice or arithmetic evaluation tied to a
+// transcript entry. Results are session evidence and never become canon alone.
+type RollResult struct {
+	ID         string
+	Label      string
+	Expression string
+	Total      int
+	Detail     string
+	Rolls      []int
+}
+
 type TranscriptEntry struct {
 	ID        string
 	Text      string
 	CreatedAt time.Time
 	Links     []EntityLink
+	Rolls     []RollResult
 	Revision  int
 	Undone    bool
 }
