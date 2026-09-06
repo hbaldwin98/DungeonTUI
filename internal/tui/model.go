@@ -19,43 +19,41 @@ import (
 )
 
 type Model struct {
-	workspace       domain.Workspace
-	search          searchsvc.Service
-	cursor          int
-	width           int
-	height          int
-	searching       bool
-	searchInput     textinput.Model
-	searchScope     searchsvc.Scope
-	includeIdeas    bool
-	results         []searchsvc.Result
-	selected        int
-	typeFilter      domain.EntityType
-	store           storage.Store
-	prefs           prefs.Store
-	status          string
-	editing         bool
-	creating        bool
-	editIndex       int
-	editField       int
-	editType        domain.EntityType
-	editTitle       textinput.Model
-	editSummary     textinput.Model
-	editBody        textarea.Model
-	session         *domain.SessionRecord
-	sessionInput    textarea.Model
-	review          *domain.Record
-	reviewPinned    bool
-	suggestions     []domain.Record
-	suggestion      int
-	previousInput   string
-	transcriptView  viewport.Model
-	paneLayout      int
-	paneSplit       int
-	horizontalSplit int
-	draggingSplit   bool
-	dragAxis        string
-	rollRNG         dice.RNG
+	workspace      domain.Workspace
+	search         searchsvc.Service
+	cursor         int
+	width          int
+	height         int
+	searching      bool
+	searchInput    textinput.Model
+	searchScope    searchsvc.Scope
+	includeIdeas   bool
+	results        []searchsvc.Result
+	selected       int
+	typeFilter     domain.EntityType
+	store          storage.Store
+	prefs          prefs.Store
+	status         string
+	editing        bool
+	creating       bool
+	editIndex      int
+	editField      int
+	editType       domain.EntityType
+	editTitle      textinput.Model
+	editSummary    textinput.Model
+	editBody       textarea.Model
+	session        *domain.SessionRecord
+	sessionInput   textarea.Model
+	review         *domain.Record
+	reviewPinned   bool
+	suggestions    []domain.Record
+	suggestion     int
+	previousInput  string
+	transcriptView viewport.Model
+	layout         prefs.Layout
+	draggingSplit  bool
+	dragAxis       string
+	rollRNG        dice.RNG
 }
 
 func New() Model {
@@ -106,7 +104,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	model.transcriptView = viewport.New()
 	model.transcriptView.SoftWrap = true
 	model.transcriptView.MouseWheelEnabled = true
-	model.paneLayout = 0
+	model.layout = prefs.DefaultLayout()
 	model.rollRNG = dice.DefaultRNG()
 	model.refreshResults()
 	return model
@@ -173,10 +171,14 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMotionMsg:
 		if m.draggingSplit {
 			if m.dragAxis == "horizontal" {
-				m.horizontalSplit = clamp(msg.Y-1, 6, max(7, m.height-m.sessionInputHeight()-7))
+				available := max(8, m.height-2)
+				work := max(8, available-m.sessionInputHeight())
+				ratio := float64(clamp(msg.Y-1, 6, work-5)) / float64(work)
+				m.layout.SetSessionUpperRatio(ratio)
 				m.configureTranscriptViewport()
 			} else {
-				m.paneSplit = clamp(msg.X, 24, max(25, m.width-24))
+				ratio := float64(clamp(msg.X, 24, max(25, m.width-24))) / float64(max(1, m.width))
+				m.layout.SetVerticalSplitRatio(ratio)
 			}
 		}
 		return m, nil
@@ -233,7 +235,7 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+e":
 		return model.endSession()
 	case "ctrl+p":
-		model.paneLayout = (model.paneLayout + 1) % 3
+		model.layout.CycleSessionUpperVisibility()
 		model.persistPreferences()
 		return model, nil
 	case "enter", "ctrl+enter", "\r", "\n":
@@ -655,26 +657,22 @@ func (m *Model) persistWorkspace() {
 
 func (m *Model) applyPreferences() {
 	if m.prefs == nil {
+		m.layout = prefs.DefaultLayout()
 		return
 	}
 	layout, err := m.prefs.Load()
 	if err != nil {
+		m.layout = prefs.DefaultLayout()
 		return
 	}
-	m.paneLayout = clamp(layout.PaneLayout, 0, 2)
-	m.paneSplit = layout.PaneSplit
-	m.horizontalSplit = layout.HorizontalSplit
+	m.layout = layout.Normalize()
 }
 
 func (m *Model) persistPreferences() {
 	if m.prefs == nil {
 		return
 	}
-	err := m.prefs.Save(prefs.Layout{
-		PaneLayout:      m.paneLayout,
-		PaneSplit:       m.paneSplit,
-		HorizontalSplit: m.horizontalSplit,
-	})
+	err := m.prefs.Save(m.layout)
 	if err != nil && m.status == "" {
 		m.status = "Layout preference save failed: " + err.Error()
 	}
@@ -1318,12 +1316,17 @@ func (m Model) sessionView() tea.View {
 	leftWidth := m.splitWidth(width)
 	rightWidth := max(1, width-leftWidth)
 	header := headerStyle.Width(width).Render(m.renderSessionHeader())
-	scene := panelStyle.Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
-	context := panelStyle.Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
-	upper := lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
-	if m.paneLayout == 1 {
+	campaignOn := m.layout.SessionLeafVisible(prefs.PaneCampaign)
+	contextOn := m.layout.SessionLeafVisible(prefs.PaneContext)
+	var upper string
+	switch {
+	case campaignOn && contextOn:
+		scene := panelStyle.Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
+		context := panelStyle.Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
+		upper = lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
+	case contextOn:
 		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
-	} else if m.paneLayout == 2 {
+	default:
 		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
 	}
 	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
@@ -1636,10 +1639,8 @@ func clamp(value, low, high int) int {
 }
 
 func (m Model) splitWidth(total int) int {
-	if m.paneSplit > 0 {
-		return clamp(m.paneSplit, 24, max(25, total-24))
-	}
-	return clamp(total/3, 28, max(29, total-28))
+	ratio := m.layout.VerticalRatio()
+	return clamp(int(float64(total)*ratio), 24, max(25, total-24))
 }
 
 func (m Model) sessionInputHeight() int {
@@ -1651,18 +1652,18 @@ func (m Model) sessionInputHeight() int {
 
 func (m Model) sessionTranscriptHeight() int {
 	available := max(8, m.height-2)
-	if m.horizontalSplit > 0 {
-		return max(5, available-m.sessionInputHeight()-m.sessionUpperHeight())
-	}
-	return min(8, max(6, available/4))
+	inputHeight := m.sessionInputHeight()
+	work := max(8, available-inputHeight)
+	upper := m.sessionUpperHeight()
+	return max(5, work-upper)
 }
 
 func (m Model) sessionUpperHeight() int {
 	available := max(8, m.height-2)
-	if m.horizontalSplit > 0 {
-		return clamp(m.horizontalSplit, 6, max(7, available-m.sessionInputHeight()-5))
-	}
-	return max(6, available-m.sessionInputHeight()-min(8, max(6, available/4)))
+	inputHeight := m.sessionInputHeight()
+	work := max(8, available-inputHeight)
+	upper := int(float64(work) * m.layout.SessionUpperRatio())
+	return clamp(upper, 6, max(7, work-5))
 }
 
 func abs(value int) int {

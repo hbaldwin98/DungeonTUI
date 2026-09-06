@@ -79,7 +79,7 @@ The session log scrolls with the mouse wheel; clicking the context pane selects
 an entity for review. Drag vertical gutters to reallocate left/right panes and
 horizontal gutters to reallocate upper/transcript panes. Split positions and the
 Ctrl+P session pane layout are stored in `preferences.json` beside the campaign
-workspace file.
+workspace file as named pane split trees (ratios + campaign/context visibility).
 
 See [the decision record](docs/decisions.md) and [task snapshot](docs/tasks.md)
 for the current implementation boundaries and queue.

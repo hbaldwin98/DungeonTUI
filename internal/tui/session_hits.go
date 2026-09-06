@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/prefs"
 )
 
 type hitAction int
@@ -51,14 +52,16 @@ func (m Model) sessionHitTargets() []hitTarget {
 	inputTop := transcriptTop + transcriptHeight
 
 	var hits []hitTarget
-	switch m.paneLayout {
-	case 1:
-		hits = append(hits, m.panelHits(0, m.width, upperTop, upperHeight, m.contextContentLines())...)
-	case 2:
-		hits = append(hits, m.panelHits(0, m.width, upperTop, upperHeight, m.campaignContentLines())...)
-	default:
+	campaignOn := m.layout.SessionLeafVisible(prefs.PaneCampaign)
+	contextOn := m.layout.SessionLeafVisible(prefs.PaneContext)
+	switch {
+	case campaignOn && contextOn:
 		hits = append(hits, m.panelHits(0, divider, upperTop, upperHeight, m.campaignContentLines())...)
 		hits = append(hits, m.panelHits(divider, m.width-divider, upperTop, upperHeight, m.contextContentLines())...)
+	case contextOn:
+		hits = append(hits, m.panelHits(0, m.width, upperTop, upperHeight, m.contextContentLines())...)
+	default:
+		hits = append(hits, m.panelHits(0, m.width, upperTop, upperHeight, m.campaignContentLines())...)
 	}
 	hits = append(hits, m.panelHits(0, m.width, inputTop, inputHeight, m.inputContentLines())...)
 	hits = append(hits, hitTarget{
@@ -214,6 +217,21 @@ func (m Model) contextContentLines() []contentLine {
 		lines = append(lines, contentLine{Text: "", PinX: -1, ClearX: -1})
 	}
 
+	if m.review != nil {
+		pinLabel := "pin"
+		if m.reviewPinned {
+			pinLabel = "unpin"
+		}
+		prefix := "SELECTED  ["
+		pinX := len(prefix)
+		clearX := pinX + len(pinLabel) + len("] [")
+		lines = append(lines,
+			contentLine{Text: prefix + pinLabel + "] [clear]", PinX: pinX, ClearX: clearX},
+			contentLine{Text: m.review.Title, PinX: -1, ClearX: -1},
+			contentLine{Text: "", PinX: -1, ClearX: -1},
+		)
+	}
+
 	lines = append(lines, contentLine{Text: "PRESENT", PinX: -1, ClearX: -1})
 	present := m.sessionPresent()
 	if len(present) == 0 {
@@ -256,22 +274,6 @@ func (m Model) contextContentLines() []contentLine {
 				ClearX: -1,
 			})
 		}
-	}
-
-	if m.review != nil {
-		pinLabel := "pin"
-		if m.reviewPinned {
-			pinLabel = "unpin"
-		}
-		prefix := "SELECTED  ["
-		pinX := len(prefix)
-		clearX := pinX + len(pinLabel) + len("] [")
-		lines = append(lines,
-			contentLine{Text: "", PinX: -1, ClearX: -1},
-			contentLine{Text: prefix + pinLabel + "] [clear]", PinX: pinX, ClearX: clearX},
-			contentLine{Text: m.review.Title, PinX: -1, ClearX: -1},
-			contentLine{Text: m.review.Summary, PinX: -1, ClearX: -1},
-		)
 	}
 	return lines
 }

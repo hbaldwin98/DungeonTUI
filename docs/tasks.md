@@ -24,11 +24,10 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   location (`#location`, `current-scene` seed, present NPCs, open threads).
 - Mouse-addressable session review: click context entities, campaign sections,
   `@` suggestions, and review pin/clear controls.
+- Named pane split trees in `preferences.json` (browser + session) with
+  persisted ratios and campaign/context visibility cycling via Ctrl+P.
 
 ## In progress
-
-- General configurable pane system: named pane types, visibility, ordering,
-  focus, and arbitrary two-axis split tree.
 
 ## Next
 
@@ -37,6 +36,7 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   workspace preferences.
 - Add optional AI adapters and proposal approval flow after the factual path is
   stable.
+- Optional: interactive pane reordering and fully recursive split editing UI.
 
 ## Deferred
 

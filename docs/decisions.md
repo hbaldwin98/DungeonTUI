@@ -60,3 +60,10 @@ originating transcript entry with expression, faces, and total. They remain
 session evidence until the DM later reconciles them; `#random` and `#location`
 stay separate command verbs.
 
+## D-009 — Layout is a named-pane split tree
+
+Personal layout preferences store browser and session binary split trees of
+named panes (list, detail, campaign, context, transcript, input). Ratios and
+leaf visibility persist in `preferences.json`. Legacy pane_layout/pane_split
+integers migrate on load.
+

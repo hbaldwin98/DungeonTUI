@@ -8,14 +8,6 @@ import (
 	"path/filepath"
 )
 
-// Layout captures personal pane geometry. It is intentionally separate from
-// campaign/workspace JSON so preferences stay portable across factual exports.
-type Layout struct {
-	PaneLayout      int `json:"pane_layout"`
-	PaneSplit       int `json:"pane_split"`
-	HorizontalSplit int `json:"horizontal_split"`
-}
-
 // Store loads and saves layout preferences.
 type Store interface {
 	Load() (Layout, error)
@@ -41,13 +33,17 @@ func (s JSONStore) Load() (Layout, error) {
 	if err := json.Unmarshal(data, &layout); err != nil {
 		return Layout{}, fmt.Errorf("decode preferences: %w", err)
 	}
-	return layout, nil
+	return layout.Normalize(), nil
 }
 
 func (s JSONStore) Save(layout Layout) error {
 	if s.Path == "" {
 		return fmt.Errorf("preferences path is required")
 	}
+	layout = layout.Normalize()
+	layout.PaneLayout = 0
+	layout.PaneSplit = 0
+	layout.HorizontalSplit = 0
 	data, err := json.MarshalIndent(layout, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode preferences: %w", err)

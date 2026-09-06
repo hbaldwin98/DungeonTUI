@@ -62,8 +62,8 @@ func TestHarnessSessionScrollResizeAndScreencap(t *testing.T) {
 
 	divider := h.Model.splitWidth(h.Model.width)
 	h.DragLeft(divider, 4, 45, 4)
-	if h.Model.paneSplit != 45 {
-		t.Fatalf("vertical drag should set paneSplit=45, got %d", h.Model.paneSplit)
+	if absRatio(h.Model.layout.VerticalRatio()-0.45) > 0.03 {
+		t.Fatalf("vertical drag should set ratio near 0.45, got %v", h.Model.layout.VerticalRatio())
 	}
 	upper := h.Model.sessionUpperHeight()
 	beforeTranscript := h.Model.sessionTranscriptHeight()
@@ -224,18 +224,21 @@ func TestLayoutPreferencesPersistSeparately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.PaneSplit != 47 {
-		t.Fatalf("pane_split=%d want 47", loaded.PaneSplit)
+	if absRatio(loaded.VerticalRatio()-0.47) > 0.03 {
+		t.Fatalf("vertical ratio=%v want ~0.47", loaded.VerticalRatio())
 	}
-	if loaded.PaneLayout != 1 {
-		t.Fatalf("pane_layout=%d want 1", loaded.PaneLayout)
+	if loaded.SessionLeafVisible(prefs.PaneCampaign) || !loaded.SessionLeafVisible(prefs.PaneContext) {
+		t.Fatalf("expected context-only after Ctrl+P, got %s", loaded.Session.Root.Describe())
 	}
 
 	restored := NewHarness(100, 30)
 	restored.Model.prefs = store
 	restored.Model.applyPreferences()
-	if restored.Model.paneSplit != 47 || restored.Model.paneLayout != 1 {
-		t.Fatalf("restored layout split=%d layout=%d", restored.Model.paneSplit, restored.Model.paneLayout)
+	if absRatio(restored.Model.layout.VerticalRatio()-0.47) > 0.03 {
+		t.Fatalf("restored ratio=%v", restored.Model.layout.VerticalRatio())
+	}
+	if restored.Model.layout.SessionLeafVisible(prefs.PaneCampaign) {
+		t.Fatal("restored layout should hide campaign pane")
 	}
 	if _, err := os.ReadFile(filepath.Join(dir, "workspace.json")); !os.IsNotExist(err) {
 		t.Fatal("layout prefs must not write campaign workspace.json")
@@ -252,8 +255,15 @@ func TestSessionUsesDynamicContextAndLocation(t *testing.T) {
 	if !frame.Contains("Ruined Monastery") {
 		t.Fatalf("scene pane should show live location:\n%s", frame.Plain)
 	}
-	if !frame.Contains("Missing Reliquary") {
-		t.Fatalf("scene pane should list live threads:\n%s", frame.Plain)
+	if !frame.Contains("Captain Vale") {
+		t.Fatalf("scene pane should list live NPCs:\n%s", frame.Plain)
+	}
+	if !frame.Contains("Threads") || !strings.Contains(frame.Plain, "Threads") {
+		t.Fatalf("campaign pane should include threads:\n%s", frame.Plain)
+	}
+	// Live thread titles may sit below the fold; the campaign count must still be real.
+	if !frame.Contains("1") {
+		t.Fatalf("expected live thread count in campaign pane:\n%s", frame.Plain)
 	}
 	if strings.Contains(frame.Plain, "Greywatch Monastery") {
 		t.Fatal("fixture location title should be gone")

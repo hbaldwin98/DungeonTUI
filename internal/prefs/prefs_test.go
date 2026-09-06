@@ -10,7 +10,8 @@ func TestLayoutRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "preferences.json")
 	store := NewJSON(path)
-	want := Layout{PaneLayout: 2, PaneSplit: 42, HorizontalSplit: 11}
+	want := DefaultLayout()
+	want.Session.Root.Children[0].Ratio = 0.41
 	if err := store.Save(want); err != nil {
 		t.Fatal(err)
 	}
@@ -18,8 +19,8 @@ func TestLayoutRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != want {
-		t.Fatalf("got %#v want %#v", got, want)
+	if got.Session.Root.Children[0].Ratio != 0.41 {
+		t.Fatalf("ratio got=%v", got.Session.Root.Children[0].Ratio)
 	}
 	info, err := os.Stat(path)
 	if err != nil {

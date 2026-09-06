@@ -277,19 +277,19 @@ func parseKey(name string) tea.KeyPressMsg {
 
 // Scenario runs a scripted sequence used by tests and the harness CLI.
 type Scenario struct {
-	Name  string
-	Width int
+	Name   string
+	Width  int
 	Height int
-	Steps []ScenarioStep
+	Steps  []ScenarioStep
 }
 
 // ScenarioStep is one harness action.
 type ScenarioStep struct {
-	Op      string
-	Text    string
-	X, Y    int
+	Op       string
+	Text     string
+	X, Y     int
 	ToX, ToY int
-	Stem    string
+	Stem     string
 }
 
 // RunScenario executes steps and writes screencaps into dir when Stem is set.

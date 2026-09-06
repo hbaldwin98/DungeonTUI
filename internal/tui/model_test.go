@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/prefs"
 )
 
 func TestSearchStartsCampaignScopedAndFactsOnly(t *testing.T) {
@@ -255,8 +256,8 @@ func TestSessionTranscriptScrollsAndPanesCycle(t *testing.T) {
 	}
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
 	model = updated.(Model)
-	if model.paneLayout != 1 {
-		t.Fatalf("expected pane layout cycle, got %d", model.paneLayout)
+	if model.layout.SessionLeafVisible(prefs.PaneCampaign) || !model.layout.SessionLeafVisible(prefs.PaneContext) {
+		t.Fatalf("expected context-only after Ctrl+P, got %s", model.layout.Session.Root.Describe())
 	}
 }
 
@@ -269,8 +270,8 @@ func TestMouseDragResizesBrowserAndSessionGutters(t *testing.T) {
 	model = updated.(Model)
 	updated, _ = model.Update(tea.MouseMotionMsg{X: 52, Y: 10, Button: tea.MouseLeft})
 	model = updated.(Model)
-	if model.paneSplit != 52 {
-		t.Fatalf("expected browser gutter at 52, got %d", model.paneSplit)
+	if absRatio(model.layout.VerticalRatio()-0.52) > 0.03 {
+		t.Fatalf("expected browser gutter ratio near 0.52, got %v", model.layout.VerticalRatio())
 	}
 	updated, _ = model.Update(tea.MouseReleaseMsg{X: 52, Y: 10, Button: tea.MouseLeft})
 	model = updated.(Model)
@@ -294,11 +295,11 @@ func TestMouseDragResizesBrowserAndSessionGutters(t *testing.T) {
 		t.Fatal("expected horizontal gutter drag to start")
 	}
 	beforeTranscript := model.sessionTranscriptHeight()
+	beforeUpperRatio := model.layout.SessionUpperRatio()
 	updated, _ = model.Update(tea.MouseMotionMsg{X: 70, Y: upper + 4, Button: tea.MouseLeft})
 	model = updated.(Model)
-	expectedSplit := clamp(upper+3, 6, max(7, model.height-model.sessionInputHeight()-7))
-	if model.horizontalSplit != expectedSplit {
-		t.Fatalf("expected horizontal split at %d, got %d", expectedSplit, model.horizontalSplit)
+	if model.layout.SessionUpperRatio() <= beforeUpperRatio {
+		t.Fatalf("expected upper ratio to grow, before=%v after=%v", beforeUpperRatio, model.layout.SessionUpperRatio())
 	}
 	if model.sessionTranscriptHeight() >= beforeTranscript {
 		t.Fatalf("expected transcript to give space to upper pane, before=%d after=%d", beforeTranscript, model.sessionTranscriptHeight())

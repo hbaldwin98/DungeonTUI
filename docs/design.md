@@ -13,8 +13,7 @@ creation, local `#random`/`#location` commands, `#` dice/arithmetic rolls,
 entity review, scrollback, mouse-driven session pane resizing, and session
 scene panes driven by live campaign records rather than hard-coded fixtures.
 The layout is intentionally still being validated. Pane split preferences
-persist separately from campaign JSON; a more general pane graph remains
-planned work.
+persist as named pane trees in `preferences.json`, separate from campaign JSON.
 
 ## Product thesis
 
