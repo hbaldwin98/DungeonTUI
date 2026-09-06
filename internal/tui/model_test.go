@@ -512,6 +512,60 @@ func TestPlannedNotesSaveAndSeedLiveSession(t *testing.T) {
 	}
 }
 
+func TestOnePrepCoversMultipleLiveSits(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Text: "p"}))
+	model = updated.(Model)
+	model.planTitle.SetValue("Crypt arc")
+	model.planBody.SetValue("Meet @Captain Vale\n#location Greywatch\n")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	planID := model.workspace.PlannedNotes[0].ID
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	firstID := model.session.ID
+	if model.session.Title != "Crypt arc" || model.session.PlannedNotesID != planID {
+		t.Fatalf("first sit should keep plan title, got %#v", model.session)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	if model.session.ID == firstID {
+		t.Fatal("second sit must be a new live session")
+	}
+	if model.session.PlannedNotesID != planID {
+		t.Fatalf("second sit should still seed from the same prep, got %q", model.session.PlannedNotesID)
+	}
+	if model.session.Title == "Crypt arc" {
+		t.Fatalf("later sit should disambiguate title, got %q", model.session.Title)
+	}
+	if !strings.HasPrefix(model.session.Title, "Crypt arc · ") {
+		t.Fatalf("later sit title=%q", model.session.Title)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+
+	seeded := domain.SessionsSeededFrom(model.workspace.Sessions, planID)
+	if len(seeded) != 2 {
+		t.Fatalf("prep should cover two live sits, got %#v", seeded)
+	}
+	if len(model.workspace.PlannedNotes) != 1 {
+		t.Fatal("starting live must not consume or clone the prep document")
+	}
+
+	model.selectedPlanID = planID
+	model.setNavCursor(1) // Prep branch
+	detail := model.renderTreeDetail()
+	if !strings.Contains(detail, "LIVE SITS") || !strings.Contains(detail, "Crypt arc") {
+		t.Fatalf("prep detail should list live sits: %q", detail)
+	}
+}
+
 func TestNewPrepAttachesEndedSessionContext(t *testing.T) {
 	model := New()
 	model.width = 100
@@ -581,6 +635,53 @@ func TestSessionReconciliationPreservesTranscript(t *testing.T) {
 	}
 	if !strings.Contains(model.View().Content, "SESSION RECONCILIATION") {
 		t.Fatalf("expected reconciliation UI: %q", model.View().Content)
+	}
+}
+
+func TestEndedSessionPlaybackScrubsDerivedBeats(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	model.sessionInput.SetValue("@Captain Vale finds the key")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	original := model.session.Entries[0].Text
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+
+	model.setNavCursor(0)
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if !model.playingBack {
+		t.Fatal("Enter on an ended session should open playback")
+	}
+	view := model.View().Content
+	if !strings.Contains(view, "SESSION PLAYBACK") {
+		t.Fatalf("expected playback overlay: %q", view)
+	}
+	if !strings.Contains(view, "Captain Vale") {
+		t.Fatalf("playback should surface associated entity: %q", view)
+	}
+	if model.workspace.Sessions[0].Entries[0].Text != original {
+		t.Fatal("playback must leave transcript text intact")
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	model = updated.(Model)
+	if model.playbackCursor != 1 {
+		t.Fatalf("→ should fast-forward, cursor=%d", model.playbackCursor)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
+	model = updated.(Model)
+	if model.playbackCursor != 0 {
+		t.Fatalf("← should rewind, cursor=%d", model.playbackCursor)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	model = updated.(Model)
+	if model.playingBack {
+		t.Fatal("Esc should close playback")
 	}
 }
 

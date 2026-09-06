@@ -153,8 +153,24 @@ func (m Model) cyclePlanPriorSits() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) planPriorSits() []domain.PriorSit {
-	return domain.ResolvePriorSits(m.workspace.Sessions, m.workspace.Records, m.planDraft.PriorSessionIDs)
+func (m Model) renderPlanLiveSits() string {
+	if m.planDraft.ID == "" {
+		return ""
+	}
+	sits := domain.SessionsSeededFrom(m.workspace.Sessions, m.planDraft.ID)
+	if len(sits) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString(labelStyle.Render("LIVE SITS"))
+	for _, sit := range sits {
+		state := "live"
+		if sit.EndedAt != nil {
+			state = sit.StartedAt.Local().Format("2006-01-02")
+		}
+		builder.WriteString(fmt.Sprintf("\n  %s · %s", sit.Title, state))
+	}
+	return builder.String()
 }
 
 func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
@@ -189,7 +205,7 @@ func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
 	m.planning = false
 	m.suggestions = nil
 	m.persistWorkspace()
-	m.status = "Saved planned notes · s starts live from this prep"
+	m.status = "Saved planned notes · s starts another live sit from this prep"
 	return m, nil
 }
 
@@ -202,6 +218,7 @@ func (m Model) renderPlannedNotesOverlay() string {
 	}
 	peek := m.renderPeekPanel(5)
 	prior := m.renderPlanPriorSits()
+	live := m.renderPlanLiveSits()
 	reserve := 3
 	if suggest != "" {
 		reserve += lipgloss.Height(suggest) + 1
@@ -211,6 +228,9 @@ func (m Model) renderPlannedNotesOverlay() string {
 	}
 	if prior != "" {
 		reserve += lipgloss.Height(prior) + 1
+	}
+	if live != "" {
+		reserve += lipgloss.Height(live) + 1
 	}
 	sizeMarkdownTextAreaReserved(&m.planBody, width, height, reserve)
 	m.planTitle.SetWidth(max(20, width-10))
@@ -224,6 +244,10 @@ func (m Model) renderPlannedNotesOverlay() string {
 	if prior != "" {
 		chrome.WriteString("\n")
 		chrome.WriteString(prior)
+	}
+	if live := m.renderPlanLiveSits(); live != "" {
+		chrome.WriteString("\n")
+		chrome.WriteString(live)
 	}
 	if len(m.planDraft.Links) > 0 || m.planDraft.LocationName != "" {
 		chrome.WriteString("\n")
@@ -268,19 +292,16 @@ func (m Model) renderPlanPriorSits() string {
 	return builder.String()
 }
 
+func (m Model) planPriorSits() []domain.PriorSit {
+	return domain.ResolvePriorSits(m.workspace.Sessions, m.workspace.Records, m.planDraft.PriorSessionIDs)
+}
+
 func (m Model) activePlannedNotes() *domain.PlannedNotes {
 	if m.selectedPlanID != "" {
-		if plan := m.plannedByID(m.selectedPlanID); plan != nil {
-			return plan
-		}
+		return m.plannedByID(m.selectedPlanID)
 	}
 	if m.planID != "" {
-		if plan := m.plannedByID(m.planID); plan != nil {
-			return plan
-		}
+		return m.plannedByID(m.planID)
 	}
-	if len(m.workspace.PlannedNotes) == 0 {
-		return nil
-	}
-	return &m.workspace.PlannedNotes[len(m.workspace.PlannedNotes)-1]
+	return nil
 }

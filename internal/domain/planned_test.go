@@ -91,3 +91,24 @@ func TestDefaultPriorSessionIDsSkipsLiveAndOtherCampaigns(t *testing.T) {
 		t.Fatalf("summary=%q", sits[1].Summary())
 	}
 }
+
+func TestSessionsSeededFromKeepsPlayOrder(t *testing.T) {
+	planID := "plan-arc"
+	first := mustParseTime(t, "2026-01-01T17:00:00Z")
+	second := mustParseTime(t, "2026-01-02T17:00:00Z")
+	sessions := []SessionRecord{
+		{ID: "s2", Title: "Night two", PlannedNotesID: planID, StartedAt: second},
+		{ID: "s1", Title: "Night one", PlannedNotesID: planID, StartedAt: first},
+		{ID: "other", Title: "Unrelated", PlannedNotesID: "plan-x", StartedAt: second},
+	}
+	seeded := SessionsSeededFrom(sessions, planID)
+	if len(seeded) != 2 || seeded[0].ID != "s1" || seeded[1].ID != "s2" {
+		t.Fatalf("expected play order, got %#v", seeded)
+	}
+	if got := NextSitTitle("Crypt approach", 0, second); got != "Crypt approach" {
+		t.Fatalf("first sit title=%q", got)
+	}
+	if got := NextSitTitle("Crypt approach", 1, second); got != "Crypt approach · 2026-01-02 17:00" {
+		t.Fatalf("later sit title=%q", got)
+	}
+}

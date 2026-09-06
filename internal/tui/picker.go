@@ -21,6 +21,7 @@ func (m *Model) openPicker() {
 	m.planning = false
 	m.editing = false
 	m.reconciling = false
+	m.playingBack = false
 	m.clearDestructiveConfirm("")
 	if m.layout.ActiveWorldID != "" {
 		for index, world := range m.workspace.Library {

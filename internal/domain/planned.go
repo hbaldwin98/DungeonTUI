@@ -271,3 +271,33 @@ func sortPriorSitsNewestFirst(sits []PriorSit) {
 		return sits[i].StartedAt.After(sits[j].StartedAt)
 	})
 }
+
+// SessionsSeededFrom returns live sits that started from the given prep notes,
+// oldest first so an arc reads in play order.
+func SessionsSeededFrom(sessions []SessionRecord, planID string) []SessionRecord {
+	if planID == "" {
+		return nil
+	}
+	out := make([]SessionRecord, 0)
+	for _, session := range sessions {
+		if session.PlannedNotesID == planID {
+			out = append(out, session)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].StartedAt.Before(out[j].StartedAt)
+	})
+	return out
+}
+
+// NextSitTitle names a live sit in a prep arc without colliding with earlier nights.
+func NextSitTitle(planTitle string, alreadySeeded int, started time.Time) string {
+	title := strings.TrimSpace(planTitle)
+	if title == "" {
+		title = "Session"
+	}
+	if alreadySeeded <= 0 {
+		return title
+	}
+	return fmt.Sprintf("%s · %s", title, started.UTC().Format("2006-01-02 15:04"))
+}

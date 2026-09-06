@@ -52,6 +52,10 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   History (A+C), and `@` peeks (Argus #30, #40, #41; D-015).
 - Prep notes drafted against prior live sits: PRIOR SITS chrome, location
   seed, Ctrl+P to cycle attachments (Argus #43; D-016).
+- One prep arc can seed several live sits; prep detail lists LIVE SITS and
+  later nights keep a timestamped title (Argus #31).
+- Post-session playback: Enter an ended session to rewind/fast-forward derived
+  beats without mutating the transcript (Argus #32; D-011).
 
 ## In progress
 
@@ -69,8 +73,6 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Deferred
 
-- Planned notes that cover or follow multiple prior live sits (Argus #31).
-- Post-session change view with rewind/fast-forward playback (Argus #32).
 - SQLite operational store and FTS5 migration.
 - Context-aware AI generators and rules/source ingestion.
 - Web/API client over the shared domain services.

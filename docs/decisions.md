@@ -74,8 +74,8 @@ session record.
 
 ## D-011 — Post-session playback is derived, not transcript rewrite
 
-After play, viewing a session should support scrubbing what changed
-(rewind/fast-forward over entity diffs and reconciliation items). That view is
+After play, viewing a session supports scrubbing derived beats (cast,
+transcript, reconciliation) with rewind and fast-forward. That view is
 derived from linked records and never mutates the original transcript.
 
 ## D-012 — Planned session notes are distinct prep documents
@@ -83,7 +83,9 @@ derived from linked records and never mutates the original transcript.
 Planned notes are markdown prep docs (with `@` links and location markers) that
 live play may consume as context. They are not live session records and do not
 become one by flipping status. Each table sitting still gets its own immutable
-transcript. One planned note may later follow or reference several prior sits.
+transcript. One planned note may later follow or reference several prior sits,
+and the same note may seed several later live sits without flipping into a
+session record.
 
 ## D-013 — Campaign organization is a hierarchical library tree
 

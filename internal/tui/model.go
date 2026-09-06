@@ -82,6 +82,8 @@ type Model struct {
 	peekScroll        int
 	historyCursor     int
 	historyExpanded   string
+	playingBack       bool
+	playbackCursor    int
 }
 
 func New() Model {
@@ -193,6 +195,12 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m.openHelp()
 			}
 			return m.updatePlannedNotes(msg)
+		}
+		if m.playingBack {
+			if msg.String() == "?" {
+				return m.openHelp()
+			}
+			return m.updatePlayback(msg)
 		}
 		if m.reconciling {
 			return m.updateReconciliation(msg)
@@ -358,7 +366,8 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 	plan := m.activePlannedNotes()
 	if plan != nil {
 		session.PlannedNotesID = plan.ID
-		session.Title = plan.Title
+		already := domain.SessionsSeededFrom(m.workspace.Sessions, plan.ID)
+		session.Title = domain.NextSitTitle(plan.Title, len(already), started)
 		if plan.LocationID != "" || plan.LocationName != "" {
 			session.LocationID = plan.LocationID
 			session.LocationName = plan.LocationName
@@ -393,7 +402,7 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		m.status = "Live from planned notes · " + plan.Title + " · Ctrl+E ends"
+		m.status = "Live from planned notes · " + session.Title + " · Ctrl+E ends"
 	} else {
 		m.status = "Session started · click panes to focus · Ctrl+E ends capture"
 	}
@@ -1094,6 +1103,10 @@ func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
 		m.planID = m.selectedPlanID
 		return m.openPlannedNotes(false)
 	case NavSessions:
+		session := m.selectedSession()
+		if session != nil && session.EndedAt != nil {
+			return m.openPlayback()
+		}
 		return m.startSession()
 	default:
 		if m.layout.Focus == prefs.PaneDetail {
@@ -2132,6 +2145,8 @@ func (m Model) View() tea.View {
 		view = m.renderEditorOverlay()
 	} else if m.planning {
 		view = m.renderPlannedNotesOverlay()
+	} else if m.playingBack {
+		view = m.renderPlaybackOverlay()
 	} else if m.reconciling {
 		view = m.renderReconciliationOverlay()
 	}

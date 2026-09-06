@@ -258,7 +258,11 @@ func (m Model) renderTreeDetail() string {
 			}
 			builder.WriteString(fmt.Sprintf("\nEntries: %d", len(session.Entries)))
 			if session.PlannedNotesID != "" {
-				builder.WriteString("\nSeeded from prep notes")
+				if plan := m.plannedByID(session.PlannedNotesID); plan != nil {
+					builder.WriteString("\nPrep: " + plan.Title)
+				} else {
+					builder.WriteString("\nSeeded from prep notes")
+				}
 			}
 			if len(session.Links) > 0 {
 				builder.WriteString("\n\n")
@@ -276,7 +280,7 @@ func (m Model) renderTreeDetail() string {
 				}
 			}
 			builder.WriteString("\n\n")
-			builder.WriteString(mutedStyle.Render("Enter/s starts live · d deletes this session"))
+			builder.WriteString(mutedStyle.Render("Enter playback · s starts live · d deletes this session"))
 			return builder.String()
 		}
 		return mutedStyle.Render("Select a session")
@@ -307,6 +311,17 @@ func (m Model) renderTreeDetail() string {
 					}
 				}
 			}
+			if live := domain.SessionsSeededFrom(m.workspace.Sessions, plan.ID); len(live) > 0 {
+				builder.WriteString("\n")
+				builder.WriteString(labelStyle.Render("LIVE SITS"))
+				for _, sit := range live {
+					state := "live"
+					if sit.EndedAt != nil {
+						state = sit.StartedAt.Local().Format("2006-01-02")
+					}
+					builder.WriteString(fmt.Sprintf("\n  %s · %s", sit.Title, state))
+				}
+			}
 			builder.WriteString("\n\n")
 			body := strings.TrimSpace(plan.Body)
 			if body == "" {
@@ -315,7 +330,7 @@ func (m Model) renderTreeDetail() string {
 				builder.WriteString(body)
 			}
 			builder.WriteString("\n\n")
-			builder.WriteString(mutedStyle.Render("Enter/e edits · s starts live from this prep"))
+			builder.WriteString(mutedStyle.Render("Enter/e edits · s starts another live sit from this prep"))
 			return builder.String()
 		}
 		return mutedStyle.Render("Select prep notes · p to draft")

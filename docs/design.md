@@ -450,15 +450,17 @@ arbitrary horizontal/vertical splits rather than adding one-off coordinates.
   sessions (callbacks, open threads, what changed last time) without mixing
   prep into the play record. New prep attaches recent ended sits as visible
   **PRIOR SITS** context (title, location, cast, last beat) and can seed
-  `#location` from the latest of those sits.
+  `#location` from the latest of those sits. One prep document can seed several
+  live sits without being consumed; later nights keep the plan title with a
+  timestamp so the arc stays readable.
 - **Live session** — explicit start/end capture with an immutable transcript of
   what happened at the table. Starting live play can *use* planned notes as
   scene/context seed so the table sees organized prep rather than the whole
   wiki. Each live sit keeps its own transcript and reconciliation.
 
-Afterward, the DM should be able to open a live session and scrub what changed
-— rewind/fast-forward across entity diffs and reconciliation items — without
-rewriting the original transcript.
+Afterward, the DM can open an ended session and **play back** derived beats
+(cast associations, transcript hits, reconciliation items) with rewind and
+fast-forward. That view never rewrites the original transcript.
 
 A campaign can have an explicit session lifecycle. Starting a session creates a
 session record and opens a transcript pane with a focused multiline input. The
