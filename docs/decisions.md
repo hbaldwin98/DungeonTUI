@@ -78,12 +78,11 @@ After play, viewing a session should support scrubbing what changed
 (rewind/fast-forward over entity diffs and reconciliation items). That view is
 derived from linked records and never mutates the original transcript.
 
-## D-012 — Planned notes are prep docs; live sessions are play records
+## D-013 — Hierarchical library tree is the primary organizer
 
-Planned session notes are a distinct prep document (markdown, `@` links,
-location markers) for the next sit — not a live session and not a status flip
-into one. Live sessions remain separate start/end transcripts. Live play may
-*consume* planned notes as context. Future planned notes may be drafted in the
-context of previous live sessions so continuity is visible without mixing prep
-into the immutable play log.
+Organization should be a drill-down tree: Library → World → Campaign → typed
+wiki sections, Sessions, and Prep notes. Flat multi-type panes and ad-hoc
+folders are secondary. Tags/collections and scope filters sit on top of that
+tree; they do not replace it. Clutter comes from missing hierarchy in the UI,
+not from needing another horizontal list of everything at once.
 

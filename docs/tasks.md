@@ -45,6 +45,9 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Next
 
+- Hierarchical library navigator: world → campaign → sections / sessions /
+  prep (Argus #35–#36; decision #35 / D-013).
+- Tags/collections and scope filters as secondary organization (Argus #37).
 - Draft future planned notes in the context of previous live sessions
   (decision #33).
 - Associate entities to sessions while keeping world/campaign globals visible
