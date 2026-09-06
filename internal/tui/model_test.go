@@ -293,9 +293,14 @@ func TestMouseDragResizesBrowserAndSessionGutters(t *testing.T) {
 	if !model.draggingSplit || model.dragAxis != "horizontal" {
 		t.Fatal("expected horizontal gutter drag to start")
 	}
+	beforeTranscript := model.sessionTranscriptHeight()
 	updated, _ = model.Update(tea.MouseMotionMsg{X: 70, Y: upper + 4, Button: tea.MouseLeft})
 	model = updated.(Model)
-	if model.horizontalSplit != upper+3 {
-		t.Fatalf("expected horizontal split at %d, got %d", upper+3, model.horizontalSplit)
+	expectedSplit := clamp(upper+3, 6, max(7, model.height-model.sessionInputHeight()-7))
+	if model.horizontalSplit != expectedSplit {
+		t.Fatalf("expected horizontal split at %d, got %d", expectedSplit, model.horizontalSplit)
+	}
+	if model.sessionTranscriptHeight() >= beforeTranscript {
+		t.Fatalf("expected transcript to give space to upper pane, before=%d after=%d", beforeTranscript, model.sessionTranscriptHeight())
 	}
 }

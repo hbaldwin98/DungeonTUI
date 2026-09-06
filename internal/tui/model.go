@@ -163,7 +163,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMotionMsg:
 		if m.draggingSplit {
 			if m.dragAxis == "horizontal" {
-				m.horizontalSplit = clamp(msg.Y-1, 6, max(7, m.height-12))
+				m.horizontalSplit = clamp(msg.Y-1, 6, max(7, m.height-m.sessionInputHeight()-7))
+				m.configureTranscriptViewport()
 			} else {
 				m.paneSplit = clamp(msg.X, 24, max(25, m.width-24))
 			}
@@ -1396,16 +1397,18 @@ func (m Model) sessionInputHeight() int {
 
 func (m Model) sessionTranscriptHeight() int {
 	available := max(8, m.height-2)
+	if m.horizontalSplit > 0 {
+		return max(5, available-m.sessionInputHeight()-m.sessionUpperHeight())
+	}
 	return min(8, max(6, available/4))
 }
 
 func (m Model) sessionUpperHeight() int {
 	available := max(8, m.height-2)
-	defaultHeight := max(6, available-m.sessionInputHeight()-m.sessionTranscriptHeight())
 	if m.horizontalSplit > 0 {
 		return clamp(m.horizontalSplit, 6, max(7, available-m.sessionInputHeight()-5))
 	}
-	return defaultHeight
+	return max(6, available-m.sessionInputHeight()-min(8, max(6, available/4)))
 }
 
 func abs(value int) int {
