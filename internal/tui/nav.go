@@ -166,6 +166,9 @@ func (m Model) renderListPane() string {
 	if m.tagFilter != "" {
 		filters = append(filters, "#"+m.tagFilter)
 	}
+	if col := m.activeCollection(); col != nil {
+		filters = append(filters, col.Title)
+	}
 	if m.layout.Focus == prefs.PaneList {
 		filters = append(filters, "focused")
 	}

@@ -82,6 +82,17 @@ func demoWorkspace() domain.Workspace {
 	if err != nil {
 		panic(err)
 	}
+	workspace.Collections = []domain.Collection{{
+		ID:    "col-greywatch",
+		Title: "Greywatch circle",
+		Scope: scope,
+		RecordIDs: []string{
+			"npc-captain-vale",
+			"npc-father-merrow",
+			"location-monastery",
+			"thread-reliquary",
+		},
+	}}
 	workspace.Library = []domain.WorldRef{
 		{
 			ID:   "ashen-realms",

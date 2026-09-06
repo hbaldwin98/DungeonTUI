@@ -56,6 +56,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   later nights keep a timestamped title (Argus #31).
 - Post-session playback: Enter an ended session to rewind/fast-forward derived
   beats without mutating the transcript (Argus #32; D-011).
+- Named collections as a filter on the campaign tree (`c` / `g` / `a`)
+  (Argus #39; D-017).
 
 ## In progress
 
@@ -63,7 +65,6 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ### Later
 
-- Named collections as a later organization aid on top of tags (Argus #39).
 - Deepen reconciliation: factual diffs, superseded history, and draft provenance.
 - Add export/import coverage for worlds, campaigns, sessions, links, and
   workspace preferences.

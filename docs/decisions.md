@@ -92,7 +92,7 @@ session record.
 Primary navigation inside a campaign is a tree of first-class branches
 (Sessions, Prep, typed wiki sections), not more flat type panes. The browser
 layout is IDE-style **nav | list | detail**. Tags and collections are secondary
-aids layered on that tree later.
+aids layered on that tree (`f` tags, `c` collections).
 
 ## D-014 — Launch with a world/campaign picker
 
@@ -115,4 +115,10 @@ place. History is derived; transcripts remain immutable.
 New planned notes attach recent ended sessions in the current campaign as
 context (cast, location, last transcript beat). The attachment is a reference,
 not a copy of the transcript. Ctrl+P cycles how many prior sits are attached.
+
+## D-017 — Named collections sit on top of tags
+
+Collections are campaign-scoped named groups of wiki record IDs. They filter
+the existing tree; they are not a second navigator. `c` cycles the filter, `g`
+creates a collection, and `a` toggles membership of the selected entity.
 

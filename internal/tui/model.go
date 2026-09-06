@@ -84,6 +84,10 @@ type Model struct {
 	historyExpanded   string
 	playingBack       bool
 	playbackCursor    int
+	collectionFilter  string
+	lastCollectionID  string
+	namingCollection  bool
+	collectionName    textinput.Model
 }
 
 func New() Model {
@@ -132,15 +136,21 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	input.Prompt = "> "
 	input.CharLimit = 120
 
+	name := textinput.New()
+	name.Placeholder = "Collection name"
+	name.Prompt = "Name: "
+	name.CharLimit = 80
+
 	model := Model{
-		workspace:    workspace,
-		store:        store,
-		prefs:        prefStore,
-		search:       searchsvc.New(workspace.Records),
-		searchInput:  input,
-		searchScope:  searchsvc.CurrentCampaign,
-		includeIdeas: false,
-		listScope:    searchsvc.CurrentCampaign,
+		workspace:      workspace,
+		store:          store,
+		prefs:          prefStore,
+		search:         searchsvc.New(workspace.Records),
+		searchInput:    input,
+		searchScope:    searchsvc.CurrentCampaign,
+		includeIdeas:   false,
+		listScope:      searchsvc.CurrentCampaign,
+		collectionName: name,
 	}
 	model.sessionInput = textarea.New()
 	model.sessionInput.Prompt = "│ "
@@ -210,6 +220,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m.openHelp()
 			}
 			return m.updateSession(msg)
+		}
+		if m.namingCollection {
+			return m.updateCollectionName(msg)
 		}
 		if m.searching {
 			if msg.String() == "?" {
@@ -291,6 +304,12 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m.openReconciliation()
 		case "f":
 			m.cycleTagFilter()
+		case "c":
+			m.cycleCollectionFilter()
+		case "g":
+			return m.openCollectionName()
+		case "a":
+			return m.toggleCollectionMembership()
 		case "o":
 			m.cycleListScope()
 		case "d":
@@ -2141,6 +2160,8 @@ func (m Model) View() tea.View {
 
 	if m.searching {
 		view = m.renderSearchOverlay()
+	} else if m.namingCollection {
+		view = m.renderCollectionNameOverlay()
 	} else if m.editing {
 		view = m.renderEditorOverlay()
 	} else if m.planning {
@@ -2342,6 +2363,14 @@ func (m Model) renderDetail() string {
 		builder.WriteString(labelStyle.Render("TAGS"))
 		builder.WriteString("  #" + strings.Join(record.Tags, "  #") + "\n")
 	}
+	if cols := domain.CollectionsContaining(m.workspace.Collections, m.workspace.Scope, record.ID); len(cols) > 0 {
+		names := make([]string, 0, len(cols))
+		for _, col := range cols {
+			names = append(names, col.Title)
+		}
+		builder.WriteString(labelStyle.Render("COLLECTIONS"))
+		builder.WriteString("  " + strings.Join(names, "  ·  ") + "\n")
+	}
 	builder.WriteString(labelStyle.Render("SOURCE"))
 	builder.WriteString(" " + record.Source + "\n")
 
@@ -2499,6 +2528,23 @@ func (m Model) renderSearchOverlay() string {
 		Width(width).
 		Render(builder.String())
 
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
+	)
+}
+
+func (m Model) renderCollectionNameOverlay() string {
+	width := min(72, max(40, m.width-12))
+	var builder strings.Builder
+	builder.WriteString(searchTitleStyle.Render("NEW COLLECTION"))
+	builder.WriteString("  ")
+	builder.WriteString(mutedStyle.Render("named group of wiki records"))
+	builder.WriteString("\n")
+	builder.WriteString(m.collectionName.View())
+	builder.WriteString("\n\n")
+	builder.WriteString(helpStyle.Render("Enter save  Esc cancel"))
+	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 		lipgloss.WithWhitespaceChars(" "),
 		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),

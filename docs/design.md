@@ -396,6 +396,11 @@ context above a full-width transcript and command bar. The user can move from
 the session dashboard into this section browser and return without losing
 session focus or transcript state.
 
+Named **collections** are optional named groups of wiki records (a watchlist,
+a sit's likely cast, a mystery board). They sit on top of tags and never
+replace the campaign tree. `c` filters the current section to a collection,
+`g` names a new one, and `a` adds or removes the selected entity.
+
 ## TUI interaction model
 
 ### Stable workspace and contextual actions

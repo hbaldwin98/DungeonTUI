@@ -41,13 +41,17 @@ func (m Model) helpSections() [][]string {
 		return [][]string{
 			{"Playback", "← / h rewind", "→ / l fast-forward", "Home first · End last", "Esc close"},
 		}
+	case m.namingCollection:
+		return [][]string{
+			{"New collection", "Type a name", "Enter save", "Esc cancel"},
+		}
 	case m.searching:
 		return [][]string{
 			{"Search", "Type to filter", "↑↓ select", "Enter open", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},
 		}
 	default:
 		return [][]string{
-			{"Browser", "j/k move", "←/→ or Tab panes", "Enter open/playback", "n new · e edit", "p prep · s live", "d delete · x supersede", "f tag filter · o scope", "b library · / search", "r reconcile · q quit"},
+			{"Browser", "j/k move", "←/→ or Tab panes", "Enter open/playback", "n new · e edit", "p prep · s live", "d delete · x supersede", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "r reconcile · q quit"},
 		}
 	}
 }

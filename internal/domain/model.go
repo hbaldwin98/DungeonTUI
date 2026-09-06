@@ -177,6 +177,7 @@ type Workspace struct {
 	Sessions        []SessionRecord
 	Reconciliations []ReconciliationRecord
 	PlannedNotes    []PlannedNotes
+	Collections     []Collection
 }
 
 func NewWorkspace(scope Scope, records []Record) (Workspace, error) {

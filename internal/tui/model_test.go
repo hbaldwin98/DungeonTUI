@@ -467,6 +467,74 @@ func TestTagAndScopeFiltersNarrowBrowserList(t *testing.T) {
 	}
 }
 
+func TestCollectionFilterAddAndCreate(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	model.setNavCursor(2) // NPCs
+	before := len(model.listRecords())
+	if before < 3 {
+		t.Fatalf("expected campaign NPCs including drafts, got %d", before)
+	}
+	detail := model.renderDetail()
+	if !strings.Contains(detail, "COLLECTIONS") || !strings.Contains(detail, "Greywatch circle") {
+		t.Fatalf("vale should belong to fixture collection: %q", detail)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Text: "c"}))
+	model = updated.(Model)
+	if model.collectionFilter == "" {
+		t.Fatal("expected collection filter")
+	}
+	filtered := model.listRecords()
+	if len(filtered) >= before {
+		t.Fatalf("collection should narrow NPCs, before=%d after=%d", before, len(filtered))
+	}
+	for _, record := range filtered {
+		if record.Title == "Sister Elayne" {
+			t.Fatal("Elayne is not in Greywatch circle")
+		}
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Text: "c"}))
+	model = updated.(Model)
+	if model.collectionFilter != "" {
+		t.Fatal("cycling past last collection should clear filter")
+	}
+	for _, record := range model.listRecords() {
+		if record.Title == "Sister Elayne" {
+			model.selectRecord(record)
+			break
+		}
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
+	model = updated.(Model)
+	col, ok := domain.FindCollection(model.workspace.Collections, "col-greywatch")
+	if !ok || !col.Has("draft-sister-elayne") {
+		t.Fatalf("a should add selected entity to last collection, col=%#v", col)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'g', Text: "g"}))
+	model = updated.(Model)
+	if !model.namingCollection {
+		t.Fatal("g should open collection name overlay")
+	}
+	model.collectionName.SetValue("Crypt pressure")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.namingCollection {
+		t.Fatal("enter should save collection")
+	}
+	found := false
+	for _, item := range model.workspace.Collections {
+		if item.Title == "Crypt pressure" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected named collection, got %#v", model.workspace.Collections)
+	}
+}
+
 func TestPlannedNotesSaveAndSeedLiveSession(t *testing.T) {
 	model := New()
 	model.width = 100
