@@ -512,6 +512,43 @@ func TestPlannedNotesSaveAndSeedLiveSession(t *testing.T) {
 	}
 }
 
+func TestNewPrepAttachesEndedSessionContext(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	model.sessionInput.SetValue("@Captain Vale searches the crypt")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if len(model.workspace.Sessions) == 0 || model.workspace.Sessions[0].EndedAt == nil {
+		t.Fatal("expected ended session")
+	}
+	priorTitle := model.workspace.Sessions[0].Title
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Text: "p"}))
+	model = updated.(Model)
+	if !model.planning {
+		t.Fatal("expected planned notes editor")
+	}
+	if len(model.planDraft.PriorSessionIDs) != 1 || model.planDraft.PriorSessionIDs[0] != model.workspace.Sessions[0].ID {
+		t.Fatalf("expected new prep to attach ended sit, got %#v", model.planDraft.PriorSessionIDs)
+	}
+	view := model.View().Content
+	if !strings.Contains(view, "PRIOR SITS") || !strings.Contains(view, priorTitle) {
+		t.Fatalf("prep overlay should show prior sit context: %q", view)
+	}
+	if !strings.Contains(model.planBody.Value(), priorTitle) {
+		t.Fatalf("new prep body should follow up from last sit, got %q", model.planBody.Value())
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if len(model.planDraft.PriorSessionIDs) != 0 {
+		t.Fatalf("Ctrl+P should cycle off prior sits, got %#v", model.planDraft.PriorSessionIDs)
+	}
+}
+
 func TestSessionReconciliationPreservesTranscript(t *testing.T) {
 	model := New()
 	model.width = 100

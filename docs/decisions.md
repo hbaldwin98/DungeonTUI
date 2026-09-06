@@ -108,3 +108,9 @@ Entity detail shows backlinks and a session-grouped change log (expandable
 events later). References offer an inline peek so mentions carry context in
 place. History is derived; transcripts remain immutable.
 
+## D-016 — Prep notes are drafted against prior live sits
+
+New planned notes attach recent ended sessions in the current campaign as
+context (cast, location, last transcript beat). The attachment is a reference,
+not a copy of the transcript. Ctrl+P cycles how many prior sits are attached.
+

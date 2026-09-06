@@ -60,3 +60,34 @@ func TestRefreshPlannedLinksLeavesBodyIntact(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDefaultPriorSessionIDsSkipsLiveAndOtherCampaigns(t *testing.T) {
+	ended := mustParseTime(t, "2026-01-02T18:00:00Z")
+	older := mustParseTime(t, "2026-01-01T18:00:00Z")
+	scope := Scope{WorldID: "w", CampaignID: "c"}
+	sessions := []SessionRecord{
+		{ID: "live", Title: "Now", Scope: scope, StartedAt: mustParseTime(t, "2026-01-03T17:00:00Z")},
+		{ID: "other", Title: "Elsewhere", Scope: Scope{WorldID: "w", CampaignID: "x"}, StartedAt: older, EndedAt: &older},
+		{ID: "s1", Title: "Night one", Scope: scope, StartedAt: older, EndedAt: &older, LocationName: "Crypt",
+			Links: []EntityLink{{Text: "Vale", RecordID: "npc-vale"}}},
+		{ID: "s2", Title: "Night two", Scope: scope, StartedAt: mustParseTime(t, "2026-01-02T17:00:00Z"), EndedAt: &ended,
+			Entries: []TranscriptEntry{{Text: "@Captain Vale opens the door"}}},
+	}
+	ids := DefaultPriorSessionIDs(sessions, scope, 3)
+	if len(ids) != 2 || ids[0] != "s2" || ids[1] != "s1" {
+		t.Fatalf("expected newest ended first, got %#v", ids)
+	}
+	sits := ResolvePriorSits(sessions, []Record{{ID: "npc-vale", Title: "Captain Vale"}}, ids)
+	if len(sits) != 2 {
+		t.Fatalf("sits=%#v", sits)
+	}
+	if sits[0].ID != "s2" || sits[0].LastLine != "@Captain Vale opens the door" {
+		t.Fatalf("unexpected newest sit %#v", sits[0])
+	}
+	if len(sits[1].Cast) != 1 || sits[1].Cast[0] != "Captain Vale" {
+		t.Fatalf("expected resolved cast, got %#v", sits[1])
+	}
+	if !strings.Contains(sits[1].Summary(), "Night one") || !strings.Contains(sits[1].Summary(), "Captain Vale") {
+		t.Fatalf("summary=%q", sits[1].Summary())
+	}
+}

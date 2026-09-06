@@ -296,6 +296,17 @@ func (m Model) renderTreeDetail() string {
 			if len(plan.Links) > 0 {
 				builder.WriteString(fmt.Sprintf("\nLinks: %d", len(plan.Links)))
 			}
+			if len(plan.PriorSessionIDs) > 0 {
+				sits := domain.ResolvePriorSits(m.workspace.Sessions, m.workspace.Records, plan.PriorSessionIDs)
+				builder.WriteString("\n")
+				builder.WriteString(labelStyle.Render("PRIOR SITS"))
+				for _, sit := range sits {
+					builder.WriteString("\n  " + sit.Title)
+					if sit.LocationName != "" {
+						builder.WriteString(" · " + sit.LocationName)
+					}
+				}
+			}
 			builder.WriteString("\n\n")
 			body := strings.TrimSpace(plan.Body)
 			if body == "" {

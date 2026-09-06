@@ -31,7 +31,7 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.planning:
 		return [][]string{
-			{"Planned notes", "Tab title/body", "Ctrl+S save", "@ / #location suggest", "peek PgUp/PgDn", "Esc cancel"},
+			{"Planned notes", "Tab title/body", "Ctrl+S save", "Ctrl+P prior sits", "@ / #location · peek", "Esc cancel"},
 		}
 	case m.session != nil:
 		return [][]string{

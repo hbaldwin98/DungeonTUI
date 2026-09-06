@@ -48,6 +48,10 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Tag and scope filters on the campaign tree (`f` / `o`); markdown `tags:`
   frontmatter (Argus #37).
 - Context-sensitive `?` help overlay; footers stay short (Argus #38).
+- Entity coherence spine: session `Links` + auto-associate, backlinks, session
+  History (A+C), and `@` peeks (Argus #30, #40, #41; D-015).
+- Prep notes drafted against prior live sits: PRIOR SITS chrome, location
+  seed, Ctrl+P to cycle attachments (Argus #43; D-016).
 
 ## In progress
 
@@ -56,19 +60,12 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 ### Later
 
 - Named collections as a later organization aid on top of tags (Argus #39).
-- Draft future planned notes in the context of previous live sessions
-  (decision #33).
 - Deepen reconciliation: factual diffs, superseded history, and draft provenance.
 - Add export/import coverage for worlds, campaigns, sessions, links, and
   workspace preferences.
 - Add optional AI adapters and proposal approval flow after the factual path is
   stable.
 - Optional: interactive pane reordering and fully recursive split editing UI.
-
-## Done recently
-
-- Entity coherence spine: session `Links` + auto-associate, backlinks, session
-  History (A+C), and `@` peeks (Argus #30, #40, #41; D-015).
 
 ## Deferred
 

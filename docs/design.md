@@ -448,7 +448,9 @@ arbitrary horizontal/vertical splits rather than adding one-off coordinates.
   the global wiki; the notes only associate the subset that matters for that
   night. Future planned notes can be written *in the context of* previous live
   sessions (callbacks, open threads, what changed last time) without mixing
-  prep into the play record.
+  prep into the play record. New prep attaches recent ended sits as visible
+  **PRIOR SITS** context (title, location, cast, last beat) and can seed
+  `#location` from the latest of those sits.
 - **Live session** — explicit start/end capture with an immutable transcript of
   what happened at the table. Starting live play can *use* planned notes as
   scene/context seed so the table sees organized prep rather than the whole
