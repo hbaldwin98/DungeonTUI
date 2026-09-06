@@ -416,22 +416,23 @@ arbitrary horizontal/vertical splits rather than adding one-off coordinates.
 
 ### Session capture
 
-Sessions have two phases that share one record shape:
+**Planned session notes** and **live sessions** are different things.
 
-1. **Planned** — a draft session document written ahead of time in markdown.
-   The DM outlines the night, associates people and places with `@` links, and
-   marks locations/areas in the brief. World and campaign entities stay in the
-   global wiki; the planned session only *associates* the subset that matters
-   for that night instead of dumping everything into one faceful of context.
-2. **Live** — starting play from a planned session opens capture *in that
-   context*: the brief and its associations seed the scene/context panes, while
-   a fresh immutable transcript records what actually happens at the table.
-   One planned brief may cover several live timed runs (multi-night arcs);
-   each run keeps its own transcript and reconciliation.
+- **Planned notes** — forward-looking prep for the next sit: markdown notes with
+  `@` associations and location/area markers. They are not a live transcript and
+  do not become one by flipping a status. World and campaign entities stay in
+  the global wiki; the notes only associate the subset that matters for that
+  night. Future planned notes can be written *in the context of* previous live
+  sessions (callbacks, open threads, what changed last time) without mixing
+  prep into the play record.
+- **Live session** — explicit start/end capture with an immutable transcript of
+  what happened at the table. Starting live play can *use* planned notes as
+  scene/context seed so the table sees organized prep rather than the whole
+  wiki. Each live sit keeps its own transcript and reconciliation.
 
-Afterward, the DM should be able to open a session or planned arc and scrub
-what changed — rewind/fast-forward across entity diffs and reconciliation
-items — without rewriting the original transcript.
+Afterward, the DM should be able to open a live session and scrub what changed
+— rewind/fast-forward across entity diffs and reconciliation items — without
+rewriting the original transcript.
 
 A campaign can have an explicit session lifecycle. Starting a session creates a
 session record and opens a transcript pane with a focused multiline input. The

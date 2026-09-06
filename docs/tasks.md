@@ -38,8 +38,11 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Next
 
-- Planned session documents: markdown briefs with `@` links and location
-  markers; start live play from that context (Argus #28–#29).
+- Planned session *notes* (prep docs, not live sessions): markdown with `@`
+  links and location markers; start live play using those notes as context
+  (Argus #28–#29).
+- Draft future planned notes in the context of previous live sessions
+  (Argus #33).
 - Associate entities to sessions while keeping world/campaign globals visible
   (Argus #30).
 - Deepen reconciliation: factual diffs, superseded history, and draft provenance.
@@ -51,7 +54,7 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Deferred
 
-- Planned briefs that span multiple live timed runs (Argus #31).
+- Planned notes that cover or follow multiple prior live sits (Argus #31).
 - Post-session change view with rewind/fast-forward playback (Argus #32).
 - SQLite operational store and FTS5 migration.
 - Context-aware AI generators and rules/source ingestion.

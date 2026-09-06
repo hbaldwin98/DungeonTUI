@@ -67,18 +67,23 @@ named panes (list, detail, campaign, context, transcript, input). Ratios and
 leaf visibility persist in `preferences.json`. Legacy pane_layout/pane_split
 integers migrate on load.
 
-## D-010 — Planned sessions are draft documents live play starts from
+## D-010 — Planned session notes ≠ live sessions (superseded)
 
-Preparation is not a global app mode. A planned session is a draft session
-document (markdown body, `@` associations, location markers). World/campaign
-entities remain global; the session associates a subset for that night. Live
-play starts from that planned context so the table sees organized scene
-context rather than the whole wiki at once. One planned brief may span
-multiple live timed runs; each run keeps its own immutable transcript.
+Superseded by D-012. Earlier wording treated planned and live as phases of one
+session record.
 
 ## D-011 — Post-session playback is derived, not transcript rewrite
 
 After play, viewing a session should support scrubbing what changed
 (rewind/fast-forward over entity diffs and reconciliation items). That view is
 derived from linked records and never mutates the original transcript.
+
+## D-012 — Planned notes are prep docs; live sessions are play records
+
+Planned session notes are a distinct prep document (markdown, `@` links,
+location markers) for the next sit — not a live session and not a status flip
+into one. Live sessions remain separate start/end transcripts. Live play may
+*consume* planned notes as context. Future planned notes may be drafted in the
+context of previous live sessions so continuity is visible without mixing prep
+into the immutable play log.
 
