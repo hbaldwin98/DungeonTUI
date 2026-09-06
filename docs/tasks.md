@@ -61,7 +61,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Session folders: collapsible named paths inside the Sessions list, month
   buckets for unfiled sits, `m` to file (Argus #44; D-018).
 - Wiki `@` mentions resolve in prose; missing targets stay broken; LINKED /
-  REFERENCES / CAST / prep links are followable from detail (Argus #45; D-019).
+  REFERENCES / CAST / prep links preview from detail before navigating
+  (Argus #45–#46; D-019, D-020).
 
 ## In progress
 

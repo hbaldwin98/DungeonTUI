@@ -37,6 +37,10 @@ func (m Model) helpSections() [][]string {
 		return [][]string{
 			{"Session", "Enter capture", "Shift+Enter newline", "@ / $ / # suggest · peek", "Tab cycle panes", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
 		}
+	case m.preview != nil:
+		return [][]string{
+			{"Link preview", "j/k or PgUp/PgDn scroll", "Enter open in navigator", "Esc or q close", "Click [open] or [close] · click outside dismisses"},
+		}
 	case m.playingBack:
 		return [][]string{
 			{"Playback", "← / h rewind", "→ / l fast-forward", "Home first · End last", "Esc close"},
@@ -55,7 +59,7 @@ func (m Model) helpSections() [][]string {
 		}
 	default:
 		return [][]string{
-			{"Browser", "j/k move", "←/→ or Tab panes", "Enter open/follow/playback/collapse", "n new · e edit", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "r reconcile · q quit"},
+			{"Browser", "j/k move", "←/→ or Tab panes", "Enter preview hop / playback / collapse", "n new · e edit", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "r reconcile · q quit"},
 		}
 	}
 }

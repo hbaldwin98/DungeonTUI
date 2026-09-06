@@ -74,7 +74,8 @@ for future clients. Inside a campaign, the browser is an IDE-style tree:
 **nav | list | detail**. The left branch lists Sessions, Prep, and typed wiki
 sections; the center list and right detail follow the selected branch. Sessions
 nest under collapsible folders (`m` files a sit; unfiled nights bucket by
-month). Older
+month). Detail hops (`@` mentions, backlinks, CAST) open a preview buffer
+first; Enter or `[open]` jumps, Esc or click outside dismisses. Older
 dense typed-pane and classic `list|detail` preferences upgrade automatically.
 
 During a session, click any pane (campaign, context, transcript, or input) to

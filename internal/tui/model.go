@@ -90,6 +90,7 @@ type Model struct {
 	collapsedFolders   map[string]bool
 	selectedFolderPath string
 	namingFolder       bool
+	preview            *previewBuf
 }
 
 func New() Model {
@@ -193,6 +194,12 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if m.helping {
 			return m.updateHelp(msg)
+		}
+		if m.preview != nil {
+			if msg.String() == "?" {
+				return m.openHelp()
+			}
+			return m.updatePreview(msg)
 		}
 		if m.picking {
 			return m.updatePicker(msg)
@@ -1561,6 +1568,10 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.preview != nil {
+		return m.updatePreviewClick(msg)
+	}
+
 	if m.searching {
 		return m.updateSearchClick(msg)
 	}
@@ -1835,6 +1846,11 @@ func (m Model) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		delta = 1
 	}
 	if delta == 0 {
+		return m, nil
+	}
+
+	if m.preview != nil {
+		m.scrollPreview(delta)
 		return m, nil
 	}
 
@@ -2147,6 +2163,8 @@ func (m Model) View() tea.View {
 		view = m.renderEditorOverlay()
 	} else if m.planning {
 		view = m.renderPlannedNotesOverlay()
+	} else if m.preview != nil {
+		view = m.renderPreviewOverlay(view)
 	} else if m.playingBack {
 		view = m.renderPlaybackOverlay()
 	} else if m.reconciling {

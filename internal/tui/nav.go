@@ -295,7 +295,7 @@ func (m Model) renderTreeDetail() string {
 			builder.WriteString("\n\n")
 			builder.WriteString(m.renderCastHops())
 			builder.WriteString("\n")
-			builder.WriteString(mutedStyle.Render("List Enter playback · detail Enter follows · m files · s live · d deletes"))
+			builder.WriteString(mutedStyle.Render("List Enter playback · detail Enter previews · m files · s live · d deletes"))
 			return builder.String()
 		}
 		return mutedStyle.Render("Select a session")
@@ -322,7 +322,7 @@ func (m Model) renderTreeDetail() string {
 				builder.WriteString(m.renderProseWithMentions(body))
 			}
 			builder.WriteString("\n\n")
-			builder.WriteString(mutedStyle.Render("List Enter/e edits · detail Enter follows · s starts another live sit"))
+			builder.WriteString(mutedStyle.Render("List Enter/e edits · detail Enter previews · s starts another live sit"))
 			return builder.String()
 		}
 		return mutedStyle.Render("Select prep notes · p to draft")

@@ -24,6 +24,7 @@ func (m *Model) openPicker() {
 	m.playingBack = false
 	m.namingCollection = false
 	m.namingFolder = false
+	m.preview = nil
 	m.clearDestructiveConfirm("")
 	if m.layout.ActiveWorldID != "" {
 		for index, world := range m.workspace.Library {

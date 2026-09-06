@@ -411,8 +411,9 @@ Wiki records can `@` one another in summary and body. Mentions resolve by
 longest title or alias and stay in the prose if the target is deleted (shown
 as a missing ref to fix). Entity detail lists **REFERENCES** (outgoing),
 **LINKED** (incoming wiki/prep/session), and **HISTORY**. With detail focused,
-`j`/`k` moves those rows and **Enter follows** — including back to a session
-or prep.
+`j`/`k` moves those rows and **Enter previews** a floating buffer — Enter
+again (or `[open]`) jumps to the wiki/session/prep record, Esc or click
+outside dismisses without losing place.
 
 ## TUI interaction model
 

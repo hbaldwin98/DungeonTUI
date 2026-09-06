@@ -1119,8 +1119,35 @@ func TestWikiMentionsFollowAndBreak(t *testing.T) {
 	}
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
+	if model.preview == nil {
+		t.Fatal("Enter on a wiki hop should open a preview, not jump")
+	}
+	if model.selectedID != "npc-captain-vale" {
+		t.Fatalf("preview should keep place, selected=%q", model.selectedID)
+	}
+	view := model.View().Content
+	if !strings.Contains(view, "PREVIEW") || !strings.Contains(view, "Father Merrow") {
+		t.Fatalf("preview overlay missing target: %q", view)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	model = updated.(Model)
+	if model.preview != nil {
+		t.Fatal("Esc should close preview")
+	}
+	if model.selectedID != "npc-captain-vale" {
+		t.Fatalf("Esc should not navigate, selected=%q", model.selectedID)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.preview != nil {
+		t.Fatal("second Enter should jump and close preview")
+	}
 	if model.selectedID != "npc-father-merrow" {
-		t.Fatalf("Enter should follow @Father Merrow, selected=%q", model.selectedID)
+		t.Fatalf("Enter in preview should open @Father Merrow, selected=%q", model.selectedID)
 	}
 
 	kept := make([]domain.Record, 0, len(model.workspace.Records))
@@ -1139,6 +1166,72 @@ func TestWikiMentionsFollowAndBreak(t *testing.T) {
 	detail = model.renderDetail()
 	if !strings.Contains(detail, "missing · @") {
 		t.Fatalf("expected missing-ref row: %q", detail)
+	}
+	model.layout.Focus = prefs.PaneDetail
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.preview != nil {
+		t.Fatal("broken mentions should not open a preview")
+	}
+	if !strings.Contains(model.status, "Missing @") {
+		t.Fatalf("broken mention should warn, status=%q", model.status)
+	}
+}
+
+func TestLinkPreviewClickOutsideDismisses(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	for _, record := range model.workspace.Records {
+		if record.ID == "npc-captain-vale" {
+			model.selectRecord(record)
+			break
+		}
+	}
+	model.layout.Focus = prefs.PaneDetail
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.preview == nil {
+		t.Fatal("expected preview")
+	}
+	updated, _ = model.Update(tea.MouseClickMsg{X: 0, Y: 0, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if model.preview != nil {
+		t.Fatal("click outside should close preview")
+	}
+	if model.selectedID != "npc-captain-vale" {
+		t.Fatalf("dismiss should keep place, selected=%q", model.selectedID)
+	}
+}
+
+func TestPreviewOverlayHasBorderAndSurface(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	for _, record := range model.workspace.Records {
+		if record.ID == "npc-captain-vale" {
+			model.selectRecord(record)
+			break
+		}
+	}
+	model.layout.Focus = prefs.PaneDetail
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.preview == nil {
+		t.Fatal("expected preview")
+	}
+	frame := model.previewFrame()
+	stripped := testANSI.ReplaceAllString(frame, "")
+	lines := strings.Split(strings.TrimRight(stripped, "\n"), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("preview frame too short: %q", stripped)
+	}
+	bottom := lines[len(lines)-1]
+	if !strings.ContainsAny(bottom, "╚═┘═") {
+		t.Fatalf("expected a bottom border, last line %q", bottom)
+	}
+	if !strings.Contains(frame, "48;2;31;35;53") {
+		t.Fatalf("expected surface background on preview text, got %q", frame)
 	}
 }
 

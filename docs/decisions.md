@@ -138,5 +138,14 @@ playback. New live sits inherit the selected named folder.
 edge table. Resolution uses the longest matching title or alias. If the target
 is removed, the mention remains in the prose as unresolved and is listed as
 missing so it can be fixed. Backlinks (wiki, prep, session) are followable
-from entity detail; they do not replace the campaign tree.
+from entity detail; they do not replace the campaign tree. Enter on a
+followable hop opens a preview buffer first (D-020).
+
+## D-020 — Detail hops preview before navigating
+
+Enter on a followable detail hop (`@` mention, backlink, CAST, history) opens
+a floating preview buffer instead of jumping the navigator. The owner can
+scroll and read, then Enter or click `[open]` to jump, or Esc / click outside
+/ `[close]` to dismiss and keep their place. Broken mentions still only warn.
+List Enter (playback, folder collapse, wiki edit) is unchanged.
 

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
@@ -164,42 +163,6 @@ func (m *Model) moveDetailCursor(delta int) {
 	m.historyCursor = clamp(m.historyCursor+delta, 0, len(hops)-1)
 }
 
-func (m Model) followDetailHop() (tea.Model, tea.Cmd, bool) {
-	hops := m.detailHops()
-	if len(hops) == 0 {
-		return m, nil, false
-	}
-	hop := hops[clamp(m.historyCursor, 0, len(hops)-1)]
-	switch hop.Kind {
-	case hopBroken:
-		m.status = "Missing @" + hop.Label + " · e to edit and fix"
-		return m, nil, true
-	case hopWiki:
-		target, ok := recordByID(m.workspace.Records, hop.RecordID)
-		if !ok {
-			m.status = "Missing @" + hop.Label + " · e to edit and fix"
-			return m, nil, true
-		}
-		m.selectRecord(target)
-		m.layout.Focus = prefs.PaneDetail
-		m.status = "Opened " + target.Title
-		return m, nil, true
-	case hopPrep:
-		m.focusPrep(hop.PlanID)
-		m.status = "Opened prep · " + hop.Label
-		return m, nil, true
-	case hopSession:
-		m.focusSession(hop.SessionID)
-		m.status = "Opened session · " + hop.Label
-		return m, nil, true
-	case hopHistory:
-		m.focusSession(hop.SessionID)
-		m.status = "Opened session · " + hop.Label
-		return m, nil, true
-	}
-	return m, nil, false
-}
-
 func (m *Model) focusPrep(id string) {
 	m.focusNavKind(NavPrep)
 	m.selectedPlanID = id
@@ -305,7 +268,7 @@ func (m Model) renderCastHops() string {
 		builder.WriteRune('\n')
 	}
 	if m.layout.Focus == prefs.PaneDetail {
-		builder.WriteString(mutedStyle.Render("j/k · Enter follows"))
+		builder.WriteString(mutedStyle.Render("j/k · Enter preview"))
 		builder.WriteRune('\n')
 	}
 	return builder.String()
@@ -414,7 +377,7 @@ func (m Model) renderEntityGraph(record domain.Record) string {
 		builder.WriteRune('\n')
 	}
 	if m.layout.Focus == prefs.PaneDetail {
-		builder.WriteString(mutedStyle.Render("j/k followable rows · Enter open/expand"))
+		builder.WriteString(mutedStyle.Render("j/k followable rows · Enter preview"))
 		builder.WriteRune('\n')
 	}
 	return builder.String()
