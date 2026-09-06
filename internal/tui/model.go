@@ -348,12 +348,7 @@ func (m *Model) refreshTranscriptViewport() {
 
 func (m *Model) configureTranscriptViewport() {
 	available := max(8, m.height-2)
-	inputHeight := 7
-	if len(m.suggestions) > 0 {
-		inputHeight = 9
-	}
-	upperHeight := max(6, min(8, available/3))
-	transcriptHeight := max(5, available-upperHeight-inputHeight)
+	transcriptHeight := min(7, max(5, available/4))
 	m.transcriptView.SetWidth(max(1, m.width-4))
 	m.transcriptView.SetHeight(max(1, transcriptHeight-2))
 }
@@ -858,7 +853,13 @@ func (m Model) updateSessionMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cm
 	// The lower portion is always the transcript/input region. Clicking there
 	// returns focus to capture, while clicking the context pane selects the
 	// corresponding entity for review.
-	upperHeight := max(6, min(8, max(8, m.height-2)/3))
+	available := max(8, m.height-2)
+	inputHeight := 7
+	if len(m.suggestions) > 0 {
+		inputHeight = 9
+	}
+	transcriptHeight := min(7, max(5, available/4))
+	upperHeight := max(6, available-inputHeight-transcriptHeight)
 	if msg.Y > upperHeight+1 {
 		m.sessionInput.Focus()
 		return m, nil
@@ -966,8 +967,8 @@ func (m Model) sessionView() tea.View {
 	if len(m.suggestions) > 0 {
 		inputHeight = 9
 	}
-	upperHeight := max(6, min(8, available/3))
-	transcriptHeight := max(5, available-upperHeight-inputHeight)
+	transcriptHeight := min(7, max(5, available/4))
+	upperHeight := max(6, available-inputHeight-transcriptHeight)
 	leftWidth := max(28, width/2)
 	rightWidth := max(28, width-leftWidth)
 	header := headerStyle.Width(width).Render(m.renderSessionHeader())
