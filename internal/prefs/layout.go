@@ -6,6 +6,7 @@ import "strings"
 type Pane string
 
 const (
+	PaneNav        Pane = "nav"
 	PaneList       Pane = "list"
 	PaneDetail     Pane = "detail"
 	PaneNPC        Pane = "npc"
@@ -88,23 +89,23 @@ type SplitTree struct {
 // Bool returns a *bool for JSON visibility fields.
 func Bool(value bool) *bool { return &value }
 
-// DefaultBrowser returns typed section panes beside detail so the workspace fills the terminal.
+// DefaultBrowser returns an IDE-style campaign tree: nav | list | detail.
 func DefaultBrowser() SplitTree {
 	return SplitTree{Root: Node{
 		Type:  "split",
 		Axis:  AxisVertical,
-		Ratio: 0.55,
+		Ratio: 0.24,
 		Children: []Node{
+			{Type: "leaf", Pane: PaneNav, Visible: Bool(true)},
 			{
 				Type:  "split",
-				Axis:  AxisHorizontal,
-				Ratio: 0.5,
+				Axis:  AxisVertical,
+				Ratio: 0.42,
 				Children: []Node{
-					balancedSplit(AxisVertical, PaneNPC, PaneLocation, PaneFaction),
-					balancedSplit(AxisVertical, PaneThread, PaneItem, PaneNote),
+					{Type: "leaf", Pane: PaneList, Visible: Bool(true)},
+					{Type: "leaf", Pane: PaneDetail, Visible: Bool(true)},
 				},
 			},
-			{Type: "leaf", Pane: PaneDetail, Visible: Bool(true)},
 		},
 	}}
 }
@@ -172,7 +173,7 @@ func (l Layout) Normalize() Layout {
 	out := l
 	if out.Browser.Root.Type == "" && out.Browser.Root.Pane == "" {
 		out.Browser = DefaultBrowser()
-	} else if isClassicListDetail(out.Browser.Root) {
+	} else if isClassicListDetail(out.Browser.Root) || isDenseTypedBrowser(out.Browser.Root) {
 		out.Browser = DefaultBrowser()
 	}
 	if out.Session.Root.Type == "" && out.Session.Root.Pane == "" {
@@ -206,6 +207,24 @@ func isClassicListDetail(node Node) bool {
 		}
 	}
 	return hasList && hasDetail
+}
+
+// isDenseTypedBrowser detects the pre-tree multi-type-pane layout so prefs
+// migrate to the campaign nav tree.
+func isDenseTypedBrowser(node Node) bool {
+	if FindVisibleLeaf(node, PaneNav) {
+		return false
+	}
+	typed := 0
+	for _, pane := range VisibleLeaves(node) {
+		for _, candidate := range BrowserTypePanes {
+			if pane == candidate {
+				typed++
+				break
+			}
+		}
+	}
+	return typed >= 3
 }
 
 func (l *Layout) migrateLegacySession() {
@@ -307,7 +326,7 @@ func clampRatio(value float64) float64 {
 
 // AddBrowserTypePane makes a typed section visible, inserting it when missing.
 func (l *Layout) AddBrowserTypePane(pane Pane) bool {
-	if pane == PaneDetail || pane == PaneList {
+	if pane == PaneDetail || pane == PaneList || pane == PaneNav {
 		return false
 	}
 	if _, ok := FindLeaf(l.Browser.Root, pane); ok {
@@ -324,10 +343,10 @@ func (l *Layout) AddBrowserTypePane(pane Pane) bool {
 	return FindVisibleLeaf(l.Browser.Root, pane)
 }
 
-// CloseBrowserTypePane hides a typed section pane. Detail cannot be closed.
+// CloseBrowserTypePane hides a typed section pane. Detail/nav/list cannot be closed.
 // Refuses to hide the last remaining type section.
 func (l *Layout) CloseBrowserTypePane(pane Pane) bool {
-	if pane == PaneDetail || pane == "" {
+	if pane == PaneDetail || pane == PaneNav || pane == PaneList || pane == "" {
 		return false
 	}
 	if !FindVisibleLeaf(l.Browser.Root, pane) {
@@ -335,7 +354,7 @@ func (l *Layout) CloseBrowserTypePane(pane Pane) bool {
 	}
 	visibleTypes := 0
 	for _, candidate := range VisibleLeaves(l.Browser.Root) {
-		if candidate == PaneDetail || candidate == PaneList {
+		if candidate == PaneDetail || candidate == PaneList || candidate == PaneNav {
 			continue
 		}
 		visibleTypes++

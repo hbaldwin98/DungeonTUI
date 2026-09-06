@@ -11,13 +11,16 @@ import (
 )
 
 type browserRegion struct {
-	Pane   prefs.Pane
-	MinX   int
-	MaxX   int
-	MinY   int
-	MaxY   int
-	Rows   []domain.Record
-	Offset int // Y offset of first record row within the pane content
+	Pane        prefs.Pane
+	MinX        int
+	MaxX        int
+	MinY        int
+	MaxY        int
+	Rows        []domain.Record
+	NavEntries  []navEntry
+	SessionRows []domain.SessionRecord
+	PlanRows    []domain.PlannedNotes
+	Offset      int // Y offset of first record row within the pane content
 }
 
 func paneEntityType(pane prefs.Pane) (domain.EntityType, bool) {
@@ -73,6 +76,9 @@ func entityTypePane(entityType domain.EntityType) prefs.Pane {
 }
 
 func (m Model) recordsForPane(pane prefs.Pane) []domain.Record {
+	if pane == prefs.PaneList && m.usesCampaignTree() {
+		return m.listRecords()
+	}
 	entityType, ok := paneEntityType(pane)
 	if !ok {
 		return nil
@@ -104,7 +110,22 @@ func (m Model) selectedRecord() *domain.Record {
 
 func (m *Model) selectRecord(record domain.Record) {
 	m.selectedID = record.ID
+	m.selectedSessionID = ""
+	m.selectedPlanID = ""
 	m.typeFilter = record.Type
+	if m.usesCampaignTree() {
+		m.focusNavType(record.Type)
+		// Keep current pane focus — do not steal focus onto the list.
+		records := m.listRecords()
+		for index, item := range records {
+			if item.ID == record.ID {
+				m.cursor = index
+				return
+			}
+		}
+		m.cursor = 0
+		return
+	}
 	pane := entityTypePane(record.Type)
 	if prefs.FindVisibleLeaf(m.layout.Browser.Root, pane) {
 		m.layout.Focus = pane
@@ -119,7 +140,44 @@ func (m *Model) selectRecord(record domain.Record) {
 	m.cursor = 0
 }
 
+func (m *Model) focusNavType(entityType domain.EntityType) {
+	for index, entry := range m.navEntries() {
+		if entry.Kind == NavType && entry.Type == entityType {
+			m.navCursor = index
+			m.navKind = NavType
+			m.navType = entityType
+			m.typeFilter = entityType
+			return
+		}
+	}
+}
+
 func (m *Model) ensureBrowserSelection() {
+	if m.usesCampaignTree() {
+		if m.navKind == "" {
+			chosen := 2 // NPCs after Sessions / Prep
+			for index, entry := range m.navEntries() {
+				if entry.Kind != NavType {
+					continue
+				}
+				m.navCursor = index
+				m.navKind = entry.Kind
+				m.navType = entry.Type
+				m.typeFilter = entry.Type
+				if len(m.listRecords()) > 0 {
+					chosen = index
+					break
+				}
+			}
+			m.navKind = ""
+			m.setNavCursor(chosen)
+		}
+		// Default focus stays on the campaign tree, even when the list has items.
+		if m.layout.Focus == prefs.PaneInput || m.layout.Focus == "" || m.layout.Focus == prefs.PaneNPC {
+			m.layout.Focus = prefs.PaneNav
+		}
+		return
+	}
 	if m.selectedRecord() != nil {
 		if m.layout.Focus == prefs.PaneInput || m.layout.Focus == "" {
 			m.layout.Focus = entityTypePane(m.selectedRecord().Type)
@@ -137,6 +195,52 @@ func (m *Model) ensureBrowserSelection() {
 
 func (m *Model) setBrowserFocus(pane prefs.Pane) {
 	m.layout.Focus = pane
+	if pane == prefs.PaneNav {
+		return
+	}
+	if pane == prefs.PaneList && m.usesCampaignTree() {
+		switch m.currentNav().Kind {
+		case NavSessions:
+			sessions := m.scopedSessions()
+			if len(sessions) == 0 {
+				return
+			}
+			for index, session := range sessions {
+				if session.ID == m.selectedSessionID {
+					m.cursor = index
+					return
+				}
+			}
+			m.cursor = clamp(m.cursor, 0, len(sessions)-1)
+			m.selectedSessionID = sessions[m.cursor].ID
+		case NavPrep:
+			plans := m.scopedPlannedNotes()
+			if len(plans) == 0 {
+				return
+			}
+			for index, plan := range plans {
+				if plan.ID == m.selectedPlanID {
+					m.cursor = index
+					return
+				}
+			}
+			m.cursor = clamp(m.cursor, 0, len(plans)-1)
+			m.selectedPlanID = plans[m.cursor].ID
+		default:
+			records := m.listRecords()
+			if len(records) == 0 {
+				return
+			}
+			for index, record := range records {
+				if record.ID == m.selectedID {
+					m.cursor = index
+					return
+				}
+			}
+			m.selectRecord(records[clamp(m.cursor, 0, len(records)-1)])
+		}
+		return
+	}
 	if _, ok := paneEntityType(pane); ok {
 		if entityType, typed := paneEntityType(pane); typed && pane != prefs.PaneList {
 			m.typeFilter = entityType
@@ -156,6 +260,14 @@ func (m *Model) setBrowserFocus(pane prefs.Pane) {
 }
 
 func (m *Model) cycleBrowserFocus() {
+	m.cycleBrowserFocusBy(1)
+}
+
+func (m *Model) cycleBrowserFocusBack() {
+	m.cycleBrowserFocusBy(-1)
+}
+
+func (m *Model) cycleBrowserFocusBy(delta int) {
 	panes := m.browserFocusOrder()
 	if len(panes) == 0 {
 		return
@@ -163,7 +275,11 @@ func (m *Model) cycleBrowserFocus() {
 	current := m.layout.Focus
 	for index, pane := range panes {
 		if pane == current {
-			m.setBrowserFocus(panes[(index+1)%len(panes)])
+			next := (index + delta) % len(panes)
+			if next < 0 {
+				next += len(panes)
+			}
+			m.setBrowserFocus(panes[next])
 			return
 		}
 	}
@@ -173,7 +289,11 @@ func (m *Model) cycleBrowserFocus() {
 func (m Model) browserFocusOrder() []prefs.Pane {
 	var panes []prefs.Pane
 	for _, pane := range prefs.VisibleLeaves(m.layout.Browser.Root) {
-		if _, ok := paneEntityType(pane); ok || pane == prefs.PaneDetail {
+		if pane == prefs.PaneNav || pane == prefs.PaneDetail {
+			panes = append(panes, pane)
+			continue
+		}
+		if _, ok := paneEntityType(pane); ok {
 			panes = append(panes, pane)
 		}
 	}
@@ -250,9 +370,73 @@ func (m Model) renderBrowserLeaf(pane prefs.Pane, width, height, originX, origin
 	style := m.panelStyleForBrowser(pane).Width(width).Height(height).MaxHeight(height)
 	innerHeight := panelInnerHeight(height)
 	var body string
-	if pane == prefs.PaneDetail {
-		body = fitLines(m.renderDetail(), innerHeight)
-	} else {
+	switch pane {
+	case prefs.PaneDetail:
+		if m.usesCampaignTree() {
+			body = fitLines(m.renderTreeDetail(), innerHeight)
+		} else {
+			body = fitLines(m.renderDetail(), innerHeight)
+		}
+		if regions != nil {
+			*regions = append(*regions, browserRegion{
+				Pane: pane,
+				MinX: originX,
+				MaxX: originX + width - 1,
+				MinY: originY,
+				MaxY: originY + height - 1,
+			})
+		}
+	case prefs.PaneNav:
+		body = fitLines(m.renderNavTree(), innerHeight)
+		if regions != nil {
+			*regions = append(*regions, browserRegion{
+				Pane:       pane,
+				MinX:       originX,
+				MaxX:       originX + width - 1,
+				MinY:       originY,
+				MaxY:       originY + height - 1,
+				NavEntries: m.navEntries(),
+				Offset:     originY + 4,
+			})
+		}
+	case prefs.PaneList:
+		if m.usesCampaignTree() {
+			body = fitLines(m.renderListPane(), innerHeight)
+			region := browserRegion{
+				Pane:   pane,
+				MinX:   originX,
+				MaxX:   originX + width - 1,
+				MinY:   originY,
+				MaxY:   originY + height - 1,
+				Offset: originY + 4,
+			}
+			switch m.currentNav().Kind {
+			case NavSessions:
+				region.SessionRows = m.scopedSessions()
+			case NavPrep:
+				region.PlanRows = m.scopedPlannedNotes()
+			default:
+				region.Rows = m.listRecords()
+			}
+			if regions != nil {
+				*regions = append(*regions, region)
+			}
+		} else {
+			records := m.recordsForPane(pane)
+			body = fitLines(m.renderTypeSection(pane, records), innerHeight)
+			if regions != nil {
+				*regions = append(*regions, browserRegion{
+					Pane:   pane,
+					MinX:   originX,
+					MaxX:   originX + width - 1,
+					MinY:   originY,
+					MaxY:   originY + height - 1,
+					Rows:   records,
+					Offset: originY + 4,
+				})
+			}
+		}
+	default:
 		records := m.recordsForPane(pane)
 		body = fitLines(m.renderTypeSection(pane, records), innerHeight)
 		if regions != nil {
@@ -266,15 +450,6 @@ func (m Model) renderBrowserLeaf(pane prefs.Pane, width, height, originX, origin
 				Offset: originY + 4, // border + pad + title + blank
 			})
 		}
-	}
-	if pane == prefs.PaneDetail && regions != nil {
-		*regions = append(*regions, browserRegion{
-			Pane: pane,
-			MinX: originX,
-			MaxX: originX + width - 1,
-			MinY: originY,
-			MaxY: originY + height - 1,
-		})
 	}
 	return style.Render(body)
 }
@@ -326,8 +501,32 @@ func (m Model) browserDetailGutterX() int {
 	if len(visible) < 2 {
 		return m.splitWidth(m.width)
 	}
+	// Prefer the nested list|detail gutter when present (campaign tree).
+	if !visible[1].IsLeaf() && visible[1].Axis == prefs.AxisVertical {
+		inner := visibleBrowserChildren(visible[1])
+		if len(inner) >= 2 && inner[1].IsLeaf() && inner[1].Pane == prefs.PaneDetail {
+			left := clamp(int(float64(m.width)*root.Ratio), 10, max(10, m.width-20))
+			remain := max(1, m.width-left)
+			return left + clamp(int(float64(remain)*visible[1].Ratio), 12, max(12, remain-12))
+		}
+	}
 	if visible[1].IsLeaf() && visible[1].Pane == prefs.PaneDetail {
 		return clamp(int(float64(m.width)*root.Ratio), 12, max(12, m.width-12))
 	}
 	return m.splitWidth(m.width)
+}
+
+func (m Model) browserNavGutterX() int {
+	root := m.layout.Browser.Root
+	if root.IsLeaf() || root.Axis != prefs.AxisVertical {
+		return -1
+	}
+	visible := visibleBrowserChildren(root)
+	if len(visible) < 2 {
+		return -1
+	}
+	if visible[0].IsLeaf() && visible[0].Pane == prefs.PaneNav {
+		return m.splitWidth(m.width)
+	}
+	return -1
 }

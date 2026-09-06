@@ -19,56 +19,62 @@ import (
 )
 
 type Model struct {
-	workspace      domain.Workspace
-	search         searchsvc.Service
-	cursor         int
-	selectedID     string
-	width          int
-	height         int
-	searching      bool
-	searchInput    textinput.Model
-	searchScope    searchsvc.Scope
-	includeIdeas   bool
-	results        []searchsvc.Result
-	selected       int
-	typeFilter     domain.EntityType
-	store          storage.Store
-	prefs          prefs.Store
-	status         string
-	editing        bool
-	creating       bool
-	editID         string
-	editType       domain.EntityType
-	editBody       textarea.Model
-	session        *domain.SessionRecord
-	sessionInput   textarea.Model
-	review         *domain.Record
-	reviewPinned   bool
-	suggestions    []Suggestion
-	suggestion     int
-	campaignCursor int
-	contextCursor  int
-	previousInput  string
-	transcriptView viewport.Model
-	layout         prefs.Layout
-	draggingSplit  bool
-	dragAxis       string
-	rollRNG        dice.RNG
-	reconciling    bool
-	reconIndex     int
-	reconCursor    int
-	deleteConfirm  bool
-	confirmKind    string // "delete" or "supersede"
-	planning       bool
-	planID         string
-	planDraft      domain.PlannedNotes
-	planTitle      textinput.Model
-	planBody       textarea.Model
-	planField      int
-	picking        bool
-	pickerLevel    string // "world" or "campaign"
-	pickerCursor   int
-	pickerWorldID  string
+	workspace         domain.Workspace
+	search            searchsvc.Service
+	cursor            int
+	selectedID        string
+	width             int
+	height            int
+	searching         bool
+	searchInput       textinput.Model
+	searchScope       searchsvc.Scope
+	includeIdeas      bool
+	results           []searchsvc.Result
+	selected          int
+	typeFilter        domain.EntityType
+	store             storage.Store
+	prefs             prefs.Store
+	status            string
+	editing           bool
+	creating          bool
+	editID            string
+	editType          domain.EntityType
+	editBody          textarea.Model
+	session           *domain.SessionRecord
+	sessionInput      textarea.Model
+	review            *domain.Record
+	reviewPinned      bool
+	suggestions       []Suggestion
+	suggestion        int
+	campaignCursor    int
+	contextCursor     int
+	previousInput     string
+	transcriptView    viewport.Model
+	layout            prefs.Layout
+	draggingSplit     bool
+	dragAxis          string
+	rollRNG           dice.RNG
+	reconciling       bool
+	reconIndex        int
+	reconCursor       int
+	deleteConfirm     bool
+	confirmKind       string // "delete" or "supersede"
+	planning          bool
+	planID            string
+	planDraft         domain.PlannedNotes
+	planTitle         textinput.Model
+	planBody          textarea.Model
+	planField         int
+	picking           bool
+	pickerLevel       string // "world" or "campaign"
+	pickerCursor      int
+	pickerWorldID     string
+	navCursor         int
+	navKind           NavKind
+	navType           domain.EntityType
+	selectedSessionID string
+	selectedPlanID    string
+	draggingNavSplit  bool
 }
 
 func New() Model {
@@ -178,9 +184,17 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "j", "down":
-			m.moveBrowserCursor(1)
+			if m.layout.Focus == prefs.PaneNav {
+				m.moveNavCursor(1)
+			} else {
+				m.moveBrowserCursor(1)
+			}
 		case "k", "up":
-			m.moveBrowserCursor(-1)
+			if m.layout.Focus == prefs.PaneNav {
+				m.moveNavCursor(-1)
+			} else {
+				m.moveBrowserCursor(-1)
+			}
 		case "/":
 			return m.openSearch()
 		case "n":
@@ -190,14 +204,28 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.openEditor(true)
 		case "e":
+			if m.usesCampaignTree() && m.currentNav().Kind == NavPrep && m.selectedPlanID != "" {
+				m.planID = m.selectedPlanID
+				return m.openPlannedNotes(false)
+			}
 			return m.openEditor(false)
-		case "t":
+		case "t", "right":
 			m.cycleBrowserFocus()
+		case "left", "shift+tab":
+			m.cycleBrowserFocusBack()
 		case "ctrl+p":
+			if m.usesCampaignTree() {
+				m.status = "Use the campaign tree to switch sections"
+				return m, nil
+			}
 			m.layout.CycleBrowserTypeVisibility()
 			m.persistPreferences()
 			m.status = "Cycled browser type panes"
 		case "+":
+			if m.usesCampaignTree() {
+				m.status = "Sections live in the campaign tree · Tab focuses panes"
+				return m, nil
+			}
 			m.addNextBrowserTypePane()
 		case "-":
 			return m.closeFocusedPane()
@@ -213,6 +241,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m.startSession()
+		case "enter":
+			return m.activateBrowserSelection()
 		case "r":
 			return m.openReconciliation()
 		case "d":
@@ -249,15 +279,24 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				ratio := float64(clamp(msg.Y-1, 6, work-5)) / float64(work)
 				m.layout.SetSessionUpperRatio(ratio)
 				m.configureTranscriptViewport()
-			} else {
+			} else if m.session != nil || m.draggingNavSplit || !m.usesCampaignTree() {
 				ratio := float64(clamp(msg.X, 24, max(25, m.width-24))) / float64(max(1, m.width))
 				m.layout.SetVerticalSplitRatio(ratio)
+			} else if m.usesCampaignTree() && m.layout.Browser.Root.Type == "split" && len(m.layout.Browser.Root.Children) > 1 {
+				navW := clamp(int(float64(m.width)*m.layout.Browser.Root.Ratio), 10, max(10, m.width-20))
+				remain := max(1, m.width-navW)
+				inner := float64(clamp(msg.X-navW, 12, max(13, remain-12))) / float64(remain)
+				child := &m.layout.Browser.Root.Children[1]
+				if child.Type == "split" && child.Axis == prefs.AxisVertical {
+					child.Ratio = clampBrowserRatio(inner)
+				}
 			}
 		}
 		return m, nil
 	case tea.MouseReleaseMsg:
 		wasDragging := m.draggingSplit
 		m.draggingSplit = false
+		m.draggingNavSplit = false
 		m.dragAxis = ""
 		if wasDragging {
 			m.persistPreferences()
@@ -901,6 +940,21 @@ func (m *Model) clearDestructiveConfirm(status string) {
 }
 
 func (m Model) armDestructiveConfirm(kind string) (tea.Model, tea.Cmd) {
+	if m.usesCampaignTree() && m.currentNav().Kind == NavSessions {
+		if kind == "supersede" {
+			m.status = "Sessions cannot be superseded · d deletes"
+			return m, nil
+		}
+		session := m.selectedSession()
+		if session == nil {
+			m.status = "Nothing selected"
+			return m, nil
+		}
+		m.deleteConfirm = true
+		m.confirmKind = "delete-session"
+		m.status = "Delete session “" + session.Title + "”?  y confirm · n/Esc cancel"
+		return m, nil
+	}
 	record := m.selectedRecord()
 	if record == nil {
 		m.status = "Nothing selected"
@@ -929,6 +983,8 @@ func (m Model) confirmDestructiveAction() (tea.Model, tea.Cmd) {
 	switch kind {
 	case "delete":
 		m.deleteSelected()
+	case "delete-session":
+		m.deleteSelectedSession()
 	case "supersede":
 		return m.supersedeSelected()
 	}
@@ -937,6 +993,10 @@ func (m Model) confirmDestructiveAction() (tea.Model, tea.Cmd) {
 
 func (m Model) closeFocusedPane() (tea.Model, tea.Cmd) {
 	pane := m.layout.Focus
+	if m.usesCampaignTree() {
+		m.status = "Campaign tree panes stay open · Tab cycles focus"
+		return m, nil
+	}
 	if _, ok := paneEntityType(pane); ok && pane != prefs.PaneList && pane != prefs.PaneDetail {
 		if !m.layout.CloseBrowserTypePane(pane) {
 			m.status = "Keep at least one type pane open"
@@ -953,6 +1013,90 @@ func (m Model) closeFocusedPane() (tea.Model, tea.Cmd) {
 	}
 	m.status = "Focus a type pane, then press - to close it"
 	return m, nil
+}
+
+func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
+	if !m.usesCampaignTree() {
+		return m, nil
+	}
+	switch m.currentNav().Kind {
+	case NavPrep:
+		if m.selectedPlanID == "" {
+			return m.openPlannedNotes(true)
+		}
+		m.planID = m.selectedPlanID
+		return m.openPlannedNotes(false)
+	case NavSessions:
+		return m.startSession()
+	default:
+		if m.selectedRecord() != nil {
+			return m.openEditor(false)
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) moveBrowserCursor(delta int) {
+	if m.usesCampaignTree() && m.layout.Focus == prefs.PaneNav {
+		m.moveNavCursor(delta)
+		return
+	}
+	if m.usesCampaignTree() && (m.layout.Focus == prefs.PaneList || m.layout.Focus == prefs.PaneDetail) {
+		switch m.currentNav().Kind {
+		case NavSessions:
+			sessions := m.scopedSessions()
+			if len(sessions) == 0 {
+				return
+			}
+			m.cursor = clamp(m.cursor+delta, 0, len(sessions)-1)
+			m.selectedSessionID = sessions[m.cursor].ID
+			m.selectedID = ""
+			m.selectedPlanID = ""
+			return
+		case NavPrep:
+			plans := m.scopedPlannedNotes()
+			if len(plans) == 0 {
+				return
+			}
+			m.cursor = clamp(m.cursor+delta, 0, len(plans)-1)
+			m.selectedPlanID = plans[m.cursor].ID
+			m.selectedID = ""
+			m.selectedSessionID = ""
+			return
+		default:
+			records := m.listRecords()
+			if len(records) == 0 {
+				return
+			}
+			m.cursor = clamp(m.cursor+delta, 0, len(records)-1)
+			m.selectRecord(records[m.cursor])
+			m.layout.Focus = prefs.PaneList
+			return
+		}
+	}
+	pane := m.layout.Focus
+	if _, ok := paneEntityType(pane); !ok {
+		if panes := m.browserFocusOrder(); len(panes) > 0 {
+			pane = panes[0]
+			m.setBrowserFocus(pane)
+		}
+	}
+	records := m.recordsForPane(pane)
+	if len(records) == 0 {
+		return
+	}
+	m.cursor = clamp(m.cursor+delta, 0, len(records)-1)
+	m.selectRecord(records[m.cursor])
+}
+
+func clampBrowserRatio(value float64) float64 {
+	if value < 0.15 {
+		return 0.15
+	}
+	if value > 0.7 {
+		return 0.7
+	}
+	return value
 }
 
 func (m *Model) deleteSelected() {
@@ -975,6 +1119,56 @@ func (m *Model) deleteSelected() {
 	m.refreshResults()
 	m.persistWorkspace()
 	m.status = "Deleted " + record.Title
+}
+
+func (m Model) selectedSession() *domain.SessionRecord {
+	if m.selectedSessionID == "" {
+		return nil
+	}
+	for index := range m.workspace.Sessions {
+		if m.workspace.Sessions[index].ID == m.selectedSessionID {
+			session := m.workspace.Sessions[index]
+			return &session
+		}
+	}
+	return nil
+}
+
+func (m *Model) deleteSelectedSession() {
+	session := m.selectedSession()
+	if session == nil {
+		return
+	}
+	id := session.ID
+	out := make([]domain.SessionRecord, 0, len(m.workspace.Sessions))
+	for _, item := range m.workspace.Sessions {
+		if item.ID == id {
+			continue
+		}
+		out = append(out, item)
+	}
+	m.workspace.Sessions = out
+	recons := make([]domain.ReconciliationRecord, 0, len(m.workspace.Reconciliations))
+	for _, recon := range m.workspace.Reconciliations {
+		if recon.SessionID == id {
+			continue
+		}
+		recons = append(recons, recon)
+	}
+	m.workspace.Reconciliations = recons
+	if m.session != nil && m.session.ID == id {
+		m.session = nil
+	}
+	m.selectedSessionID = ""
+	sessions := m.scopedSessions()
+	if len(sessions) > 0 {
+		m.cursor = clamp(m.cursor, 0, len(sessions)-1)
+		m.selectedSessionID = sessions[m.cursor].ID
+	} else {
+		m.cursor = 0
+	}
+	m.persistWorkspace()
+	m.status = "Deleted session " + session.Title
 }
 
 func (m Model) supersedeSelected() (tea.Model, tea.Cmd) {
@@ -1087,22 +1281,6 @@ func (m *Model) applyPreferences() {
 	}
 	m.layout = layout.Normalize()
 	m.ensureBrowserSelection()
-}
-
-func (m *Model) moveBrowserCursor(delta int) {
-	pane := m.layout.Focus
-	if _, ok := paneEntityType(pane); !ok {
-		if panes := m.browserFocusOrder(); len(panes) > 0 {
-			pane = panes[0]
-			m.setBrowserFocus(pane)
-		}
-	}
-	records := m.recordsForPane(pane)
-	if len(records) == 0 {
-		return
-	}
-	m.cursor = clamp(m.cursor+delta, 0, len(records)-1)
-	m.selectRecord(records[m.cursor])
 }
 
 func (m *Model) addNextBrowserTypePane() {
@@ -1259,9 +1437,16 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.openSearch()
 	}
 
+	if navGutter := m.browserNavGutterX(); navGutter >= 0 && abs(msg.X-navGutter) <= 1 {
+		m.draggingSplit = true
+		m.draggingNavSplit = true
+		m.dragAxis = "vertical"
+		return m, nil
+	}
 	gutter := m.browserDetailGutterX()
 	if abs(msg.X-gutter) <= 1 {
 		m.draggingSplit = true
+		m.draggingNavSplit = false
 		m.dragAxis = "vertical"
 		return m, nil
 	}
@@ -1270,14 +1455,48 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			continue
 		}
 		m.setBrowserFocus(region.Pane)
-		if region.Pane == prefs.PaneDetail || len(region.Rows) == 0 {
+		index := msg.Y - region.Offset
+		switch region.Pane {
+		case prefs.PaneNav:
+			if index >= 0 && index < len(region.NavEntries) {
+				m.setNavCursor(index)
+			}
+			return m, nil
+		case prefs.PaneDetail:
+			return m, nil
+		case prefs.PaneList:
+			if len(region.SessionRows) > 0 {
+				if index >= 0 && index < len(region.SessionRows) {
+					m.cursor = index
+					m.selectedSessionID = region.SessionRows[index].ID
+					m.selectedID = ""
+					m.selectedPlanID = ""
+				}
+				return m, nil
+			}
+			if len(region.PlanRows) > 0 {
+				if index >= 0 && index < len(region.PlanRows) {
+					m.cursor = index
+					m.selectedPlanID = region.PlanRows[index].ID
+					m.selectedID = ""
+					m.selectedSessionID = ""
+				}
+				return m, nil
+			}
+			if index >= 0 && index < len(region.Rows) {
+				m.selectRecord(region.Rows[index])
+				m.layout.Focus = prefs.PaneList
+			}
+			return m, nil
+		default:
+			if len(region.Rows) == 0 {
+				return m, nil
+			}
+			if index >= 0 && index < len(region.Rows) {
+				m.selectRecord(region.Rows[index])
+			}
 			return m, nil
 		}
-		index := msg.Y - region.Offset
-		if index >= 0 && index < len(region.Rows) {
-			m.selectRecord(region.Rows[index])
-		}
-		return m, nil
 	}
 	return m, nil
 }
@@ -1294,7 +1513,9 @@ func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
 	model.creating = create
 	model.editID = ""
 	model.editType = domain.NPC
-	if entityType, ok := paneEntityType(m.layout.Focus); ok && m.layout.Focus != prefs.PaneList && entityType != "" {
+	if m.usesCampaignTree() && m.currentNav().Kind == NavType && m.navType != "" {
+		model.editType = m.navType
+	} else if entityType, ok := paneEntityType(m.layout.Focus); ok && m.layout.Focus != prefs.PaneList && entityType != "" {
 		model.editType = entityType
 	} else if m.typeFilter != "" {
 		model.editType = m.typeFilter
@@ -1753,7 +1974,7 @@ func (m Model) View() tea.View {
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(1, m.height-2)
 	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-	help := "/ search  n new  e edit  p prep  b library  +/− panes  d/x confirm  s live  r reconcile  q quit"
+	help := "/ search  n new  e edit  p prep  b library  ←/→ or Tab panes  Enter open  d/x confirm  s live  r reconcile  q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
@@ -2130,11 +2351,13 @@ func clamp(value, low, high int) int {
 }
 
 func (m Model) splitWidth(total int) int {
-	if m.session == nil {
-		return m.browserDetailGutterX()
+	minWidth := 24
+	if m.session == nil && m.usesCampaignTree() {
+		minWidth = 14
 	}
+	maxWidth := max(minWidth+1, total-24)
 	ratio := m.layout.VerticalRatio()
-	return clamp(int(float64(total)*ratio), 24, max(25, total-24))
+	return clamp(int(float64(total)*ratio), minWidth, maxWidth)
 }
 
 func (m Model) sessionInputHeight() int {

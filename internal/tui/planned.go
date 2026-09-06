@@ -172,11 +172,18 @@ func (m Model) renderPlannedNotesOverlay() string {
 }
 
 func (m Model) activePlannedNotes() *domain.PlannedNotes {
-	if m.planID == "" {
-		if len(m.workspace.PlannedNotes) == 0 {
-			return nil
+	if m.selectedPlanID != "" {
+		if plan := m.plannedByID(m.selectedPlanID); plan != nil {
+			return plan
 		}
-		return &m.workspace.PlannedNotes[len(m.workspace.PlannedNotes)-1]
 	}
-	return m.plannedByID(m.planID)
+	if m.planID != "" {
+		if plan := m.plannedByID(m.planID); plan != nil {
+			return plan
+		}
+	}
+	if len(m.workspace.PlannedNotes) == 0 {
+		return nil
+	}
+	return &m.workspace.PlannedNotes[len(m.workspace.PlannedNotes)-1]
 }

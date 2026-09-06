@@ -39,6 +39,9 @@ func (m *Model) enterScope(scope domain.Scope) {
 	m.layout.ActiveWorldID = scope.WorldID
 	m.layout.ActiveCampaignID = scope.CampaignID
 	m.selectedID = ""
+	m.selectedSessionID = ""
+	m.selectedPlanID = ""
+	m.navKind = ""
 	m.planID = ""
 	m.ensureBrowserSelection()
 	m.search = searchsvc.New(m.workspace.Records)

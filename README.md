@@ -35,26 +35,24 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | Key | Action |
 |---|---|
 | `/` | Open typed fuzzy search |
-| `j` / `k` | Navigate records |
+| `j` / `k` | Navigate the focused pane (campaign tree, list, or records) |
+| `←` / `→` / `Tab` / `Shift+Tab` / `t` | Cycle focus across nav · list · detail |
 | `n` | Create a new draft entity (markdown) |
-| `e` | Edit the selected entity (markdown) |
-| `d` | Delete selected entity (`y` confirm / `n` cancel) |
+| `e` | Edit the selected entity or prep notes |
+| `d` | Delete selected entity or session (`y` confirm / `n` cancel) |
 | `x` | Supersede selected entity (`y` confirm / `n` cancel) |
-| `+` / `-` | Add or close the focused type pane |
-| `t` / `Tab` | Cycle focused campaign type section |
-| `+` | Add another typed section pane |
+| `Enter` | Open the selected session, prep notes, or entity |
 | `b` | Back to world/campaign library picker |
 | `p` | Draft planned session notes (prep markdown, not live) |
-| `s` | Start a live session (uses planned notes as context when present) |
+| `s` | Start a live session (uses selected/latest planned notes as context) |
 | `Tab` / `Shift+Tab` | In editor: move fields; in session: suggest/cycle focus |
 | `Ctrl+S` | Save markdown editor / planned notes, or change search scope while searching |
 | `Ctrl+T` | Cycle entity type while editing markdown |
 | `Enter` / `Ctrl+Enter` | Capture a transcript entry during a session |
 | `Shift+Enter` | Insert a newline in the transcript editor |
 | `Ctrl+E` | End the active session |
-| `Ctrl+P` | Cycle browser type panes, or session campaign/context panes |
+| `Ctrl+P` | Cycle session campaign/context panes |
 | `Ctrl+A` | Include or exclude AI proposals from search |
-| `Enter` | Open a search result |
 | `Esc` | Close search |
 | `q` | Quit |
 
@@ -69,10 +67,10 @@ included. Results carry entity-type and authority labels.
 The workspace stores the active campaign and records through a UI-independent
 JSON storage boundary. The type filter keeps NPCs, locations, items, sessions,
 and other entity kinds visibly separate while preserving one shared domain model
-for future clients. The default campaign browser tiles typed section panes
-(NPC, location, faction, thread, item, note) beside detail so the terminal is
-filled; `+` adds more type panes and `Ctrl+P` cycles denser/core presets.
-Classic `list|detail` preferences upgrade automatically.
+for future clients. Inside a campaign, the browser is an IDE-style tree:
+**nav | list | detail**. The left branch lists Sessions, Prep, and typed wiki
+sections; the center list and right detail follow the selected branch. Older
+dense typed-pane and classic `list|detail` preferences upgrade automatically.
 
 During a session, click any pane (campaign, context, transcript, or input) to
 focus it — the focused pane gets an accent border. `Tab` / `Shift+Tab` cycle

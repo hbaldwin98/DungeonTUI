@@ -96,6 +96,7 @@ func TestMouseWheelNavigatesRecords(t *testing.T) {
 	model := New()
 	model.width = 120
 	model.height = 40
+	model.setBrowserFocus(prefs.PaneList)
 
 	updated, _ := model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	model = updated.(Model)
@@ -167,11 +168,14 @@ func TestCloseFocusedBrowserPane(t *testing.T) {
 	model := New()
 	model.width = 100
 	model.height = 36
-	model.setBrowserFocus(prefs.PaneFaction)
+	model.setBrowserFocus(prefs.PaneList)
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '-', Text: "-"}))
 	model = updated.(Model)
-	if prefs.FindVisibleLeaf(model.layout.Browser.Root, prefs.PaneFaction) {
-		t.Fatal("expected faction pane closed")
+	if !prefs.FindVisibleLeaf(model.layout.Browser.Root, prefs.PaneList) {
+		t.Fatal("campaign tree panes must stay open")
+	}
+	if !strings.Contains(model.status, "stay open") {
+		t.Fatalf("expected stay-open status, got %q", model.status)
 	}
 }
 
@@ -184,7 +188,7 @@ func TestMouseClickSelectsRecord(t *testing.T) {
 	var x, y int
 	found := false
 	for _, region := range model.browserRegions() {
-		if region.Pane != prefs.PaneNPC || len(region.Rows) < 2 {
+		if region.Pane != prefs.PaneList || len(region.Rows) < 2 {
 			continue
 		}
 		target = region.Rows[1]
@@ -194,7 +198,7 @@ func TestMouseClickSelectsRecord(t *testing.T) {
 		break
 	}
 	if !found {
-		t.Fatal("expected NPC pane hit region")
+		t.Fatal("expected list pane hit region with records")
 	}
 	updated, _ := model.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 	model = updated.(Model)
@@ -218,8 +222,123 @@ func TestViewFillsTerminal(t *testing.T) {
 			t.Fatalf("row %d: expected width %d, got %d", index, model.width, width)
 		}
 	}
-	if !strings.Contains(content, "NPC") || !strings.Contains(content, "LOCATION") {
-		t.Fatalf("expected typed section panes in browser view: %q", content)
+	if !strings.Contains(content, "CAMPAIGN") || !strings.Contains(content, "Sessions") || !strings.Contains(content, "Prep") {
+		t.Fatalf("expected campaign tree in browser view: %q", content)
+	}
+	if !strings.Contains(content, "NPCs") {
+		t.Fatalf("expected NPC branch in campaign tree: %q", content)
+	}
+}
+
+func TestCampaignTreeFiltersListBySection(t *testing.T) {
+	model := New()
+	if model.layout.Focus != prefs.PaneNav {
+		t.Fatalf("expected nav focus by default, got %q", model.layout.Focus)
+	}
+	if model.currentNav().Type != domain.NPC {
+		t.Fatalf("expected initial NPC section, got %#v", model.currentNav())
+	}
+	// Move nav to Locations (index 4: Sessions, Prep, NPCs, Characters, Locations)
+	model.setNavCursor(4)
+	if model.layout.Focus != prefs.PaneNav {
+		t.Fatalf("nav cursor move must keep nav focus, got %q", model.layout.Focus)
+	}
+	if model.currentNav().Type != domain.Location {
+		t.Fatalf("expected Locations, got %#v", model.currentNav())
+	}
+	for _, record := range model.listRecords() {
+		if record.Type != domain.Location {
+			t.Fatalf("location section leaked %q record", record.Type)
+		}
+	}
+}
+
+func TestCampaignTreeShowsPrepBranch(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	model.workspace.PlannedNotes = append(model.workspace.PlannedNotes, domain.PlannedNotes{
+		ID:    "plan-test",
+		Title: "Crypt approach",
+		Scope: model.workspace.Scope,
+		Body:  "Meet @Captain Vale",
+	})
+	model.setNavCursor(1) // Prep notes
+	content := model.View().Content
+	if !strings.Contains(content, "PREP NOTES") && !strings.Contains(content, "Crypt approach") {
+		t.Fatalf("expected prep list content, got %q", content)
+	}
+	if model.selectedPlanID != "plan-test" {
+		t.Fatalf("expected prep selection, got %q", model.selectedPlanID)
+	}
+}
+
+func TestTypeFilterSeparatesRecords(t *testing.T) {
+	model := New()
+	if model.layout.Focus != prefs.PaneNav {
+		t.Fatalf("expected initial nav focus, got %q", model.layout.Focus)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 't', Text: "t"}))
+	model = updated.(Model)
+	if model.layout.Focus != prefs.PaneList {
+		t.Fatalf("expected list after Tab/t from nav, got focus=%q", model.layout.Focus)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift}))
+	model = updated.(Model)
+	if model.layout.Focus != prefs.PaneNav {
+		t.Fatalf("expected nav after Shift+Tab, got focus=%q", model.layout.Focus)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
+	model = updated.(Model)
+	if model.layout.Focus != prefs.PaneDetail {
+		t.Fatalf("expected detail after left from nav, got focus=%q", model.layout.Focus)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	model = updated.(Model)
+	if model.layout.Focus != prefs.PaneNav {
+		t.Fatalf("expected nav after right from detail, got focus=%q", model.layout.Focus)
+	}
+}
+
+func TestDeleteSessionFromTree(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	model.workspace.Sessions = append(model.workspace.Sessions, domain.SessionRecord{
+		ID:    "session-del",
+		Title: "Throwaway sit",
+		Scope: model.workspace.Scope,
+	})
+	model.setNavCursor(0) // Sessions
+	model.setBrowserFocus(prefs.PaneList)
+	if model.selectedSessionID != "session-del" {
+		t.Fatalf("expected session selected, got %q", model.selectedSessionID)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	model = updated.(Model)
+	if !model.deleteConfirm || model.confirmKind != "delete-session" {
+		t.Fatalf("expected session delete confirm, got confirm=%v kind=%q", model.deleteConfirm, model.confirmKind)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+	model = updated.(Model)
+	for _, session := range model.workspace.Sessions {
+		if session.ID == "session-del" {
+			t.Fatal("session should be deleted")
+		}
+	}
+}
+
+func TestBrowserAddTypePane(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '+', Text: "+"}))
+	model = updated.(Model)
+	if !prefs.FindVisibleLeaf(model.layout.Browser.Root, prefs.PaneNav) {
+		t.Fatal("campaign tree should remain after +")
+	}
+	if !strings.Contains(model.status, "campaign tree") && !strings.Contains(model.status, "Sections live") {
+		t.Fatalf("expected tree guidance status, got %q", model.status)
 	}
 }
 
@@ -269,37 +388,6 @@ func TestEditEntityUsesMarkdownDocument(t *testing.T) {
 	}
 	if strings.Contains(model.View().Content, "Title:") && strings.Contains(model.View().Content, "Summary:") {
 		t.Fatal("form fields should not appear in markdown editor")
-	}
-}
-
-func TestTypeFilterSeparatesRecords(t *testing.T) {
-	model := New()
-	if model.layout.Focus != prefs.PaneNPC {
-		t.Fatalf("expected initial NPC section focus, got %q", model.layout.Focus)
-	}
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 't', Text: "t"}))
-	model = updated.(Model)
-	if model.layout.Focus != prefs.PaneLocation || model.typeFilter != domain.Location {
-		t.Fatalf("expected location section after Tab/t, got focus=%q type=%q", model.layout.Focus, model.typeFilter)
-	}
-	for _, record := range model.recordsForPane(model.layout.Focus) {
-		if record.Type != domain.Location {
-			t.Fatalf("location pane leaked %q record", record.Type)
-		}
-	}
-}
-
-func TestBrowserAddTypePane(t *testing.T) {
-	model := New()
-	model.width = 100
-	model.height = 36
-	model.layout.CycleBrowserTypeVisibility() // core 4
-	before := len(prefs.VisibleLeaves(model.layout.Browser.Root))
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '+', Text: "+"}))
-	model = updated.(Model)
-	after := len(prefs.VisibleLeaves(model.layout.Browser.Root))
-	if after <= before {
-		t.Fatalf("expected + to add a type pane, before=%d after=%d", before, after)
 	}
 }
 
