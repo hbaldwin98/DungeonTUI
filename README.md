@@ -29,7 +29,8 @@ go run ./cmd/dungeon
 | `s` | Start a session |
 | `Tab` / `Shift+Tab` | Move between editor fields |
 | `Ctrl+S` | Save the editor, or change search scope while searching |
-| `Ctrl+Enter` | Capture a transcript entry during a session |
+| `Enter` / `Ctrl+Enter` | Capture a transcript entry during a session |
+| `Shift+Enter` | Insert a newline in the transcript editor |
 | `Ctrl+E` | End the active session |
 | `Ctrl+P` | Cycle visible session panes |
 | `Ctrl+A` | Include or exclude AI proposals from search |
@@ -56,8 +57,12 @@ transcript. `Ctrl+Enter` captures the entry. `$npc Name: description` creates a
 draft entity from the active session, while `#random item` creates a local draft
 generator result and `#location ...` records the current location context.
 The session log scrolls with the mouse wheel; clicking the context pane selects
-an entity for review. Drag the vertical gutter between list/detail or
-scene/context panes to resize them.
+an entity for review. Drag vertical gutters to reallocate left/right panes and
+horizontal gutters to reallocate upper/transcript panes. Split positions are
+currently session-local and will become persisted workspace preferences.
+
+See [the decision record](docs/decisions.md) and [task snapshot](docs/tasks.md)
+for the current implementation boundaries and queue.
 
 ## Architecture
 

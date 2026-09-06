@@ -6,6 +6,14 @@ This document captures the current product direction for Dungeon, a personal,
 terminal-native workstation for running tabletop role-playing campaigns. It is
 an evolving design rather than a fixed implementation specification.
 
+The current implementation is a usable Bubble Tea vertical slice: persistent
+JSON campaign records, typed browsing/search, draft entity editing, session
+lifecycle, multiline transcript capture, `@` links/autosuggestions, `$` draft
+creation, local `#random`/`#location` commands, entity review, scrollback, and
+mouse-driven session pane resizing. The layout is intentionally still being
+validated. Pane preferences are currently in-memory; persistence and a more
+general pane graph remain planned work.
+
 ## Product thesis
 
 Dungeon is a campaign operating system for a human Dungeon Master. It helps
@@ -397,6 +405,14 @@ preference, not campaign data, and should be portable separately from factual
 records. Every pane still reports its section and entity type clearly when it
 has focus.
 
+The first slice implements two-axis gutter resizing for the active layouts: a
+vertical gutter changes the complementary left/right widths, while a
+horizontal gutter changes the complementary upper/transcript heights. Both
+operations are constrained so panes retain usable minimum dimensions and are
+performed with the mouse while the button is held. The next layout slice should
+generalize this into persisted pane definitions, visibility, ordering, and
+arbitrary horizontal/vertical splits rather than adding one-off coordinates.
+
 ### Session capture
 
 A campaign can have an explicit session lifecycle. Starting a session creates a
@@ -510,10 +526,12 @@ entity lists, notes, character briefs, and thread lists without changing
 transcript state. Pane focus and visibility must be apparent, and clicking a
 context entry opens its details directly.
 
-Vertical gutters between adjacent panes are draggable with the mouse. Resizing
-is continuous while the left button is held, constrained so neither pane can
-collapse, and the resulting split is retained as a personal workspace
-preference.
+Gutters between adjacent panes are draggable horizontally or vertically with
+the mouse. Resizing is continuous while the left button is held, constrained so
+neither pane can collapse, and the resulting split is retained as a personal
+workspace preference once layout persistence is implemented. A drag changes the
+two panes on either side of the gutter together; it must not merely translate
+the gutter while leaving the pane dimensions fixed.
 
 Session capture is deliberately factual-data-first. AI may later summarize a
 transcript or suggest events, but those outputs become labelled proposals and
@@ -818,6 +836,8 @@ A useful acceptance narrative for early development is:
   disposable after proposals are resolved?
 - Which import/export representation is easiest to inspect and version by hand?
 - How should aliases, renamed entities, and duplicate detection work in search?
+- What pane tree and persistence format best supports arbitrary two-axis layouts
+  without coupling workspace preferences to campaign data?
 
 These questions should be answered through use of the personal tool and concrete
 campaign data rather than through speculative generalization.
