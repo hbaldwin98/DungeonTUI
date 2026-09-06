@@ -22,6 +22,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   `preferences.json`, separate from campaign `workspace.json`.
 - Session scene/context panes driven by live campaign records and session
   location (`#location`, `current-scene` seed, present NPCs, open threads).
+- Mouse-addressable session review: click context entities, campaign sections,
+  `@` suggestions, and review pin/clear controls.
 
 ## In progress
 
@@ -30,8 +32,6 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Next
 
-- Make session commands and review actions fully mouse-addressable across all
-  pane types.
 - Add session reconciliation records without mutating the raw transcript.
 - Add export/import coverage for worlds, campaigns, sessions, links, and
   workspace preferences.

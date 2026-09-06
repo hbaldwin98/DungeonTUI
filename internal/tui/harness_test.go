@@ -283,14 +283,105 @@ func TestSessionUsesDynamicContextAndLocation(t *testing.T) {
 func TestSessionContextClickSelectsLiveEntity(t *testing.T) {
 	h := NewHarness(100, 36)
 	h.Key("s")
-	items := h.Model.sessionContextItems()
-	if len(items) < 2 {
-		t.Fatalf("expected clickable context items, got %#v", items)
+	var target hitTarget
+	found := false
+	for _, hit := range h.Model.sessionHitTargets() {
+		if hit.Action == hitSelectRecord && hit.Record != nil && hit.Record.Title == "Captain Vale" {
+			target = hit
+			found = true
+			break
+		}
 	}
-	// Click in the context pane (right of vertical split).
-	divider := h.Model.splitWidth(h.Model.width)
-	h.Click(divider+5, 6)
-	if h.Model.review == nil {
-		t.Fatal("expected context click to select an entity")
+	if !found {
+		t.Fatal("expected Captain Vale hit target in context pane")
+	}
+	h.Click(target.MinX, target.MinY)
+	if h.Model.review == nil || h.Model.review.Title != "Captain Vale" {
+		t.Fatalf("expected Vale review, got %#v", h.Model.review)
+	}
+}
+
+func TestSessionMouseSuggestionPinAndCampaignSection(t *testing.T) {
+	h := NewHarness(100, 40)
+	h.Key("s")
+	h.SetSessionDraft("@Cap")
+	h.Model.refreshSuggestions()
+	if len(h.Model.suggestions) == 0 {
+		t.Fatal("expected suggestions")
+	}
+	var suggestion hitTarget
+	found := false
+	for _, hit := range h.Model.sessionHitTargets() {
+		if hit.Action == hitAcceptSuggestion {
+			suggestion = hit
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected suggestion hit target")
+	}
+	h.Click(suggestion.MinX, suggestion.MinY)
+	if !strings.Contains(h.Model.sessionInput.Value(), "@Captain Vale") {
+		t.Fatalf("click should insert suggestion, got %q", h.Model.sessionInput.Value())
+	}
+	if h.Model.review == nil || h.Model.review.Title != "Captain Vale" {
+		t.Fatal("accepted suggestion should open review")
+	}
+
+	var pin hitTarget
+	found = false
+	for _, hit := range h.Model.sessionHitTargets() {
+		if hit.Action == hitPinReview {
+			pin = hit
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected pin control")
+	}
+	h.Click(pin.MinX, pin.MinY)
+	if !h.Model.reviewPinned {
+		t.Fatal("pin click should pin review")
+	}
+	h.SetSessionDraft("@Father")
+	h.Model.refreshSuggestions()
+	if h.Model.review == nil || h.Model.review.Title != "Captain Vale" {
+		t.Fatal("pinned review should survive @ resolution")
+	}
+
+	var clear hitTarget
+	found = false
+	for _, hit := range h.Model.sessionHitTargets() {
+		if hit.Action == hitClearReview {
+			clear = hit
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected clear control")
+	}
+	h.Click(clear.MinX, clear.MinY)
+	if h.Model.review != nil || h.Model.reviewPinned {
+		t.Fatal("clear should remove review")
+	}
+
+	var npcSection hitTarget
+	found = false
+	for _, hit := range h.Model.sessionHitTargets() {
+		if hit.Action == hitCampaignType && hit.EntityType == domain.NPC {
+			npcSection = hit
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected NPCs campaign section hit")
+	}
+	h.Click(npcSection.MinX, npcSection.MinY)
+	if h.Model.review == nil || h.Model.review.Type != domain.NPC {
+		t.Fatalf("campaign section click should open an NPC, got %#v", h.Model.review)
 	}
 }

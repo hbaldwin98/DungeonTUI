@@ -63,9 +63,11 @@ JSON storage boundary. The type filter keeps NPCs, locations, items, sessions,
 and other entity kinds visibly separate while preserving one shared domain model
 for future clients.
 
-During a session, typing `@` opens entity autosuggestions. `Tab` inserts the
-highlighted entity and opens its full details in the review pane above the
-transcript. `Ctrl+Enter` captures the entry. `$npc Name: description` creates a
+During a session, typing `@` opens entity autosuggestions. `Tab` or a mouse
+click inserts the highlighted entity and opens its full details in the review
+pane above the transcript. Click campaign sections or context entities to open
+review; use the `[pin]` / `[clear]` controls on the selected entity. `Ctrl+Enter`
+captures the entry. `$npc Name: description` creates a
 draft entity from the active session, while `#random item` creates a local draft
 generator result and `#location ...` records the current location context.
 Inline `#d20+5` / `#damage 2d6+3` expressions are evaluated locally and stored

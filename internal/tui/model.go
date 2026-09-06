@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1028,9 +1027,6 @@ func (m Model) updateSessionMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cm
 	if msg.Button != tea.MouseLeft {
 		return m, nil
 	}
-	// The lower portion is always the transcript/input region. Clicking there
-	// returns focus to capture, while clicking the context pane selects the
-	// corresponding entity for review.
 	upperHeight := m.sessionUpperHeight()
 	divider := m.splitWidth(m.width)
 	horizontal := upperHeight + 1
@@ -1044,28 +1040,63 @@ func (m Model) updateSessionMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cm
 		m.dragAxis = "horizontal"
 		return m, nil
 	}
+	if hit, ok := m.hitTest(msg.X, msg.Y); ok {
+		return m.applyHit(hit)
+	}
 	if msg.Y > upperHeight+1 {
 		m.sessionInput.Focus()
-		return m, nil
 	}
-	if m.paneLayout == 2 || msg.X < m.splitWidth(m.width) {
-		return m, nil
-	}
-	items := m.sessionContextItems()
-	if len(items) == 0 {
-		return m, nil
-	}
-	// Header + panel top border/padding + "CURRENT SCENE" title ≈ first content rows.
-	index := msg.Y - 4
-	if index < 0 {
-		index = 0
-	}
-	if index >= len(items) {
-		index = len(items) - 1
-	}
-	record := items[index]
-	m.review = &record
 	return m, nil
+}
+
+func (m Model) applyHit(hit hitTarget) (tea.Model, tea.Cmd) {
+	switch hit.Action {
+	case hitSelectRecord:
+		if hit.Record != nil {
+			record := *hit.Record
+			m.review = &record
+			m.status = "Reviewing " + record.Title
+		}
+	case hitAcceptSuggestion:
+		m.suggestion = hit.Suggestion
+		m.acceptSuggestion()
+		m.status = "Inserted @" + m.suggestionsTitle(hit)
+	case hitPinReview:
+		if m.review != nil {
+			m.reviewPinned = !m.reviewPinned
+			if m.reviewPinned {
+				m.status = "Pinned review: " + m.review.Title
+			} else {
+				m.status = "Unpinned review"
+			}
+		}
+	case hitClearReview:
+		m.review = nil
+		m.reviewPinned = false
+		m.status = "Cleared entity review"
+	case hitCampaignType:
+		for _, record := range m.campaignRecords() {
+			if record.Type == hit.EntityType && record.Authority != domain.Proposal {
+				candidate := record
+				m.review = &candidate
+				m.status = "Reviewing " + record.Title
+				break
+			}
+		}
+	case hitFocusInput:
+		m.sessionInput.Focus()
+	}
+	return m, nil
+}
+
+func (m Model) suggestionsTitle(hit hitTarget) string {
+	if hit.Record != nil {
+		return hit.Record.Title
+	}
+	if hit.Suggestion >= 0 && hit.Suggestion < len(m.suggestions) {
+		return m.suggestions[hit.Suggestion].Title
+	}
+	return "entity"
 }
 
 func (m *Model) refreshResults() {
@@ -1297,7 +1328,7 @@ func (m Model) sessionView() tea.View {
 	}
 	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
 	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitLines(m.renderSessionInput(), panelInnerHeight(inputHeight)))
-	help := "Enter/Ctrl+Enter capture   Shift+Enter newline   Ctrl+P panes   wheel scroll log   drag gutters   Ctrl+E end"
+	help := "Enter capture   click entities/suggestions   [pin]/[clear] review   Ctrl+P panes   wheel scroll   Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
@@ -1321,110 +1352,11 @@ func (m Model) renderSessionHeader() string {
 }
 
 func (m Model) renderCampaignPane() string {
-	var builder strings.Builder
-	builder.WriteString(sectionStyle.Render("CAMPAIGN"))
-	builder.WriteString("\n\n")
-	sections := []struct {
-		label string
-		count int
-	}{
-		{label: "Session", count: -1},
-		{label: "World", count: -1},
-		{label: "NPCs", count: m.countByType(domain.NPC)},
-		{label: "Locations", count: m.countByType(domain.Location)},
-		{label: "Factions", count: m.countByType(domain.Faction)},
-		{label: "Threads", count: m.countByType(domain.Thread)},
-		{label: "Items", count: m.countByType(domain.Item)},
-		{label: "Notes", count: m.countByType(domain.Note)},
-	}
-	for index, section := range sections {
-		marker := "  "
-		if index == 0 {
-			marker = "▸ "
-		}
-		builder.WriteString(marker + section.label)
-		if section.count >= 0 {
-			count := strconv.Itoa(section.count)
-			builder.WriteString(strings.Repeat(" ", max(1, 14-len(section.label)-len(count))) + count)
-		}
-		builder.WriteRune('\n')
-	}
-	return builder.String()
+	return renderContentLines(m.campaignContentLines())
 }
 
 func (m Model) renderContextPane() string {
-	var builder strings.Builder
-	builder.WriteString(sectionStyle.Render("CURRENT SCENE"))
-	builder.WriteString("\n\n")
-
-	locationName := ""
-	locationSummary := ""
-	if m.session != nil {
-		locationName = m.session.LocationName
-	}
-	if location := m.sessionLocationRecord(); location != nil {
-		locationName = location.Title
-		locationSummary = location.Summary
-		if locationSummary == "" {
-			locationSummary = location.Body
-		}
-	}
-	if locationName == "" {
-		builder.WriteString(mutedStyle.Render("No location set"))
-		builder.WriteString("\n")
-		builder.WriteString(mutedStyle.Render("Use #location Name"))
-		builder.WriteString("\n\n")
-	} else {
-		builder.WriteString(detailTitleStyle.Render(locationName))
-		builder.WriteString("\n")
-		if locationSummary != "" {
-			builder.WriteString(wrapWords(locationSummary, 36))
-			builder.WriteString("\n")
-		}
-		builder.WriteRune('\n')
-	}
-
-	builder.WriteString(labelStyle.Render("PRESENT"))
-	builder.WriteString("\n")
-	present := m.sessionPresent()
-	if len(present) == 0 {
-		builder.WriteString(mutedStyle.Render("  —") + "\n")
-	} else {
-		for _, record := range present {
-			marker := "◆ "
-			if m.review != nil && m.review.ID == record.ID {
-				marker = "▸ "
-			}
-			builder.WriteString(marker + record.Title + "\n")
-		}
-	}
-	builder.WriteRune('\n')
-
-	builder.WriteString(labelStyle.Render("ACTIVE THREADS"))
-	builder.WriteString("\n")
-	threads := m.sessionThreads()
-	if len(threads) == 0 {
-		builder.WriteString(mutedStyle.Render("  —") + "\n")
-	} else {
-		for _, record := range threads {
-			marker := "  "
-			if m.review != nil && m.review.ID == record.ID {
-				marker = "▸ "
-			}
-			builder.WriteString(marker + record.Title + "\n")
-		}
-	}
-
-	if m.review != nil {
-		builder.WriteRune('\n')
-		builder.WriteString(labelStyle.Render("SELECTED"))
-		builder.WriteString("\n")
-		builder.WriteString(detailTitleStyle.Render(m.review.Title))
-		builder.WriteString("\n")
-		builder.WriteString(m.review.Summary)
-		builder.WriteString("\n")
-	}
-	return builder.String()
+	return renderContentLines(m.contextContentLines())
 }
 
 func wrapWords(text string, width int) string {
@@ -1470,16 +1402,14 @@ func (m Model) renderReview() string {
 }
 
 func (m Model) renderSessionInput() string {
-	var builder strings.Builder
-	label := sectionStyle.Render("INPUT")
 	if strings.TrimSpace(m.sessionInput.Value()) == "" && len(m.suggestions) == 0 {
-		builder.WriteString(label + "  " + mutedStyle.Render("> Type a transcript entry, $entity command, or #command; press Enter to submit"))
-		return builder.String()
+		return sectionStyle.Render("INPUT") + "  " + mutedStyle.Render("> Type a transcript entry, $entity command, or #command; press Enter to submit")
 	}
-	builder.WriteString(label + "  " + m.sessionInput.View())
+	var builder strings.Builder
+	builder.WriteString(sectionStyle.Render("INPUT") + "  " + m.sessionInput.View())
 	if len(m.suggestions) > 0 {
 		builder.WriteString("\n")
-		builder.WriteString(mutedStyle.Render("@ suggestions  ↑/↓ choose  Tab insert"))
+		builder.WriteString(mutedStyle.Render("@ suggestions  click / ↑↓ / Tab insert"))
 		for index, record := range m.suggestions {
 			if index >= 3 {
 				break
