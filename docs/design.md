@@ -502,6 +502,14 @@ width and displays a chronological transcript. A compact command bar advertises
 the most useful actions and their keys without requiring the DM to remember
 mode-specific controls.
 
+The transcript is an independently scrollable viewport. It stays at the newest
+entry after capture, while mouse-wheel and keyboard scrolling provide
+scrollback without changing the active input. Upper panes are configurable:
+the owner can cycle or toggle campaign navigation, scene summary, context and
+entity lists, notes, character briefs, and thread lists without changing
+transcript state. Pane focus and visibility must be apparent, and clicking a
+context entry opens its details directly.
+
 Session capture is deliberately factual-data-first. AI may later summarize a
 transcript or suggest events, but those outputs become labelled proposals and
 must not alter the transcript or campaign facts automatically.

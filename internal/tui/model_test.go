@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -231,5 +232,30 @@ func TestShiftEnterAddsMultilineTextWithoutSubmitting(t *testing.T) {
 	}
 	if model.sessionInput.Value() != "first line\n" {
 		t.Fatalf("expected multiline input, got %q", model.sessionInput.Value())
+	}
+}
+
+func TestSessionTranscriptScrollsAndPanesCycle(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 30
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	for index := 0; index < 30; index++ {
+		model.session.Entries = append(model.session.Entries, domain.TranscriptEntry{Text: "event", CreatedAt: time.Unix(int64(index), 0)})
+	}
+	model.refreshTranscriptViewport()
+	if !model.transcriptView.AtBottom() {
+		t.Fatal("transcript should start at the newest entry")
+	}
+	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	model = updated.(Model)
+	if model.transcriptView.AtBottom() {
+		t.Fatal("mouse wheel should scroll the transcript")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if model.paneLayout != 1 {
+		t.Fatalf("expected pane layout cycle, got %d", model.paneLayout)
 	}
 }

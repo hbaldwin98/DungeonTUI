@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -16,35 +17,37 @@ import (
 )
 
 type Model struct {
-	workspace     domain.Workspace
-	search        searchsvc.Service
-	cursor        int
-	width         int
-	height        int
-	searching     bool
-	searchInput   textinput.Model
-	searchScope   searchsvc.Scope
-	includeIdeas  bool
-	results       []searchsvc.Result
-	selected      int
-	typeFilter    domain.EntityType
-	store         storage.Store
-	status        string
-	editing       bool
-	creating      bool
-	editIndex     int
-	editField     int
-	editType      domain.EntityType
-	editTitle     textinput.Model
-	editSummary   textinput.Model
-	editBody      textarea.Model
-	session       *domain.SessionRecord
-	sessionInput  textarea.Model
-	review        *domain.Record
-	reviewPinned  bool
-	suggestions   []domain.Record
-	suggestion    int
-	previousInput string
+	workspace      domain.Workspace
+	search         searchsvc.Service
+	cursor         int
+	width          int
+	height         int
+	searching      bool
+	searchInput    textinput.Model
+	searchScope    searchsvc.Scope
+	includeIdeas   bool
+	results        []searchsvc.Result
+	selected       int
+	typeFilter     domain.EntityType
+	store          storage.Store
+	status         string
+	editing        bool
+	creating       bool
+	editIndex      int
+	editField      int
+	editType       domain.EntityType
+	editTitle      textinput.Model
+	editSummary    textinput.Model
+	editBody       textarea.Model
+	session        *domain.SessionRecord
+	sessionInput   textarea.Model
+	review         *domain.Record
+	reviewPinned   bool
+	suggestions    []domain.Record
+	suggestion     int
+	previousInput  string
+	transcriptView viewport.Model
+	paneLayout     int
 }
 
 func New() Model {
@@ -87,6 +90,10 @@ func newModel(workspace domain.Workspace, store storage.Store) Model {
 	model.sessionInput.Prompt = "│ "
 	model.sessionInput.Placeholder = "Start a session to capture play…"
 	model.sessionInput.SetHeight(5)
+	model.transcriptView = viewport.New()
+	model.transcriptView.SoftWrap = true
+	model.transcriptView.MouseWheelEnabled = true
+	model.paneLayout = 0
 	model.refreshResults()
 	return model
 }
@@ -100,6 +107,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.session != nil {
+			m.configureTranscriptViewport()
+		}
 		return m, nil
 	case tea.KeyPressMsg:
 		if m.editing {
@@ -135,8 +145,16 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m.startSession()
 		}
 	case tea.MouseClickMsg:
+		if m.session != nil {
+			return m.updateSessionMouseClick(msg)
+		}
 		return m.updateMouseClick(msg)
 	case tea.MouseWheelMsg:
+		if m.session != nil {
+			var cmd tea.Cmd
+			m.transcriptView, cmd = m.transcriptView.Update(msg)
+			return m, cmd
+		}
 		return m.updateMouseWheel(msg)
 	}
 
@@ -156,12 +174,19 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 	m.sessionInput.SetWidth(max(30, m.width-8))
 	m.sessionInput.SetHeight(5)
 	m.sessionInput.Focus()
+	m.configureTranscriptViewport()
+	m.refreshTranscriptViewport()
 	m.status = "Session started · Ctrl+E ends capture"
 	return m, nil
 }
 
 func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	model := m
+	if msg.String() == "ctrl+up" || msg.String() == "ctrl+down" || msg.String() == "pgup" || msg.String() == "pgdown" {
+		var cmd tea.Cmd
+		model.transcriptView, cmd = model.transcriptView.Update(msg)
+		return model, cmd
+	}
 	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModShift != 0 {
 		previous := model.sessionInput.Value()
 		model.sessionInput.SetValue(previous + "\n")
@@ -171,6 +196,9 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+e":
 		return model.endSession()
+	case "ctrl+p":
+		model.paneLayout = (model.paneLayout + 1) % 3
+		return model, nil
 	case "enter", "ctrl+enter", "\r", "\n":
 		return model.submitTranscript()
 	case "shift+enter":
@@ -187,6 +215,7 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		for index := len(model.session.Entries) - 1; index >= 0; index-- {
 			if !model.session.Entries[index].Undone {
 				model.session.Entries[index].Undone = true
+				model.refreshTranscriptViewport()
 				model.status = "Undid transcript entry · Ctrl+Y restores it"
 				model.persistWorkspace()
 				return model, nil
@@ -196,6 +225,7 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		for index := len(model.session.Entries) - 1; index >= 0; index-- {
 			if model.session.Entries[index].Undone {
 				model.session.Entries[index].Undone = false
+				model.refreshTranscriptViewport()
 				model.status = "Restored transcript entry"
 				model.persistWorkspace()
 				return model, nil
@@ -239,10 +269,12 @@ func (m *Model) refreshSuggestions() {
 	value := m.sessionInput.Value()
 	index := strings.LastIndex(value, "@")
 	if index < 0 || (index > 0 && value[index-1] != ' ' && value[index-1] != '\n') {
+		m.configureTranscriptViewport()
 		return
 	}
 	query := strings.ToLower(strings.TrimSpace(value[index+1:]))
 	if query == "" {
+		m.configureTranscriptViewport()
 		return
 	}
 	for _, record := range m.visibleRecords() {
@@ -253,6 +285,7 @@ func (m *Model) refreshSuggestions() {
 			break
 		}
 	}
+	m.configureTranscriptViewport()
 }
 
 func (m *Model) acceptSuggestion() {
@@ -286,11 +319,43 @@ func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
 		Revision:  1,
 	})
 	m.sessionInput.SetValue("")
+	m.refreshTranscriptViewport()
 	m.status = "Captured transcript entry"
 	if m.store != nil {
 		m.persistWorkspace()
 	}
 	return m, nil
+}
+
+func (m *Model) refreshTranscriptViewport() {
+	if m.session == nil {
+		return
+	}
+	var builder strings.Builder
+	for _, entry := range m.session.Entries {
+		stamp := entry.CreatedAt.Local().Format("15:04")
+		builder.WriteString(stamp)
+		builder.WriteString("  ")
+		if entry.Undone {
+			builder.WriteString("[undone] ")
+		}
+		builder.WriteString(entry.Text)
+		builder.WriteRune('\n')
+	}
+	m.transcriptView.SetContent(builder.String())
+	m.transcriptView.GotoBottom()
+}
+
+func (m *Model) configureTranscriptViewport() {
+	available := max(8, m.height-2)
+	inputHeight := 7
+	if len(m.suggestions) > 0 {
+		inputHeight = 9
+	}
+	upperHeight := max(6, min(8, available/3))
+	transcriptHeight := max(5, available-upperHeight-inputHeight)
+	m.transcriptView.SetWidth(max(1, m.width-4))
+	m.transcriptView.SetHeight(max(1, transcriptHeight-2))
 }
 
 func (m *Model) handleSessionCommand(text string) {
@@ -786,6 +851,35 @@ func (m Model) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateSessionMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if msg.Button != tea.MouseLeft {
+		return m, nil
+	}
+	// The lower portion is always the transcript/input region. Clicking there
+	// returns focus to capture, while clicking the context pane selects the
+	// corresponding entity for review.
+	upperHeight := max(6, min(8, max(8, m.height-2)/3))
+	if msg.Y > upperHeight+1 {
+		m.sessionInput.Focus()
+		return m, nil
+	}
+	if m.paneLayout == 2 || msg.X < m.width/2 {
+		return m, nil
+	}
+	threads := make([]domain.Record, 0)
+	for _, record := range m.visibleRecords() {
+		if record.Type == domain.Thread || record.Type == domain.NPC || record.Type == domain.Character {
+			threads = append(threads, record)
+		}
+	}
+	index := msg.Y - 3
+	if index >= 0 && index < len(threads) {
+		record := threads[index]
+		m.review = &record
+	}
+	return m, nil
+}
+
 func (m *Model) refreshResults() {
 	m.results = m.search.Find(searchsvc.Filter{
 		Query:            m.searchInput.Value(),
@@ -880,9 +974,14 @@ func (m Model) sessionView() tea.View {
 	scene := panelStyle.Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderCampaignPane())
 	context := panelStyle.Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderContextPane())
 	upper := lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
+	if m.paneLayout == 1 {
+		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderContextPane())
+	} else if m.paneLayout == 2 {
+		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderCampaignPane())
+	}
 	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(inputHeight))
 	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(m.renderSessionInput())
-	help := "Enter/Ctrl+Enter capture   @ link   $ create entity   # command   Ctrl+Z undo   Ctrl+E end"
+	help := "Enter/Ctrl+Enter capture   Shift+Enter newline   Ctrl+P panes   wheel scroll log   Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
@@ -979,6 +1078,14 @@ func (m Model) renderContextPane() string {
 		}
 		builder.WriteString("\n")
 	}
+	if m.review != nil {
+		builder.WriteString(labelStyle.Render("SELECTED"))
+		builder.WriteString("\n")
+		builder.WriteString(detailTitleStyle.Render(m.review.Title))
+		builder.WriteString("\n")
+		builder.WriteString(m.review.Summary)
+		builder.WriteString("\n")
+	}
 	return builder.String()
 }
 
@@ -1042,24 +1149,17 @@ func (m Model) renderSessionInput() string {
 	return builder.String()
 }
 
-func (m Model) renderTranscript(_ int) string {
+func (m Model) renderTranscript(transcriptHeight int) string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("SESSION TRANSCRIPT"))
 	builder.WriteString("\n")
 	if m.session == nil || len(m.session.Entries) == 0 {
 		builder.WriteString(mutedStyle.Render("No captured entries yet."))
-		return builder.String()
-	}
-	start := max(0, len(m.session.Entries)-5)
-	for _, entry := range m.session.Entries[start:] {
-		stamp := entry.CreatedAt.Local().Format("15:04")
-		builder.WriteString(mutedStyle.Render(stamp))
-		builder.WriteString("  ")
-		if entry.Undone {
-			builder.WriteString(mutedStyle.Render("[undone] "))
-		}
-		builder.WriteString(entry.Text)
-		builder.WriteRune('\n')
+	} else {
+		viewport := m.transcriptView
+		viewport.SetWidth(max(1, m.width-4))
+		viewport.SetHeight(max(1, transcriptHeight-2))
+		builder.WriteString(viewport.View())
 	}
 	return builder.String()
 }

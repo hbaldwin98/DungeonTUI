@@ -31,6 +31,7 @@ go run ./cmd/dungeon
 | `Ctrl+S` | Save the editor, or change search scope while searching |
 | `Ctrl+Enter` | Capture a transcript entry during a session |
 | `Ctrl+E` | End the active session |
+| `Ctrl+P` | Cycle visible session panes |
 | `Ctrl+A` | Include or exclude AI proposals from search |
 | `Enter` | Open a search result |
 | `Esc` | Close search |
@@ -54,6 +55,8 @@ highlighted entity and opens its full details in the review pane above the
 transcript. `Ctrl+Enter` captures the entry. `$npc Name: description` creates a
 draft entity from the active session, while `#random item` creates a local draft
 generator result and `#location ...` records the current location context.
+The session log scrolls with the mouse wheel; clicking the context pane selects
+an entity for review.
 
 ## Architecture
 
