@@ -171,9 +171,35 @@ func TestSessionViewFillsTerminal(t *testing.T) {
 	model.height = 24
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
 	model = updated.(Model)
-	for index, line := range strings.Split(model.View().Content, "\n") {
+	lines := strings.Split(model.View().Content, "\n")
+	if len(lines) != model.height {
+		t.Fatalf("expected %d session rows, got %d", model.height, len(lines))
+	}
+	for index, line := range lines {
 		if lipgloss.Width(line) != model.width {
 			t.Fatalf("row %d: expected width %d, got %d", index, model.width, lipgloss.Width(line))
 		}
+	}
+}
+
+func TestSessionCommandsCreateDrafts(t *testing.T) {
+	model := New()
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	model.sessionInput.SetValue("$npc Sister Elayne: A church investigator")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	created := model.workspace.Records[len(model.workspace.Records)-1]
+	if created.Type != domain.NPC || created.Authority != domain.Draft || created.Title != "Sister Elayne" {
+		t.Fatalf("unexpected session-created entity: %#v", created)
+	}
+	if model.review == nil || model.review.ID != created.ID {
+		t.Fatal("expected created entity to open in the review context")
+	}
+	model.sessionInput.SetValue("#random item")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if model.workspace.Records[len(model.workspace.Records)-1].Type != domain.Item {
+		t.Fatal("expected #random item to create an item draft")
 	}
 }

@@ -86,7 +86,7 @@ func newModel(workspace domain.Workspace, store storage.Store) Model {
 	model.sessionInput = textarea.New()
 	model.sessionInput.Prompt = "│ "
 	model.sessionInput.Placeholder = "Start a session to capture play…"
-	model.sessionInput.SetHeight(4)
+	model.sessionInput.SetHeight(2)
 	model.refreshResults()
 	return model
 }
@@ -154,6 +154,7 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 	m.session = &session
 	m.sessionInput.SetValue("")
 	m.sessionInput.SetWidth(max(30, m.width-8))
+	m.sessionInput.SetHeight(2)
 	m.sessionInput.Focus()
 	m.status = "Session started · Ctrl+E ends capture"
 	return m, nil
@@ -264,6 +265,7 @@ func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	links := m.resolveLinks(text)
+	m.handleSessionCommand(text)
 	now := time.Now().UTC()
 	m.session.Entries = append(m.session.Entries, domain.TranscriptEntry{
 		ID:        fmt.Sprintf("entry-%d", now.UnixNano()),
@@ -278,6 +280,124 @@ func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
 		m.persistWorkspace()
 	}
 	return m, nil
+}
+
+func (m *Model) handleSessionCommand(text string) {
+	if strings.HasPrefix(text, "$") {
+		if record, ok := parseEntityCommand(text, m.workspace.Scope, m.session); ok {
+			m.workspace.Records = append(m.workspace.Records, record)
+			m.search = searchsvc.New(m.workspace.Records)
+			m.refreshResults()
+			m.review = &record
+			m.status = "Created draft entity: " + record.Title
+		} else {
+			m.status = "Use $type Name: description"
+		}
+		return
+	}
+	if strings.HasPrefix(text, "#location ") {
+		m.status = "Current location: " + strings.TrimSpace(strings.TrimPrefix(text, "#location "))
+		return
+	}
+	if strings.HasPrefix(text, "#random ") {
+		kind := strings.TrimSpace(strings.TrimPrefix(text, "#random "))
+		record, ok := randomDraft(kind, m.workspace.Scope, m.session)
+		if !ok {
+			m.status = "Use #random npc|character|item|location"
+			return
+		}
+		m.workspace.Records = append(m.workspace.Records, record)
+		m.search = searchsvc.New(m.workspace.Records)
+		m.refreshResults()
+		m.review = &record
+		m.status = "Generated draft entity: " + record.Title
+	}
+}
+
+func parseEntityCommand(text string, scope domain.Scope, session *domain.SessionRecord) (domain.Record, bool) {
+	command := strings.TrimSpace(strings.TrimPrefix(text, "$"))
+	parts := strings.SplitN(command, " ", 2)
+	if len(parts) != 2 {
+		return domain.Record{}, false
+	}
+	entityType, ok := commandEntityType(parts[0])
+	if !ok {
+		return domain.Record{}, false
+	}
+	nameDescription := strings.SplitN(parts[1], ":", 2)
+	title := strings.TrimSpace(nameDescription[0])
+	if title == "" {
+		return domain.Record{}, false
+	}
+	body := ""
+	if len(nameDescription) == 2 {
+		body = strings.TrimSpace(nameDescription[1])
+	}
+	source := "Session capture"
+	if session != nil {
+		source = session.Title
+	}
+	record := domain.Record{
+		ID:        fmt.Sprintf("%s-%d", strings.ToLower(strings.ReplaceAll(title, " ", "-")), time.Now().UnixNano()),
+		Type:      entityType,
+		Title:     title,
+		Summary:   body,
+		Body:      body,
+		Authority: domain.Draft,
+		Scope:     scope,
+		Source:    source,
+		Tags:      []string{"session-created"},
+	}
+	return record, true
+}
+
+func randomDraft(kind string, scope domain.Scope, session *domain.SessionRecord) (domain.Record, bool) {
+	entityType, ok := commandEntityType(kind)
+	if !ok {
+		return domain.Record{}, false
+	}
+	source := "Local session generator"
+	if session != nil {
+		source = session.Title + " · local generator"
+	}
+	now := time.Now()
+	title := fmt.Sprintf("Generated %s", strings.ToLower(string(entityType)))
+	return domain.Record{
+		ID:        fmt.Sprintf("generated-%d", now.UnixNano()),
+		Type:      entityType,
+		Title:     title,
+		Summary:   "A context-aware local generator draft.",
+		Body:      "Generated during the active session. Review and edit before treating this as campaign truth.",
+		Authority: domain.Draft,
+		Scope:     scope,
+		Source:    source,
+		Tags:      []string{"generated", "session-created"},
+	}, true
+}
+
+func commandEntityType(value string) (domain.EntityType, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "npc":
+		return domain.NPC, true
+	case "character", "pc", "player":
+		return domain.Character, true
+	case "item":
+		return domain.Item, true
+	case "location":
+		return domain.Location, true
+	case "faction":
+		return domain.Faction, true
+	case "creature":
+		return domain.Creature, true
+	case "thread", "quest":
+		return domain.Thread, true
+	case "event":
+		return domain.Event, true
+	case "note":
+		return domain.Note, true
+	default:
+		return "", false
+	}
 }
 
 func (m Model) endSession() (tea.Model, tea.Cmd) {
@@ -736,23 +856,24 @@ func (m Model) View() tea.View {
 
 func (m Model) sessionView() tea.View {
 	width := max(60, m.width)
-	bodyHeight := max(10, m.height-1)
-	upperHeight := max(8, min(12, bodyHeight/2))
-	transcriptHeight := max(8, bodyHeight-upperHeight-1)
+	available := max(8, m.height-2)
+	inputHeight := 3
+	if len(m.suggestions) > 0 {
+		inputHeight = 5
+	}
+	upperHeight := max(6, min(8, available/3))
+	transcriptHeight := max(5, available-upperHeight-inputHeight)
 	leftWidth := max(28, width/2)
 	rightWidth := max(28, width-leftWidth)
 	header := headerStyle.Width(width).Render(m.renderSessionHeader())
 	scene := panelStyle.Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderCampaignPane())
 	context := panelStyle.Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderContextPane())
 	upper := lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
-	inputHeight := 5
-	if len(m.suggestions) > 0 {
-		inputHeight = 7
-	}
 	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(inputHeight))
-	help := "n note   a assist   d describe   r rules   Space actions   ? help   Ctrl+E end"
+	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(m.renderSessionInput())
+	help := "Ctrl+Enter capture   @ link   $ create entity   # command   Ctrl+Z undo   Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
-	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, footer)
+	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
 	result := tea.NewView(view)
 	result.AltScreen = true
@@ -884,6 +1005,8 @@ func (m Model) renderReview() string {
 
 func (m Model) renderSessionInput() string {
 	var builder strings.Builder
+	builder.WriteString(sectionStyle.Render("INPUT"))
+	builder.WriteString("\n")
 	builder.WriteString(m.sessionInput.View())
 	if len(m.suggestions) > 0 {
 		builder.WriteString("\n")
@@ -905,7 +1028,7 @@ func (m Model) renderSessionInput() string {
 	return builder.String()
 }
 
-func (m Model) renderTranscript(inputHeight int) string {
+func (m Model) renderTranscript(_ int) string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("SESSION TRANSCRIPT"))
 	builder.WriteString("\n")
@@ -924,8 +1047,6 @@ func (m Model) renderTranscript(inputHeight int) string {
 		builder.WriteString(entry.Text)
 		builder.WriteRune('\n')
 	}
-	builder.WriteString("\n")
-	builder.WriteString(m.renderSessionInput())
 	return builder.String()
 }
 
