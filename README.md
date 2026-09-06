@@ -41,6 +41,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `e` | Edit the selected entity or prep notes (full-screen markdown; `@` suggests) |
 | `d` | Delete selected entity or session (`y` confirm / `n` cancel) |
 | `x` | Supersede selected entity (`y` confirm / `n` cancel) |
+| `?` | Show context-sensitive command help |
 | `f` | Cycle tag filter on the current section list |
 | `o` | Cycle list scope filter (campaign → world → library) |
 | `b` | Back to world/campaign library picker |

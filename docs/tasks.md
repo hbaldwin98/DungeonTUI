@@ -47,15 +47,13 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   D-013).
 - Tag and scope filters on the campaign tree (`f` / `o`); markdown `tags:`
   frontmatter (Argus #37).
+- Context-sensitive `?` help overlay; footers stay short (Argus #38).
 
 ## In progress
 
 ## Next
 
-- Help overlay via `?` instead of packing every binding into the footer
-  (Argus #38).
-- Named collections as a later organization aid on top of tags (Argus #37
-  follow-on).
+- Named collections as a later organization aid on top of tags (Argus #39).
 - Draft future planned notes in the context of previous live sessions
   (decision #33).
 - Associate entities to sessions while keeping world/campaign globals visible

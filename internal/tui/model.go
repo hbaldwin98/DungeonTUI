@@ -77,6 +77,7 @@ type Model struct {
 	draggingNavSplit  bool
 	tagFilter         string
 	listScope         searchsvc.Scope
+	helping           bool
 }
 
 func New() Model {
@@ -171,28 +172,45 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.helping {
+			return m.updateHelp(msg)
+		}
 		if m.picking {
 			return m.updatePicker(msg)
 		}
 		if m.editing {
+			if msg.String() == "?" {
+				return m.openHelp()
+			}
 			return m.updateEditor(msg)
 		}
 		if m.planning {
+			if msg.String() == "?" {
+				return m.openHelp()
+			}
 			return m.updatePlannedNotes(msg)
 		}
 		if m.reconciling {
 			return m.updateReconciliation(msg)
 		}
 		if m.session != nil {
+			if msg.String() == "?" {
+				return m.openHelp()
+			}
 			return m.updateSession(msg)
 		}
 		if m.searching {
+			if msg.String() == "?" {
+				return m.openHelp()
+			}
 			return m.updateSearch(msg)
 		}
 
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "?":
+			return m.openHelp()
 		case "j", "down":
 			if m.layout.Focus == prefs.PaneNav {
 				m.moveNavCursor(1)
@@ -1988,6 +2006,13 @@ func (m Model) View() tea.View {
 		result.WindowTitle = "Dungeon · Library"
 		return result
 	}
+	if m.helping {
+		result := tea.NewView(m.renderHelpOverlay())
+		result.AltScreen = true
+		result.MouseMode = tea.MouseModeCellMotion
+		result.WindowTitle = "Dungeon · Help"
+		return result
+	}
 	if m.session != nil {
 		return m.sessionView()
 	}
@@ -1996,7 +2021,7 @@ func (m Model) View() tea.View {
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(1, m.height-2)
 	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-	help := "j/k · Tab panes · f tag · o scope · Enter · n/e/p/s · d delete · b library · / search · q"
+	help := "? help · j/k · Tab · f/o filters · Enter · n/e/p/s · d · b · / · q"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
@@ -2050,7 +2075,7 @@ func (m Model) sessionView() tea.View {
 	}
 	transcript := m.panelStyleFor(prefs.PaneTranscript).Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
 	input := m.panelStyleFor(prefs.PaneInput).Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitLines(m.renderSessionInput(), panelInnerHeight(inputHeight)))
-	help := "click pane to focus   Tab cycle   @/$/# suggest   Enter capture   Ctrl+P panes   Ctrl+E end"
+	help := "? help · click pane · Tab · @/$/# · Enter capture · Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)

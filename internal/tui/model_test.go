@@ -421,7 +421,25 @@ func TestMarkdownEditorSuggestsEntityReferences(t *testing.T) {
 	}
 }
 
-func TestTagAndScopeFiltersNarrowBrowserList(t *testing.T) {
+func TestHelpOverlayListsBrowserCommands(t *testing.T) {
+	model := New()
+	model.width = 80
+	model.height = 24
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '?', Text: "?"}))
+	model = updated.(Model)
+	if !model.helping {
+		t.Fatal("expected help overlay")
+	}
+	content := model.View().Content
+	if !strings.Contains(content, "COMMANDS") || !strings.Contains(content, "Browser") {
+		t.Fatalf("expected help content, got %q", content)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	model = updated.(Model)
+	if model.helping {
+		t.Fatal("esc should close help")
+	}
+}
 	model := New()
 	model.width = 100
 	model.height = 36

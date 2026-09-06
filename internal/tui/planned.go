@@ -188,7 +188,7 @@ func (m Model) renderPlannedNotesOverlay() string {
 	if suggest != "" {
 		body = lipgloss.JoinVertical(lipgloss.Left, body, "", suggest)
 	}
-	help := "Tab fields/suggest · Ctrl+S save · Esc cancel · @Entity · #location"
+	help := "? help · Tab fields · Ctrl+S save · Esc · @Entity · #location"
 	return renderFullScreenEditor(width, height, chrome.String(), body, help)
 }
 
