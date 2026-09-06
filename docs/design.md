@@ -230,6 +230,12 @@ established_at: 2026-09-05
 This does not require exposing triples or YAML in the normal UI. It defines the
 semantics needed for continuity, citations, history, and safe AI retrieval.
 
+Entity types remain visibly distinct in navigation, search results, and editing
+forms. An NPC, session, event, rule, and note should never look like generic
+untagged documents. Type-specific fields and actions may share implementation,
+but the UI must preserve the user's understanding of what kind of thing they
+are viewing or creating.
+
 ### Events and history
 
 Session play produces events. Events can support one or more state changes and
@@ -350,6 +356,47 @@ From that workspace the DM can, at any time:
 Creating content starts it as a draft unless the DM explicitly creates or
 promotes it as canon. Draft status is shown on the entity itself and does not
 restrict access to any other feature.
+
+### Configurable panes
+
+The workspace is composed of panes rather than a fixed dashboard layout. The
+owner can show, hide, resize, reorder, and focus panes such as the entity list,
+entity detail, session transcript, open threads, search results, dice/tool
+output, and AI proposals. Pane configuration is a personal workspace
+preference, not campaign data, and should be portable separately from factual
+records. Every pane still reports its section and entity type clearly when it
+has focus.
+
+### Session capture
+
+A campaign can have an explicit session lifecycle. Starting a session creates a
+session record and opens a transcript pane with a focused multiline input. The
+DM can type player actions, rulings, descriptions, and outcomes continuously
+without leaving the campaign workspace. Ending the session timestamps and
+closes capture while preserving the transcript as campaign data for later
+reconciliation.
+
+Transcript references are lightweight links resolved against the active
+campaign and its shared world records:
+
+```text
+@Captain Vale searches the reliquary while @Mira checks the eastern transept.
+The key opens the seal. #d20+5 #damage 2d6+3
+```
+
+`@` references should offer fuzzy completion and create durable links to
+characters, NPCs, locations, items, threads, events, or other entities. A
+reference must retain the displayed text and the resolved record ID so renamed
+entities do not break old transcripts. `#` expressions invoke a local command
+or calculation parser: at minimum dice notation, arithmetic, and common
+modifiers. Results are recorded alongside the originating transcript entry,
+with the roller, expression, and result visible; they never silently become
+canon. Unsupported or ambiguous expressions remain plain text until the DM
+confirms them.
+
+Session capture is deliberately factual-data-first. AI may later summarize a
+transcript or suggest events, but those outputs become labelled proposals and
+must not alter the transcript or campaign facts automatically.
 
 ### Contextual AI
 
@@ -531,6 +578,11 @@ Deliver value without requiring AI:
 - Fast typed fuzzy and full-text search.
 - Portable backup/export and restore/import.
 - One stable workspace with manual note capture and entity-level drafts.
+- Explicitly separated entity-type sections and type-aware create/edit views.
+- Configurable panes with persisted personal layout preferences.
+- Start/end session lifecycle with a durable multiline transcript.
+- `@` entity references with completion and durable record links.
+- Local `#` dice and calculation expressions recorded with their results.
 
 Likely first entity types: NPC, location, faction, item, thread, session, event,
 and note. Additional types should be added when the owner's campaign needs them.
@@ -543,6 +595,8 @@ and note. Additional types should be added when the owner's campaign needs them.
 - Track party and individual-character knowledge.
 - Show “what changed” by session.
 - Generate next-session review surfaces from open threads and recent events.
+- Reconcile transcript references, events, and roll results into reviewable
+  factual changes without rewriting the original transcript.
 
 The workflow should be solid manually before AI automates extraction.
 
