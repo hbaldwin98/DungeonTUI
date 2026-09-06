@@ -38,6 +38,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   (Argus #28–#29).
 - Entity create/edit uses a single markdown document (`type:` / `# Title` /
   summary / body) instead of form fields (Argus #33).
+- Close focused type/session panes with `-`; delete and supersede require `y`
+  confirmation (Argus #34).
 
 ## In progress
 
