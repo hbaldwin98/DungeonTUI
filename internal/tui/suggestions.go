@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
@@ -55,6 +56,110 @@ func activeCommandToken(value string) (trigger rune, start int, query string) {
 		return 0, -1, ""
 	}
 	return trigger, start, value[start+1:]
+}
+
+// activeCommandTokenAtLine finds the active @/$/# token on one line up to col.
+func activeCommandTokenAtLine(line string, col int) (trigger rune, start int, query string) {
+	if col < 0 {
+		col = 0
+	}
+	if col > len(line) {
+		col = len(line)
+	}
+	return activeCommandToken(line[:col])
+}
+
+func (m *Model) refreshEditorSuggestions() {
+	m.suggestions = nil
+	m.suggestion = 0
+	if m.editing {
+		m.refreshTextAreaSuggestions(m.editBody.Value(), m.editBody.Line(), m.editBody.Column(), true)
+		return
+	}
+	if m.planning && m.planField == 1 {
+		m.refreshTextAreaSuggestions(m.planBody.Value(), m.planBody.Line(), m.planBody.Column(), true)
+	}
+}
+
+func (m *Model) refreshTextAreaSuggestions(value string, line, col int, atOnly bool) {
+	lines := strings.Split(value, "\n")
+	if line < 0 || line >= len(lines) {
+		return
+	}
+	trigger, _, query := activeCommandTokenAtLine(lines[line], col)
+	if trigger == 0 {
+		return
+	}
+	query = strings.ToLower(strings.TrimSpace(query))
+	switch trigger {
+	case '@':
+		m.suggestions = m.entitySuggestions(query)
+	case '#':
+		if atOnly && m.planning {
+			m.suggestions = m.hashSuggestions(query)
+		}
+	}
+}
+
+func (m *Model) acceptEditorSuggestion() bool {
+	if len(m.suggestions) == 0 {
+		return false
+	}
+	choice := m.suggestions[clamp(m.suggestion, 0, len(m.suggestions)-1)]
+	if m.editing {
+		applySuggestionToTextArea(&m.editBody, choice.Insert)
+		m.refreshEditorSuggestions()
+		return true
+	}
+	if m.planning && m.planField == 1 {
+		applySuggestionToTextArea(&m.planBody, choice.Insert)
+		m.refreshEditorSuggestions()
+		return true
+	}
+	return false
+}
+
+func applySuggestionToTextArea(ta *textarea.Model, insert string) {
+	value := ta.Value()
+	lineIdx := ta.Line()
+	col := ta.Column()
+	lines := strings.Split(value, "\n")
+	if lineIdx < 0 || lineIdx >= len(lines) {
+		return
+	}
+	current := lines[lineIdx]
+	if col > len(current) {
+		col = len(current)
+	}
+	trigger, start, _ := activeCommandTokenAtLine(current, col)
+	if trigger == 0 || start < 0 {
+		return
+	}
+	lines[lineIdx] = current[:start] + insert + current[col:]
+	ta.SetValue(strings.Join(lines, "\n"))
+	restoreTextAreaCursor(ta, lineIdx, start+len(insert))
+}
+
+func renderSuggestionList(suggestions []Suggestion, selected int) string {
+	if len(suggestions) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString(mutedStyle.Render("@ suggestions  ↑↓  Tab insert"))
+	for index, item := range suggestions {
+		if index >= 5 {
+			break
+		}
+		prefix := "  "
+		style := searchResultStyle
+		if index == selected {
+			prefix = "▸ "
+			style = selectedSearchResultStyle
+		}
+		builder.WriteString("\n")
+		builder.WriteString(style.Render(prefix + item.Label))
+	}
+	return builder.String()
 }
 
 func (m Model) entitySuggestions(query string) []Suggestion {

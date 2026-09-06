@@ -391,6 +391,35 @@ func TestEditEntityUsesMarkdownDocument(t *testing.T) {
 	}
 }
 
+func TestMarkdownEditorSuggestsEntityReferences(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
+	model = updated.(Model)
+	model.editBody.SetValue("type: NOTE\n\n# Hook\n\nMeet @Cap")
+	// Cursor ends at end after SetValue; refresh suggestions as typing would.
+	model.refreshEditorSuggestions()
+	if len(model.suggestions) == 0 {
+		t.Fatal("expected @ suggestions for Cap")
+	}
+	found := false
+	for _, item := range model.suggestions {
+		if item.Record != nil && item.Record.Title == "Captain Vale" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected Captain Vale suggestion, got %#v", model.suggestions)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	model = updated.(Model)
+	if !strings.Contains(model.editBody.Value(), "@Captain Vale") {
+		t.Fatalf("Tab should insert suggestion, got %q", model.editBody.Value())
+	}
+}
+
 func TestPlannedNotesSaveAndSeedLiveSession(t *testing.T) {
 	model := New()
 	model.width = 100

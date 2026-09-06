@@ -38,7 +38,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `j` / `k` | Navigate the focused pane (campaign tree, list, or records) |
 | `←` / `→` / `Tab` / `Shift+Tab` / `t` | Cycle focus across nav · list · detail |
 | `n` | Create a new draft entity (markdown) |
-| `e` | Edit the selected entity or prep notes |
+| `e` | Edit the selected entity or prep notes (full-screen markdown; `@` suggests) |
 | `d` | Delete selected entity or session (`y` confirm / `n` cancel) |
 | `x` | Supersede selected entity (`y` confirm / `n` cancel) |
 | `Enter` | Open the selected session, prep notes, or entity |

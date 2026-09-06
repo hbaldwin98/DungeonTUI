@@ -159,6 +159,13 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.session != nil {
 			m.configureTranscriptViewport()
 		}
+		if m.editing {
+			sizeMarkdownTextArea(&m.editBody, m.width, m.height)
+		}
+		if m.planning {
+			sizeMarkdownTextArea(&m.planBody, m.width, m.height-4)
+			m.planTitle.SetWidth(max(20, m.width-10))
+		}
 		return m, nil
 	case tea.KeyPressMsg:
 		if m.picking {
@@ -1502,10 +1509,7 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
-	body := textarea.New()
-	body.Prompt = "│ "
-	body.SetWidth(max(40, m.width-14))
-	body.SetHeight(max(10, m.height-12))
+	body := newMarkdownTextArea(m.width, m.height)
 	body.Placeholder = "type: NPC\n\n# Title\n\nSummary paragraph.\n\nBody markdown…"
 
 	model := m
@@ -1513,6 +1517,9 @@ func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
 	model.creating = create
 	model.editID = ""
 	model.editType = domain.NPC
+	model.status = ""
+	model.suggestions = nil
+	model.suggestion = 0
 	if m.usesCampaignTree() && m.currentNav().Kind == NavType && m.navType != "" {
 		model.editType = m.navType
 	} else if entityType, ok := paneEntityType(m.layout.Focus); ok && m.layout.Focus != prefs.PaneList && entityType != "" {
@@ -1539,6 +1546,7 @@ func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
 		model.editType = record.Type
 		model.editBody.SetValue(domain.FormatEntityMarkdown(*record))
 	}
+	focusTitleHeading(&model.editBody)
 	return model, model.editBody.Focus()
 }
 
@@ -1547,16 +1555,34 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		model.editing = false
+		model.suggestions = nil
+		model.status = "Cancelled edit"
 		return model, nil
 	case "ctrl+t":
 		model.editType = nextEntityType(model.editType)
-		model.editBody.SetValue(rewriteMarkdownType(model.editBody.Value(), model.editType))
+		rewriteTypePreservingCursor(&model.editBody, model.editType)
+		model.status = "Type → " + string(model.editType)
 		return model, nil
 	case "ctrl+s", "ctrl+enter":
 		return model.saveEditor()
+	case "tab":
+		if model.acceptEditorSuggestion() {
+			return model, nil
+		}
+	case "up":
+		if len(model.suggestions) > 0 {
+			model.suggestion = clamp(model.suggestion-1, 0, len(model.suggestions)-1)
+			return model, nil
+		}
+	case "down":
+		if len(model.suggestions) > 0 {
+			model.suggestion = clamp(model.suggestion+1, 0, len(model.suggestions)-1)
+			return model, nil
+		}
 	}
 	var cmd tea.Cmd
 	model.editBody, cmd = model.editBody.Update(msg)
+	model.refreshEditorSuggestions()
 	return model, cmd
 }
 
@@ -1625,6 +1651,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 	m.search = searchsvc.New(m.workspace.Records)
 	m.refreshResults()
 	m.editing = false
+	m.suggestions = nil
 	m.status = "Saved markdown draft: " + record.Title
 	if m.store != nil {
 		if err := m.store.Save(m.workspace); err != nil {
@@ -1974,7 +2001,7 @@ func (m Model) View() tea.View {
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(1, m.height-2)
 	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-	help := "/ search  n new  e edit  p prep  b library  ←/→ or Tab panes  Enter open  d/x confirm  s live  r reconcile  q quit"
+	help := "j/k move · Tab panes · Enter open · n/e/p/s · d delete · b library · / search · q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
@@ -2255,26 +2282,32 @@ func (m Model) renderSearchOverlay() string {
 }
 
 func (m Model) renderEditorOverlay() string {
-	width := min(92, max(56, m.width-8))
 	label := "EDIT ENTITY"
 	if m.creating {
 		label = "NEW DRAFT ENTITY"
 	}
-	var builder strings.Builder
-	builder.WriteString(searchTitleStyle.Render(label))
-	builder.WriteString("  ")
-	builder.WriteString(mutedStyle.Render("markdown"))
-	builder.WriteString("  type: ")
-	builder.WriteString(filterStyle.Render(string(m.editType)))
-	builder.WriteString("\n\n")
-	builder.WriteString(m.editBody.View())
-	builder.WriteString("\n")
-	builder.WriteString(helpStyle.Render("Ctrl+T cycle type  Ctrl+S save  Esc cancel  ·  type: NPC / # Title / summary / body"))
-	overlay := searchPanelStyle.Width(width).Render(builder.String())
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
-		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
+	width := max(1, m.width)
+	height := max(1, m.height)
+	suggest := renderSuggestionList(m.suggestions, m.suggestion)
+	reserve := 0
+	if suggest != "" {
+		reserve = lipgloss.Height(suggest) + 1
+	}
+	sizeMarkdownTextAreaReserved(&m.editBody, width, height, reserve)
+	chrome := headerStyle.Width(width).Render(
+		searchTitleStyle.Render(label) + "  " +
+			mutedStyle.Render("markdown") + "  " +
+			filterStyle.Render(string(m.editType)),
 	)
+	if m.status != "" && (strings.Contains(m.status, "needs") || strings.Contains(m.status, "Type →") || strings.Contains(strings.ToLower(m.status), "error") || strings.Contains(m.status, "required") || strings.Contains(m.status, "Title")) {
+		chrome = lipgloss.JoinVertical(lipgloss.Left, chrome, footerStyle.Width(width).Render(m.status))
+	}
+	body := m.editBody.View()
+	if suggest != "" {
+		body = lipgloss.JoinVertical(lipgloss.Left, body, "", suggest)
+	}
+	help := markdownEditorHelp(m.editType)
+	return renderFullScreenEditor(width, height, chrome, body, help)
 }
 
 func (m Model) renderReconciliationOverlay() string {

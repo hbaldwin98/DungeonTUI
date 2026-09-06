@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -17,11 +16,9 @@ func (m Model) openPlannedNotes(create bool) (tea.Model, tea.Cmd) {
 	title := textinput.New()
 	title.Prompt = "Title: "
 	title.CharLimit = 160
-	body := textarea.New()
-	body.Prompt = "│ "
-	body.SetWidth(max(40, m.width-14))
-	body.SetHeight(max(8, m.height-14))
-	body.Placeholder = "Markdown prep notes · @Entity · #location Name"
+	title.SetWidth(max(20, m.width-10))
+	body := newMarkdownTextArea(m.width, m.height-4)
+	body.Placeholder = "Prep markdown · @Entity · #location Name"
 
 	model := m
 	model.planning = true
@@ -29,6 +26,8 @@ func (m Model) openPlannedNotes(create bool) (tea.Model, tea.Cmd) {
 	model.planTitle = title
 	model.planBody = body
 	model.planField = 0
+	model.suggestions = nil
+	model.suggestion = 0
 
 	if create || m.planID == "" || m.plannedByID(m.planID) == nil {
 		now := time.Now().UTC()
@@ -69,6 +68,8 @@ func (m Model) plannedByID(id string) *domain.PlannedNotes {
 func (m *Model) focusPlanEditor() tea.Cmd {
 	m.planTitle.Blur()
 	m.planBody.Blur()
+	m.suggestions = nil
+	m.suggestion = 0
 	if m.planField == 0 {
 		return m.planTitle.Focus()
 	}
@@ -79,96 +80,116 @@ func (m Model) updatePlannedNotes(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.planning = false
+		m.suggestions = nil
 		m.status = "Closed planned notes"
 		return m, nil
-	case "tab", "shift+tab":
-		if msg.String() == "tab" {
-			m.planField = (m.planField + 1) % 2
-		} else {
-			m.planField = (m.planField + 1) % 2
+	case "tab":
+		if m.planField == 1 && m.acceptEditorSuggestion() {
+			return m, nil
 		}
+		m.planField = (m.planField + 1) % 2
+		return m, m.focusPlanEditor()
+	case "shift+tab":
+		m.planField = (m.planField + 1) % 2
 		return m, m.focusPlanEditor()
 	case "ctrl+s":
 		return m.savePlannedNotes()
+	case "up":
+		if m.planField == 1 && len(m.suggestions) > 0 {
+			m.suggestion = clamp(m.suggestion-1, 0, len(m.suggestions)-1)
+			return m, nil
+		}
+	case "down":
+		if m.planField == 1 && len(m.suggestions) > 0 {
+			m.suggestion = clamp(m.suggestion+1, 0, len(m.suggestions)-1)
+			return m, nil
+		}
 	}
 	var cmd tea.Cmd
 	if m.planField == 0 {
 		m.planTitle, cmd = m.planTitle.Update(msg)
+		m.suggestions = nil
 	} else {
 		m.planBody, cmd = m.planBody.Update(msg)
+		m.refreshEditorSuggestions()
 	}
 	return m, cmd
 }
 
 func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
-	title := strings.TrimSpace(m.planTitle.Value())
-	if title == "" {
-		m.status = "Planned notes need a title"
-		return m, nil
-	}
 	now := time.Now().UTC()
 	notes := m.planDraft
 	notes.ID = m.planID
-	notes.Title = title
+	notes.Title = strings.TrimSpace(m.planTitle.Value())
 	notes.Body = m.planBody.Value()
 	notes.Scope = m.workspace.Scope
+	notes.UpdatedAt = now
 	if notes.CreatedAt.IsZero() {
 		notes.CreatedAt = now
 	}
 	notes = notes.RefreshPlannedLinks(m.workspace.Records)
-	notes.UpdatedAt = now
 	if err := notes.Validate(); err != nil {
 		m.status = err.Error()
 		return m, nil
 	}
-	replaced := false
+	updated := false
 	for index := range m.workspace.PlannedNotes {
 		if m.workspace.PlannedNotes[index].ID == notes.ID {
 			m.workspace.PlannedNotes[index] = notes
-			replaced = true
+			updated = true
 			break
 		}
 	}
-	if !replaced {
+	if !updated {
 		m.workspace.PlannedNotes = append(m.workspace.PlannedNotes, notes)
 	}
 	m.planID = notes.ID
-	m.planDraft = notes
+	m.selectedPlanID = notes.ID
 	m.planning = false
+	m.suggestions = nil
 	m.persistWorkspace()
-	m.status = fmt.Sprintf("Saved planned notes · %d links · %s · press s to play", len(notes.Links), notes.Title)
+	m.status = "Saved planned notes · s starts live from this prep"
 	return m, nil
 }
 
 func (m Model) renderPlannedNotesOverlay() string {
-	width := min(92, max(56, m.width-8))
-	var builder strings.Builder
-	builder.WriteString(searchTitleStyle.Render("PLANNED SESSION NOTES"))
-	builder.WriteString("  ")
-	builder.WriteString(mutedStyle.Render("prep only · not a live transcript"))
-	builder.WriteString("\n\n")
-	builder.WriteString(m.planTitle.View())
-	builder.WriteString("\n\n")
-	builder.WriteString(m.planBody.View())
-	builder.WriteString("\n")
+	width := max(1, m.width)
+	height := max(1, m.height)
+	suggest := ""
+	if m.planField == 1 {
+		suggest = renderSuggestionList(m.suggestions, m.suggestion)
+	}
+	reserve := 3
+	if suggest != "" {
+		reserve += lipgloss.Height(suggest) + 1
+	}
+	sizeMarkdownTextAreaReserved(&m.planBody, width, height, reserve)
+	m.planTitle.SetWidth(max(20, width-10))
+
+	var chrome strings.Builder
+	chrome.WriteString(headerStyle.Width(width).Render(
+		searchTitleStyle.Render("PLANNED NOTES") + "  " + mutedStyle.Render("prep · not a live session"),
+	))
+	chrome.WriteString("\n")
+	chrome.WriteString(m.planTitle.View())
 	if len(m.planDraft.Links) > 0 || m.planDraft.LocationName != "" {
-		builder.WriteString(mutedStyle.Render("Resolved on save: "))
-		parts := make([]string, 0, len(m.planDraft.Links)+1)
+		chrome.WriteString("\n")
+		parts := []string{}
 		if m.planDraft.LocationName != "" {
-			parts = append(parts, "loc "+m.planDraft.LocationName)
+			parts = append(parts, "#location "+m.planDraft.LocationName)
 		}
 		for _, link := range m.planDraft.Links {
 			parts = append(parts, "@"+link.Text)
 		}
-		builder.WriteString(filterStyle.Render(strings.Join(parts, " · ")))
-		builder.WriteString("\n")
+		chrome.WriteString(mutedStyle.Render(strings.Join(parts, "  ")))
 	}
-	builder.WriteString(helpStyle.Render("Tab fields  Ctrl+S save  Esc cancel  ·  @Entity  #location Name"))
-	overlay := searchPanelStyle.Width(width).Render(builder.String())
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
-		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
-	)
+
+	body := m.planBody.View()
+	if suggest != "" {
+		body = lipgloss.JoinVertical(lipgloss.Left, body, "", suggest)
+	}
+	help := "Tab fields/suggest · Ctrl+S save · Esc cancel · @Entity · #location"
+	return renderFullScreenEditor(width, height, chrome.String(), body, help)
 }
 
 func (m Model) activePlannedNotes() *domain.PlannedNotes {

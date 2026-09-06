@@ -50,6 +50,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Next
 
+- Help overlay via `?` instead of packing every binding into the footer
+  (Argus #38).
 - Tags/collections and scope filters as secondary organization (Argus #37).
 - Draft future planned notes in the context of previous live sessions
   (decision #33).
