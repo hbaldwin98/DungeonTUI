@@ -61,6 +61,12 @@ type Model struct {
 	reconIndex     int
 	reconCursor    int
 	deleteConfirm  bool
+	planning       bool
+	planID         string
+	planDraft      domain.PlannedNotes
+	planTitle      textinput.Model
+	planBody       textarea.Model
+	planField      int
 }
 
 func New() Model {
@@ -135,6 +141,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.editing {
 			return m.updateEditor(msg)
 		}
+		if m.planning {
+			return m.updatePlannedNotes(msg)
+		}
 		if m.reconciling {
 			return m.updateReconciliation(msg)
 		}
@@ -166,6 +175,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Cycled browser type panes"
 		case "+":
 			m.addNextBrowserTypePane()
+		case "p":
+			return m.openPlannedNotes(true)
 		case "s":
 			return m.startSession()
 		case "r":
@@ -230,9 +241,20 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 		Scope:     m.workspace.Scope,
 		StartedAt: started,
 	}
-	if location := m.defaultSessionLocation(); location != nil {
-		session.LocationID = location.ID
-		session.LocationName = location.Title
+	plan := m.activePlannedNotes()
+	if plan != nil {
+		session.PlannedNotesID = plan.ID
+		session.Title = plan.Title
+		if plan.LocationID != "" || plan.LocationName != "" {
+			session.LocationID = plan.LocationID
+			session.LocationName = plan.LocationName
+		}
+	}
+	if session.LocationID == "" && session.LocationName == "" {
+		if location := m.defaultSessionLocation(); location != nil {
+			session.LocationID = location.ID
+			session.LocationName = location.Title
+		}
 	}
 	m.session = &session
 	m.sessionInput.SetValue("")
@@ -243,7 +265,23 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 	m.configureTranscriptViewport()
 	m.refreshTranscriptViewport()
 	m.refreshSuggestions()
-	m.status = "Session started · click panes to focus · Ctrl+E ends capture"
+	if plan != nil {
+		for _, link := range plan.Links {
+			for index := range m.workspace.Records {
+				if m.workspace.Records[index].ID == link.RecordID {
+					record := m.workspace.Records[index]
+					m.review = &record
+					break
+				}
+			}
+			if m.review != nil {
+				break
+			}
+		}
+		m.status = "Live from planned notes · " + plan.Title + " · Ctrl+E ends"
+	} else {
+		m.status = "Session started · click panes to focus · Ctrl+E ends capture"
+	}
 	return m, nil
 }
 
@@ -1521,6 +1559,25 @@ func (m Model) findLocation(query string) *domain.Record {
 }
 
 func (m Model) sessionPresent() []domain.Record {
+	if plan := m.sessionPlannedNotes(); plan != nil && len(plan.Links) > 0 {
+		present := make([]domain.Record, 0, len(plan.Links))
+		seen := map[string]bool{}
+		for _, link := range plan.Links {
+			for index := range m.workspace.Records {
+				record := m.workspace.Records[index]
+				if record.ID != link.RecordID || seen[record.ID] {
+					continue
+				}
+				if record.Type == domain.NPC || record.Type == domain.Character || record.Type == domain.Item || record.Type == domain.Faction {
+					present = append(present, record)
+					seen[record.ID] = true
+				}
+			}
+		}
+		if len(present) > 0 {
+			return present
+		}
+	}
 	present := make([]domain.Record, 0)
 	for _, record := range m.campaignRecords() {
 		if record.Authority == domain.Proposal {
@@ -1534,6 +1591,13 @@ func (m Model) sessionPresent() []domain.Record {
 		}
 	}
 	return present
+}
+
+func (m Model) sessionPlannedNotes() *domain.PlannedNotes {
+	if m.session == nil || m.session.PlannedNotesID == "" {
+		return nil
+	}
+	return m.plannedByID(m.session.PlannedNotesID)
 }
 
 func (m Model) sessionThreads() []domain.Record {
@@ -1594,7 +1658,7 @@ func (m Model) View() tea.View {
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(1, m.height-2)
 	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-	help := "/ search  n new  e edit  d delete  x supersede  t/Tab section  + pane  s session  r reconcile  q quit"
+	help := "/ search  n new  e edit  p prep notes  d delete  x supersede  s live session  r reconcile  q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
@@ -1612,6 +1676,8 @@ func (m Model) View() tea.View {
 		view = m.renderSearchOverlay()
 	} else if m.editing {
 		view = m.renderEditorOverlay()
+	} else if m.planning {
+		view = m.renderPlannedNotesOverlay()
 	} else if m.reconciling {
 		view = m.renderReconciliationOverlay()
 	}

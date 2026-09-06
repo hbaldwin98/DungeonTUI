@@ -41,8 +41,8 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `x` | Mark selected entity superseded (soft remove) |
 | `t` / `Tab` | Cycle focused campaign type section |
 | `+` | Add another typed section pane |
-| `s` | Start a session |
-| `r` | Open session reconciliation review |
+| `p` | Draft planned session notes (prep markdown, not live) |
+| `s` | Start a live session (uses planned notes as context when present) |
 | `Tab` / `Shift+Tab` | In editor: move fields; in session: suggest/cycle focus |
 | `Ctrl+S` | Save the editor, or change search scope while searching |
 | `Enter` / `Ctrl+Enter` | Capture a transcript entry during a session |

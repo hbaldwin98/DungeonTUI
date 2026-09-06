@@ -213,6 +213,45 @@ func TestBrowserAddTypePane(t *testing.T) {
 	}
 }
 
+func TestPlannedNotesSaveAndSeedLiveSession(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Text: "p"}))
+	model = updated.(Model)
+	if !model.planning {
+		t.Fatal("expected planned notes editor")
+	}
+	model.planTitle.SetValue("Crypt approach")
+	model.planBody.SetValue("Meet @Captain Vale\n#location Greywatch\n- Relic pressure\n")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if model.planning {
+		t.Fatal("expected editor to close after save")
+	}
+	if len(model.workspace.PlannedNotes) != 1 {
+		t.Fatalf("expected saved planned notes, got %d", len(model.workspace.PlannedNotes))
+	}
+	plan := model.workspace.PlannedNotes[0]
+	if plan.LocationName == "" || len(plan.Links) == 0 {
+		t.Fatalf("expected resolved location and links, got %#v", plan)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	if model.session == nil {
+		t.Fatal("expected live session")
+	}
+	if model.session.PlannedNotesID != plan.ID {
+		t.Fatalf("live session should reference planned notes, got %q", model.session.PlannedNotesID)
+	}
+	if model.session.LocationName != plan.LocationName {
+		t.Fatalf("expected location from plan %q, got %q", plan.LocationName, model.session.LocationName)
+	}
+	if model.review == nil || model.review.Title != "Captain Vale" {
+		t.Fatalf("expected review seeded from plan link, got %#v", model.review)
+	}
+}
+
 func TestSessionReconciliationPreservesTranscript(t *testing.T) {
 	model := New()
 	model.width = 100

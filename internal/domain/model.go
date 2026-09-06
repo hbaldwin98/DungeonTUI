@@ -129,14 +129,15 @@ type TranscriptEntry struct {
 }
 
 type SessionRecord struct {
-	ID           string
-	Title        string
-	Scope        Scope
-	StartedAt    time.Time
-	EndedAt      *time.Time
-	LocationID   string
-	LocationName string
-	Entries      []TranscriptEntry
+	ID             string
+	Title          string
+	Scope          Scope
+	StartedAt      time.Time
+	EndedAt        *time.Time
+	LocationID     string
+	LocationName   string
+	PlannedNotesID string // optional prep notes that seeded this live sit
+	Entries        []TranscriptEntry
 }
 
 func (r Record) Validate() error {
@@ -160,6 +161,7 @@ type Workspace struct {
 	Records         []Record
 	Sessions        []SessionRecord
 	Reconciliations []ReconciliationRecord
+	PlannedNotes    []PlannedNotes
 }
 
 func NewWorkspace(scope Scope, records []Record) (Workspace, error) {
