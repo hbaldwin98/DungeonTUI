@@ -155,8 +155,8 @@ func TestSessionCaptureAndEntityReview(t *testing.T) {
 	if len(model.session.Entries) != 1 || len(model.session.Entries[0].Links) != 1 {
 		t.Fatalf("expected one linked transcript entry, got %#v", model.session.Entries)
 	}
-	if !strings.Contains(model.View().Content, "ENTITY REVIEW") || !strings.Contains(model.View().Content, "Captain Vale") {
-		t.Fatal("session view should include the live entity review pane")
+	if !strings.Contains(model.View().Content, "CURRENT SCENE") || !strings.Contains(model.View().Content, "Captain Vale") {
+		t.Fatal("session view should include the live scene context pane")
 	}
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl}))
 	model = updated.(Model)

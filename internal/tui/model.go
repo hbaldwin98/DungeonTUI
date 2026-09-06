@@ -16,34 +16,35 @@ import (
 )
 
 type Model struct {
-	workspace    domain.Workspace
-	search       searchsvc.Service
-	cursor       int
-	width        int
-	height       int
-	searching    bool
-	searchInput  textinput.Model
-	searchScope  searchsvc.Scope
-	includeIdeas bool
-	results      []searchsvc.Result
-	selected     int
-	typeFilter   domain.EntityType
-	store        storage.Store
-	status       string
-	editing      bool
-	creating     bool
-	editIndex    int
-	editField    int
-	editType     domain.EntityType
-	editTitle    textinput.Model
-	editSummary  textinput.Model
-	editBody     textarea.Model
-	session      *domain.SessionRecord
-	sessionInput textarea.Model
-	review       *domain.Record
-	reviewPinned bool
-	suggestions  []domain.Record
-	suggestion   int
+	workspace     domain.Workspace
+	search        searchsvc.Service
+	cursor        int
+	width         int
+	height        int
+	searching     bool
+	searchInput   textinput.Model
+	searchScope   searchsvc.Scope
+	includeIdeas  bool
+	results       []searchsvc.Result
+	selected      int
+	typeFilter    domain.EntityType
+	store         storage.Store
+	status        string
+	editing       bool
+	creating      bool
+	editIndex     int
+	editField     int
+	editType      domain.EntityType
+	editTitle     textinput.Model
+	editSummary   textinput.Model
+	editBody      textarea.Model
+	session       *domain.SessionRecord
+	sessionInput  textarea.Model
+	review        *domain.Record
+	reviewPinned  bool
+	suggestions   []domain.Record
+	suggestion    int
+	previousInput string
 }
 
 func New() Model {
@@ -165,6 +166,29 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return model.endSession()
 	case "ctrl+enter":
 		return model.submitTranscript()
+	case "ctrl+z":
+		if model.sessionInput.Value() != "" && model.previousInput != "" {
+			model.sessionInput.SetValue(model.previousInput)
+			model.refreshSuggestions()
+			return model, nil
+		}
+		for index := len(model.session.Entries) - 1; index >= 0; index-- {
+			if !model.session.Entries[index].Undone {
+				model.session.Entries[index].Undone = true
+				model.status = "Undid transcript entry · Ctrl+Y restores it"
+				model.persistWorkspace()
+				return model, nil
+			}
+		}
+	case "ctrl+y":
+		for index := len(model.session.Entries) - 1; index >= 0; index-- {
+			if model.session.Entries[index].Undone {
+				model.session.Entries[index].Undone = false
+				model.status = "Restored transcript entry"
+				model.persistWorkspace()
+				return model, nil
+			}
+		}
 	case "tab":
 		if len(model.suggestions) > 0 {
 			model.acceptSuggestion()
@@ -184,8 +208,12 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		model.sessionInput.Blur()
 		return model, nil
 	}
+	previous := model.sessionInput.Value()
 	var cmd tea.Cmd
 	model.sessionInput, cmd = model.sessionInput.Update(msg)
+	if model.sessionInput.Value() != previous {
+		model.previousInput = previous
+	}
 	model.refreshSuggestions()
 	if !model.reviewPinned {
 		model.review = model.resolveReference(model.sessionInput.Value())
@@ -708,26 +736,127 @@ func (m Model) View() tea.View {
 
 func (m Model) sessionView() tea.View {
 	width := max(60, m.width)
-	header := m.renderHeader(width)
-	bodyHeight := max(10, m.height-2)
-	reviewHeight := max(8, bodyHeight/2)
-	transcriptHeight := max(5, bodyHeight-reviewHeight-6)
-	review := panelStyle.Width(width).Height(reviewHeight).MaxHeight(reviewHeight).Render(m.renderReview())
-	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript())
+	bodyHeight := max(10, m.height-1)
+	upperHeight := max(8, min(12, bodyHeight/2))
+	transcriptHeight := max(8, bodyHeight-upperHeight-1)
+	leftWidth := max(28, width/2)
+	rightWidth := max(28, width-leftWidth)
+	header := headerStyle.Width(width).Render(m.renderSessionHeader())
+	scene := panelStyle.Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderCampaignPane())
+	context := panelStyle.Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderContextPane())
+	upper := lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
 	inputHeight := 5
 	if len(m.suggestions) > 0 {
 		inputHeight = 7
 	}
-	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(m.renderSessionInput())
-	help := "SESSION ACTIVE  Ctrl+Enter capture  Ctrl+E end session  @ link entities  Ctrl+Z undo"
+	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(inputHeight))
+	help := "n note   a assist   d describe   r rules   Space actions   ? help   Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
-	content := lipgloss.JoinVertical(lipgloss.Left, header, review, transcript, input, footer)
+	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
 	result := tea.NewView(view)
 	result.AltScreen = true
 	result.MouseMode = tea.MouseModeCellMotion
 	result.WindowTitle = "Dungeon · " + m.workspace.Scope.Campaign + " · Session"
 	return result
+}
+
+func (m Model) renderSessionHeader() string {
+	number := len(m.workspace.Sessions) + 1
+	if m.session != nil {
+		number = len(m.workspace.Sessions) + 1
+	}
+	left := "─ " + m.workspace.Scope.Campaign + " ─"
+	right := fmt.Sprintf("Session %d ─● LIVE─", number)
+	inner := max(1, m.width-headerStyle.GetHorizontalFrameSize())
+	gap := max(1, inner-lipgloss.Width(left)-lipgloss.Width(right))
+	return left + strings.Repeat("─", gap) + right
+}
+
+func (m Model) renderCampaignPane() string {
+	var builder strings.Builder
+	builder.WriteString(sectionStyle.Render("CAMPAIGN"))
+	builder.WriteString("\n\n")
+	sections := []string{"Session", "World", "NPCs", "Locations", "Factions", "Threads", "Timeline", "Players", "Secrets"}
+	for index, section := range sections {
+		marker := "  "
+		if index == 0 {
+			marker = "▸ "
+		}
+		count := ""
+		switch section {
+		case "NPCs":
+			count = "42"
+		case "Locations":
+			count = "18"
+		case "Factions":
+			count = "7"
+		case "Threads":
+			count = "11"
+		}
+		builder.WriteString(marker + section)
+		if count != "" {
+			builder.WriteString(strings.Repeat(" ", max(1, 14-len(section)-len(count))) + count)
+		}
+		builder.WriteRune('\n')
+	}
+	return builder.String()
+}
+
+func (m Model) renderContextPane() string {
+	var builder strings.Builder
+	builder.WriteString(sectionStyle.Render("CURRENT SCENE"))
+	builder.WriteString("\n\n")
+	builder.WriteString(detailTitleStyle.Render("Greywatch Monastery"))
+	builder.WriteString("\n")
+	builder.WriteString("Party entered through the collapsed\n")
+	builder.WriteString("eastern transept.\n\n")
+	builder.WriteString(labelStyle.Render("PRESENT"))
+	builder.WriteString("\n")
+	builder.WriteString("◆ Captain Vale\n◆ Father Merrow\n\n")
+	builder.WriteString(labelStyle.Render("ACTIVE THREADS"))
+	builder.WriteString("\n")
+	groups := []struct {
+		label string
+		types []domain.EntityType
+	}{
+		{label: "", types: []domain.EntityType{domain.Thread}},
+	}
+	for _, group := range groups {
+		if group.label != "" {
+			builder.WriteString(labelStyle.Render(group.label))
+			builder.WriteString("\n")
+		}
+		count := 0
+		for _, record := range m.visibleRecords() {
+			if !containsType(group.types, record.Type) {
+				continue
+			}
+			marker := "  "
+			if m.review != nil && m.review.ID == record.ID {
+				marker = "▸ "
+			}
+			builder.WriteString(marker + record.Title + "\n")
+			count++
+			if count == 4 {
+				break
+			}
+		}
+		if count == 0 {
+			builder.WriteString(mutedStyle.Render("  —") + "\n")
+		}
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
+func containsType(types []domain.EntityType, wanted domain.EntityType) bool {
+	for _, entityType := range types {
+		if entityType == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) renderReview() string {
@@ -776,7 +905,7 @@ func (m Model) renderSessionInput() string {
 	return builder.String()
 }
 
-func (m Model) renderTranscript() string {
+func (m Model) renderTranscript(inputHeight int) string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("SESSION TRANSCRIPT"))
 	builder.WriteString("\n")
@@ -789,9 +918,14 @@ func (m Model) renderTranscript() string {
 		stamp := entry.CreatedAt.Local().Format("15:04")
 		builder.WriteString(mutedStyle.Render(stamp))
 		builder.WriteString("  ")
+		if entry.Undone {
+			builder.WriteString(mutedStyle.Render("[undone] "))
+		}
 		builder.WriteString(entry.Text)
 		builder.WriteRune('\n')
 	}
+	builder.WriteString("\n")
+	builder.WriteString(m.renderSessionInput())
 	return builder.String()
 }
 

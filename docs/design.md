@@ -333,6 +333,36 @@ answer panel.
 The Proposals section acts as an inbox for generated possibilities and suggested
 changes. It is explicitly outside canon.
 
+### IDE-like section browsing
+
+Opening a campaign section should feel like browsing a focused project tree in
+an IDE. The left pane contains the section's typed, searchable entity list; the
+right pane contains the selected entity's complete details. The active section,
+search query, authority marker, and entity type remain visible at all times.
+
+```text
+┌─ NPCS ──────────────────────┬─ CAPTAIN VALE ──────────────────┐
+│ Search: vale               │ Captain Alaric Vale              │
+│ ▸ Captain Vale       ●      │ Captain of the Greywatch Guard  │
+│   Father Merrow      ●      │ Current location                │
+│   Osric Pell         ●      │ Greywatch Crypt                 │
+│   Sister Elayne      ◇      │ Relations / Recent              │
+├─────────────────────────────┴─────────────────────────────────┤
+│ Enter open · / filter · Space actions · Tab pane · q back    │
+└───────────────────────────────────────────────────────────────┘
+```
+
+`Enter` opens or focuses the selected entity, `/` filters within the active
+section, `Space` opens contextual actions, and `Tab` moves focus between list
+and detail panes. The detail pane should expose type-specific information such
+as relations, current location, knowledge, goals, recent events, and source
+provenance without collapsing the record into a generic document view.
+
+Session capture is a separate dashboard composition: it uses campaign/scene
+context above a full-width transcript and command bar. The user can move from
+the session dashboard into this section browser and return without losing
+session focus or transcript state.
+
 ## TUI interaction model
 
 ### Stable workspace and contextual actions
@@ -449,6 +479,28 @@ DM can pin an entity, return to the previous entity, close the review pane, or
 disable automatic opening for the rest of the session. Multiple recently
 opened entities may be kept as a short stack or tab strip, with the layout
 controlled by the configurable pane preferences.
+
+The preferred session composition is a table-oriented layout rather than a
+generic detail-over-chat stack:
+
+```text
+┌───────────────────────────────┬───────────────────────────────┐
+│ SCENE                         │ CONTEXT                       │
+│ current scene summary         │ NPCs, threads, location       │
+├───────────────────────────────┴───────────────────────────────┤
+│ SESSION                     chronological transcript           │
+├───────────────────────────────────────────────────────────────┤
+│ command bar: note, assist, describe, rules, actions, help     │
+└───────────────────────────────────────────────────────────────┘
+```
+
+The upper-left scene pane shows the current scene title and concise situation
+summary. The upper-right context pane shows grouped, linked entities such as
+NPCs, threads, and the current location; selecting one opens its full details
+without replacing the session layout. The lower session pane owns the full
+width and displays a chronological transcript. A compact command bar advertises
+the most useful actions and their keys without requiring the DM to remember
+mode-specific controls.
 
 Session capture is deliberately factual-data-first. AI may later summarize a
 transcript or suggest events, but those outputs become labelled proposals and
