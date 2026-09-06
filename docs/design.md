@@ -402,6 +402,38 @@ with the roller, expression, and result visible; they never silently become
 canon. Unsupported or ambiguous expressions remain plain text until the DM
 confirms them.
 
+The transcript also provides fast creation and generation commands:
+
+```text
+$npc Sister Elayne: A church investigator arriving after the reliquary incident.
+$item Ashen Compass: Points toward the oldest unquiet dead.
+#location Ruined Monastery
+#random npc
+#random item
+```
+
+`$` creates a new entity draft from the active session. The command parser
+recognizes the entity type, name, and description, then fills campaign, world,
+session, source, and timestamps from the current game context. The resulting
+entity is immediately linked back to the transcript entry and remains a draft
+until the DM promotes it. Invalid types or incomplete commands should open a
+small correction prompt rather than silently creating a generic record.
+
+`#random <entity-type>` creates a context-aware draft generator result for
+things such as characters, NPCs, creatures, items, locations, or clues. The
+generator uses the active campaign and current session context, including the
+current location when available, so results should fit the game rather than be
+random library-wide noise. `#location <entity-or-name>` sets or changes the
+session's current location context; `#location CURRENTLOCATION` displays the
+currently active location. Location changes are session state and do not by
+themselves establish a campaign fact.
+
+Generators have two explicit implementations: a deterministic local generator
+that works offline, and an optional AI-guided generator that receives only the
+assembled campaign context. Both produce drafts or AI proposals, never canon,
+and the transcript records which generator produced the result, its context,
+and its seed or provider metadata for reproducibility.
+
 Session capture is deliberately factual-data-first. AI may later summarize a
 transcript or suggest events, but those outputs become labelled proposals and
 must not alter the transcript or campaign facts automatically.
@@ -595,6 +627,8 @@ Deliver value without requiring AI:
 - Start/end session lifecycle with a durable multiline transcript.
 - `@` entity references with completion and durable record links.
 - Local `#` dice and calculation expressions recorded with their results.
+- Session `$` commands for quick, context-filled draft entity creation.
+- Contextual `#random` generators and `#location` session context commands.
 
 Likely first entity types: NPC, location, faction, item, thread, session, event,
 and note. Additional types should be added when the owner's campaign needs them.
@@ -609,6 +643,7 @@ and note. Additional types should be added when the owner's campaign needs them.
 - Generate next-session review surfaces from open threads and recent events.
 - Reconcile transcript references, events, and roll results into reviewable
   factual changes without rewriting the original transcript.
+- Review and approve entities created by `$` commands or contextual generators.
 
 The workflow should be solid manually before AI automates extraction.
 
