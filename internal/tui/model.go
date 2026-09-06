@@ -165,7 +165,7 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+e":
 		return model.endSession()
-	case "ctrl+enter":
+	case "enter", "ctrl+enter", "\r", "\n":
 		return model.submitTranscript()
 	case "ctrl+z":
 		if model.sessionInput.Value() != "" && model.previousInput != "" {
@@ -871,7 +871,7 @@ func (m Model) sessionView() tea.View {
 	upper := lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
 	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(inputHeight))
 	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(m.renderSessionInput())
-	help := "Ctrl+Enter capture   @ link   $ create entity   # command   Ctrl+Z undo   Ctrl+E end"
+	help := "Enter/Ctrl+Enter capture   @ link   $ create entity   # command   Ctrl+Z undo   Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
@@ -1005,9 +1005,12 @@ func (m Model) renderReview() string {
 
 func (m Model) renderSessionInput() string {
 	var builder strings.Builder
-	builder.WriteString(sectionStyle.Render("INPUT"))
-	builder.WriteString("\n")
-	builder.WriteString(m.sessionInput.View())
+	label := sectionStyle.Render("INPUT")
+	if strings.TrimSpace(m.sessionInput.Value()) == "" && len(m.suggestions) == 0 {
+		builder.WriteString(label + "  " + mutedStyle.Render("> Type a transcript entry, $entity command, or #command; press Enter to submit"))
+		return builder.String()
+	}
+	builder.WriteString(label + "  " + m.sessionInput.View())
 	if len(m.suggestions) > 0 {
 		builder.WriteString("\n")
 		builder.WriteString(mutedStyle.Render("@ suggestions  ↑/↓ choose  Tab insert"))

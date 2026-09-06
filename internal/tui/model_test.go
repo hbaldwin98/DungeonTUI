@@ -180,6 +180,9 @@ func TestSessionViewFillsTerminal(t *testing.T) {
 			t.Fatalf("row %d: expected width %d, got %d", index, model.width, lipgloss.Width(line))
 		}
 	}
+	if !strings.Contains(model.View().Content, "Type a transcript entry") {
+		t.Fatalf("empty session input should explain how to enter and submit text: %q", model.View().Content)
+	}
 }
 
 func TestSessionCommandsCreateDrafts(t *testing.T) {
@@ -201,5 +204,17 @@ func TestSessionCommandsCreateDrafts(t *testing.T) {
 	model = updated.(Model)
 	if model.workspace.Records[len(model.workspace.Records)-1].Type != domain.Item {
 		t.Fatal("expected #random item to create an item draft")
+	}
+}
+
+func TestPlainEnterSubmitsTranscript(t *testing.T) {
+	model := New()
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	model.sessionInput.SetValue("The party enters the crypt")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Text: "\r"}))
+	model = updated.(Model)
+	if len(model.session.Entries) != 1 || model.session.Entries[0].Text != "The party enters the crypt" {
+		t.Fatalf("plain Enter did not submit transcript: %#v", model.session.Entries)
 	}
 }
