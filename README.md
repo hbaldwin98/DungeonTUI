@@ -40,6 +40,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `t` / `Tab` | Cycle focused campaign type section |
 | `+` | Add another typed section pane |
 | `s` | Start a session |
+| `r` | Open session reconciliation review |
 | `Tab` / `Shift+Tab` | In editor: move fields; in session: suggest/cycle focus |
 | `Ctrl+S` | Save the editor, or change search scope while searching |
 | `Enter` / `Ctrl+Enter` | Capture a transcript entry during a session |

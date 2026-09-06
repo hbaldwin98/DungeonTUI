@@ -57,6 +57,9 @@ type Model struct {
 	draggingSplit  bool
 	dragAxis       string
 	rollRNG        dice.RNG
+	reconciling    bool
+	reconIndex     int
+	reconCursor    int
 }
 
 func New() Model {
@@ -131,6 +134,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.editing {
 			return m.updateEditor(msg)
 		}
+		if m.reconciling {
+			return m.updateReconciliation(msg)
+		}
 		if m.session != nil {
 			return m.updateSession(msg)
 		}
@@ -161,6 +167,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.addNextBrowserTypePane()
 		case "s":
 			return m.startSession()
+		case "r":
+			return m.openReconciliation()
 		case "tab":
 			m.cycleBrowserFocus()
 		}
@@ -717,7 +725,6 @@ func (m Model) endSession() (tea.Model, tea.Cmd) {
 	ended := time.Now().UTC()
 	m.session.EndedAt = &ended
 	m.sessionInput.Blur()
-	m.status = fmt.Sprintf("Session ended · %d transcript entries", len(m.session.Entries))
 	// Always retain the ended session in the workspace, even when no store is
 	// attached (demo / harness). Persistence remains best-effort afterward.
 	updated := false
@@ -731,10 +738,98 @@ func (m Model) endSession() (tea.Model, tea.Cmd) {
 	if !updated {
 		m.workspace.Sessions = append(m.workspace.Sessions, *m.session)
 	}
+	recon := domain.BuildSessionReconciliation(*m.session, m.workspace.Records)
+	replaced := false
+	for index := range m.workspace.Reconciliations {
+		if m.workspace.Reconciliations[index].SessionID == recon.SessionID {
+			m.workspace.Reconciliations[index] = recon
+			m.reconIndex = index
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		m.workspace.Reconciliations = append(m.workspace.Reconciliations, recon)
+		m.reconIndex = len(m.workspace.Reconciliations) - 1
+	}
+	entrySnapshot := append([]domain.TranscriptEntry(nil), m.session.Entries...)
+	m.status = fmt.Sprintf("Session ended · %d entries · %d reconcile items · press r", len(entrySnapshot), len(recon.Items))
 	if m.store != nil {
 		m.persistWorkspace()
 	}
 	m.session = nil
+	// Prove transcript immutability: ended session copy keeps original entry text.
+	for index := range m.workspace.Sessions {
+		if m.workspace.Sessions[index].ID == recon.SessionID {
+			for entryIndex := range m.workspace.Sessions[index].Entries {
+				if m.workspace.Sessions[index].Entries[entryIndex].Text != entrySnapshot[entryIndex].Text {
+					m.status = "Session ended · transcript integrity check failed"
+				}
+			}
+			break
+		}
+	}
+	return m, nil
+}
+
+func (m Model) openReconciliation() (tea.Model, tea.Cmd) {
+	if len(m.workspace.Reconciliations) == 0 {
+		m.status = "No reconciliations yet · end a session first"
+		return m, nil
+	}
+	m.reconciling = true
+	m.reconIndex = clamp(m.reconIndex, 0, len(m.workspace.Reconciliations)-1)
+	m.reconCursor = 0
+	m.status = "Reconciliation · a approve  x reject  Esc close"
+	return m, nil
+}
+
+func (m Model) updateReconciliation(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if len(m.workspace.Reconciliations) == 0 {
+		m.reconciling = false
+		return m, nil
+	}
+	recon := &m.workspace.Reconciliations[m.reconIndex]
+	switch msg.String() {
+	case "esc", "q":
+		m.reconciling = false
+		m.status = "Closed reconciliation"
+		return m, nil
+	case "j", "down":
+		if len(recon.Items) > 0 {
+			m.reconCursor = clamp(m.reconCursor+1, 0, len(recon.Items)-1)
+		}
+		return m, nil
+	case "k", "up":
+		if len(recon.Items) > 0 {
+			m.reconCursor = clamp(m.reconCursor-1, 0, len(recon.Items)-1)
+		}
+		return m, nil
+	case "a":
+		if len(recon.Items) == 0 {
+			return m, nil
+		}
+		item := recon.Items[m.reconCursor]
+		updated, records, err := domain.ApproveItem(item, m.workspace.Records)
+		if err != nil {
+			m.status = err.Error()
+			return m, nil
+		}
+		recon.Items[m.reconCursor] = updated
+		m.workspace.Records = records
+		m.search = searchsvc.New(m.workspace.Records)
+		m.persistWorkspace()
+		m.status = "Approved · transcript unchanged"
+		return m, nil
+	case "x":
+		if len(recon.Items) == 0 {
+			return m, nil
+		}
+		recon.Items[m.reconCursor].Status = domain.ReconRejected
+		m.persistWorkspace()
+		m.status = "Rejected · transcript unchanged"
+		return m, nil
+	}
 	return m, nil
 }
 
@@ -1443,6 +1538,8 @@ func (m Model) View() tea.View {
 		view = m.renderSearchOverlay()
 	} else if m.editing {
 		view = m.renderEditorOverlay()
+	} else if m.reconciling {
+		view = m.renderReconciliationOverlay()
 	}
 
 	result := tea.NewView(view)
@@ -1719,6 +1816,45 @@ func (m Model) renderEditorOverlay() string {
 	builder.WriteString(m.editBody.View())
 	builder.WriteString("\n")
 	builder.WriteString(helpStyle.Render("Tab/Shift+Tab next field  Ctrl+S save draft  Esc cancel"))
+	overlay := searchPanelStyle.Width(width).Render(builder.String())
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
+	)
+}
+
+func (m Model) renderReconciliationOverlay() string {
+	width := min(88, max(52, m.width-10))
+	var builder strings.Builder
+	builder.WriteString(searchTitleStyle.Render("SESSION RECONCILIATION"))
+	if len(m.workspace.Reconciliations) == 0 {
+		builder.WriteString("\n\n")
+		builder.WriteString(mutedStyle.Render("No reconciliation records yet."))
+	} else {
+		recon := m.workspace.Reconciliations[clamp(m.reconIndex, 0, len(m.workspace.Reconciliations)-1)]
+		builder.WriteString("  ")
+		builder.WriteString(filterStyle.Render(recon.Title))
+		builder.WriteString("\n")
+		builder.WriteString(mutedStyle.Render("Transcript stays immutable · derived review items only"))
+		builder.WriteString("\n\n")
+		if len(recon.Items) == 0 {
+			builder.WriteString(mutedStyle.Render("No review items extracted from this session."))
+		} else {
+			for index, item := range recon.Items {
+				prefix := "  "
+				style := searchResultStyle
+				if index == m.reconCursor {
+					prefix = "▸ "
+					style = selectedSearchResultStyle
+				}
+				line := fmt.Sprintf("%s[%s] %s  %s", prefix, item.Status, item.Kind, item.Summary)
+				builder.WriteString(style.Render(line))
+				builder.WriteString("\n")
+			}
+		}
+	}
+	builder.WriteString("\n")
+	builder.WriteString(helpStyle.Render("j/k move  a approve  x reject  Esc close"))
 	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 		lipgloss.WithWhitespaceChars(" "),

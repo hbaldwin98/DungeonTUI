@@ -156,9 +156,10 @@ func (r Record) Validate() error {
 }
 
 type Workspace struct {
-	Scope    Scope
-	Records  []Record
-	Sessions []SessionRecord
+	Scope           Scope
+	Records         []Record
+	Sessions        []SessionRecord
+	Reconciliations []ReconciliationRecord
 }
 
 func NewWorkspace(scope Scope, records []Record) (Workspace, error) {

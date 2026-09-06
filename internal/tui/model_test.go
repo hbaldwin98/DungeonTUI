@@ -169,6 +169,41 @@ func TestBrowserAddTypePane(t *testing.T) {
 	}
 }
 
+func TestSessionReconciliationPreservesTranscript(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 30
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	model.sessionInput.SetValue("@Captain Vale finds the key")
+	model.review = model.resolveReference(model.sessionInput.Value())
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.session == nil || len(model.session.Entries) == 0 {
+		t.Fatal("expected transcript entry")
+	}
+	original := model.session.Entries[0].Text
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if model.session != nil {
+		t.Fatal("expected session to end")
+	}
+	if len(model.workspace.Reconciliations) == 0 {
+		t.Fatal("expected reconciliation record after ending session")
+	}
+	if model.workspace.Sessions[0].Entries[0].Text != original {
+		t.Fatal("ending session must leave transcript text intact")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
+	model = updated.(Model)
+	if !model.reconciling {
+		t.Fatal("expected reconciliation overlay")
+	}
+	if !strings.Contains(model.View().Content, "SESSION RECONCILIATION") {
+		t.Fatalf("expected reconciliation UI: %q", model.View().Content)
+	}
+}
+
 func TestSessionCaptureAndEntityReview(t *testing.T) {
 	model := New()
 	model.width = 100
