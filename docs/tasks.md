@@ -44,7 +44,7 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 ## Next
 
 - Draft future planned notes in the context of previous live sessions
-  (Argus #33 / continuity).
+  (decision #33).
 - Associate entities to sessions while keeping world/campaign globals visible
   (Argus #30).
 - Deepen reconciliation: factual diffs, superseded history, and draft provenance.
