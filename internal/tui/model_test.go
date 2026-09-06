@@ -10,6 +10,7 @@ import (
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
+	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 )
 
 func TestLibraryPickerSelectsCampaign(t *testing.T) {
@@ -417,6 +418,32 @@ func TestMarkdownEditorSuggestsEntityReferences(t *testing.T) {
 	model = updated.(Model)
 	if !strings.Contains(model.editBody.Value(), "@Captain Vale") {
 		t.Fatalf("Tab should insert suggestion, got %q", model.editBody.Value())
+	}
+}
+
+func TestTagAndScopeFiltersNarrowBrowserList(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	// NPCs section: Vale has greywatch+guard, Merrow has greywatch+clergy.
+	before := len(model.listRecords())
+	if before < 2 {
+		t.Fatalf("expected multiple NPCs, got %d", before)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'f', Text: "f"}))
+	model = updated.(Model)
+	if model.tagFilter == "" {
+		t.Fatal("expected first tag filter to engage")
+	}
+	for _, record := range model.listRecords() {
+		if !containsTag(record, model.tagFilter) {
+			t.Fatalf("tag filter leaked record %#v", record)
+		}
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Text: "o"}))
+	model = updated.(Model)
+	if model.listScope != searchsvc.CurrentWorld {
+		t.Fatalf("expected world scope after o, got %v", model.listScope)
 	}
 }
 

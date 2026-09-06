@@ -57,3 +57,17 @@ func TestProposalsAreExcludedUnlessRequested(t *testing.T) {
 		t.Fatalf("expected proposal when explicitly included, got %#v", results)
 	}
 }
+
+func TestTagFilterRequiresAllTags(t *testing.T) {
+	service := New([]domain.Record{
+		{ID: "a", Type: domain.NPC, Title: "Vale", Authority: domain.Canon, Scope: testScope, Tags: []string{"greywatch", "guard"}},
+		{ID: "b", Type: domain.NPC, Title: "Merrow", Authority: domain.Canon, Scope: testScope, Tags: []string{"greywatch", "clergy"}},
+	})
+	results := service.Find(Filter{
+		Scope: CurrentCampaign, WorldID: testScope.WorldID, CampaignID: testScope.CampaignID,
+		Tags: []string{"greywatch", "guard"},
+	})
+	if len(results) != 1 || results[0].Record.ID != "a" {
+		t.Fatalf("expected Vale only, got %#v", results)
+	}
+}

@@ -35,6 +35,7 @@ type Filter struct {
 	WorldID          string
 	CampaignID       string
 	Types            map[domain.EntityType]bool
+	Tags             []string // optional; all must match (AND)
 	IncludeProposals bool
 }
 
@@ -56,7 +57,7 @@ func (s Service) Find(filter Filter) []Result {
 	results := make([]Result, 0, len(s.records))
 
 	for _, record := range s.records {
-		if !inScope(record, filter) || !typeAllowed(record, filter.Types) {
+		if !inScope(record, filter) || !typeAllowed(record, filter.Types) || !tagsAllowed(record, filter.Tags) {
 			continue
 		}
 		if record.Authority == domain.Proposal && !filter.IncludeProposals {
@@ -96,6 +97,25 @@ func inScope(record domain.Record, filter Filter) bool {
 
 func typeAllowed(record domain.Record, types map[domain.EntityType]bool) bool {
 	return len(types) == 0 || types[record.Type]
+}
+
+func tagsAllowed(record domain.Record, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	for _, want := range required {
+		found := false
+		for _, have := range record.Tags {
+			if strings.EqualFold(have, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func recordScore(record domain.Record, query string) (int, bool) {

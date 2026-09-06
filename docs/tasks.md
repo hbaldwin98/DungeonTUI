@@ -45,6 +45,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - In-campaign tree navigator: Sessions, Prep, and typed wiki sections as
   first-class branches with list|detail browsing (Argus #36; decision #35 /
   D-013).
+- Tag and scope filters on the campaign tree (`f` / `o`); markdown `tags:`
+  frontmatter (Argus #37).
 
 ## In progress
 
@@ -52,7 +54,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 - Help overlay via `?` instead of packing every binding into the footer
   (Argus #38).
-- Tags/collections and scope filters as secondary organization (Argus #37).
+- Named collections as a later organization aid on top of tags (Argus #37
+  follow-on).
 - Draft future planned notes in the context of previous live sessions
   (decision #33).
 - Associate entities to sessions while keeping world/campaign globals visible

@@ -16,6 +16,11 @@ func FormatEntityMarkdown(record Record) string {
 		builder.WriteString(string(record.Authority))
 		builder.WriteString("\n")
 	}
+	if len(record.Tags) > 0 {
+		builder.WriteString("tags: ")
+		builder.WriteString(strings.Join(record.Tags, ", "))
+		builder.WriteString("\n")
+	}
 	builder.WriteString("\n# ")
 	builder.WriteString(record.Title)
 	builder.WriteString("\n")
@@ -41,6 +46,7 @@ func ParseEntityMarkdown(text string, fallbackType EntityType) (Record, error) {
 		entityType = NPC
 	}
 	authority := Draft
+	var tags []string
 	index := 0
 	for index < len(lines) {
 		trimmed := strings.TrimSpace(lines[index])
@@ -62,6 +68,10 @@ func ParseEntityMarkdown(text string, fallbackType EntityType) (Record, error) {
 			if parsed, ok := parseAuthorityToken(value); ok {
 				authority = parsed
 			}
+			index++
+			continue
+		case strings.HasPrefix(lower, "tags:"):
+			tags = parseTagList(trimmed[len("tags:"):])
 			index++
 			continue
 		}
@@ -122,7 +132,27 @@ func ParseEntityMarkdown(text string, fallbackType EntityType) (Record, error) {
 		Summary:   summary,
 		Body:      body,
 		Authority: authority,
+		Tags:      tags,
 	}, nil
+}
+
+func parseTagList(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		tag := strings.TrimSpace(part)
+		if tag == "" {
+			continue
+		}
+		key := strings.ToLower(tag)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, tag)
+	}
+	return out
 }
 
 func parseEntityTypeToken(value string) (EntityType, bool) {

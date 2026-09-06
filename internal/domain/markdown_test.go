@@ -12,10 +12,14 @@ func TestEntityMarkdownRoundTrip(t *testing.T) {
 		Summary:   "Captain of the Greywatch Guard",
 		Body:      "Keeps the crypt sealed.\nTrusted by the council.\n",
 		Authority: Canon,
+		Tags:      []string{"greywatch", "guard"},
 	}
 	doc := FormatEntityMarkdown(original)
 	if !strings.Contains(doc, "type: NPC") || !strings.Contains(doc, "# Captain Vale") {
 		t.Fatalf("unexpected format: %q", doc)
+	}
+	if !strings.Contains(doc, "tags: greywatch, guard") {
+		t.Fatalf("expected tags frontmatter, got %q", doc)
 	}
 	parsed, err := ParseEntityMarkdown(doc, Note)
 	if err != nil {
@@ -29,6 +33,9 @@ func TestEntityMarkdownRoundTrip(t *testing.T) {
 	}
 	if parsed.Authority != Canon {
 		t.Fatalf("authority=%q", parsed.Authority)
+	}
+	if len(parsed.Tags) != 2 || parsed.Tags[0] != "greywatch" || parsed.Tags[1] != "guard" {
+		t.Fatalf("tags=%v", parsed.Tags)
 	}
 }
 

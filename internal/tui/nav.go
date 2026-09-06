@@ -6,6 +6,7 @@ import (
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
+	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 )
 
 // NavKind identifies a first-class branch in the in-campaign tree.
@@ -158,8 +159,18 @@ func (m Model) renderListPane() string {
 	title := strings.ToUpper(entry.Label)
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render(title))
+	filters := []string{}
+	if m.listScope != searchsvc.CurrentCampaign {
+		filters = append(filters, m.listScope.Label())
+	}
+	if m.tagFilter != "" {
+		filters = append(filters, "#"+m.tagFilter)
+	}
 	if m.layout.Focus == prefs.PaneList {
-		builder.WriteString(mutedStyle.Render(" · focused"))
+		filters = append(filters, "focused")
+	}
+	if len(filters) > 0 {
+		builder.WriteString(mutedStyle.Render(" · " + strings.Join(filters, " · ")))
 	}
 	builder.WriteString("\n\n")
 

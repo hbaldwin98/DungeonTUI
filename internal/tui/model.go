@@ -75,6 +75,8 @@ type Model struct {
 	selectedSessionID string
 	selectedPlanID    string
 	draggingNavSplit  bool
+	tagFilter         string
+	listScope         searchsvc.Scope
 }
 
 func New() Model {
@@ -131,6 +133,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 		searchInput:  input,
 		searchScope:  searchsvc.CurrentCampaign,
 		includeIdeas: false,
+		listScope:    searchsvc.CurrentCampaign,
 	}
 	model.sessionInput = textarea.New()
 	model.sessionInput.Prompt = "│ "
@@ -252,6 +255,10 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m.activateBrowserSelection()
 		case "r":
 			return m.openReconciliation()
+		case "f":
+			m.cycleTagFilter()
+		case "o":
+			m.cycleListScope()
 		case "d":
 			return m.armDestructiveConfirm("delete")
 		case "x":
@@ -1613,6 +1620,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 		Authority: domain.Draft,
 		Scope:     scope,
 		Source:    "DM draft",
+		Tags:      parsed.Tags,
 	}
 	if !m.creating {
 		found := false
@@ -1623,6 +1631,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 				record.Title = parsed.Title
 				record.Summary = parsed.Summary
 				record.Body = parsed.Body
+				record.Tags = parsed.Tags
 				found = true
 				break
 			}
@@ -1815,20 +1824,6 @@ func (m Model) campaignRecords() []domain.Record {
 	return m.scopedRecords(false)
 }
 
-func (m Model) scopedRecords(applyTypeFilter bool) []domain.Record {
-	records := make([]domain.Record, 0, len(m.workspace.Records))
-	for _, record := range m.workspace.Records {
-		if record.Scope.CampaignID == m.workspace.Scope.CampaignID ||
-			(record.Scope.CampaignID == "" && record.Scope.WorldID == m.workspace.Scope.WorldID) {
-			if applyTypeFilter && m.typeFilter != "" && record.Type != m.typeFilter {
-				continue
-			}
-			records = append(records, record)
-		}
-	}
-	return records
-}
-
 func (m Model) defaultSessionLocation() *domain.Record {
 	var fallback *domain.Record
 	for _, record := range m.campaignRecords() {
@@ -2001,7 +1996,7 @@ func (m Model) View() tea.View {
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(1, m.height-2)
 	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-	help := "j/k move · Tab panes · Enter open · n/e/p/s · d delete · b library · / search · q quit"
+	help := "j/k · Tab panes · f tag · o scope · Enter · n/e/p/s · d delete · b library · / search · q"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
@@ -2208,6 +2203,10 @@ func (m Model) renderDetail() string {
 	builder.WriteString("\n\n")
 	builder.WriteString(labelStyle.Render("SCOPE"))
 	builder.WriteString("  " + record.Scope.Label() + "\n")
+	if len(record.Tags) > 0 {
+		builder.WriteString(labelStyle.Render("TAGS"))
+		builder.WriteString("  #" + strings.Join(record.Tags, "  #") + "\n")
+	}
 	builder.WriteString(labelStyle.Render("SOURCE"))
 	builder.WriteString(" " + record.Source + "\n")
 
