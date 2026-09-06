@@ -150,6 +150,7 @@ type SessionRecord struct {
 	LocationID     string
 	LocationName   string
 	PlannedNotesID string // optional prep notes that seeded this live sit
+	Links          []EntityLink // durable present/cast; wiki records stay global
 	Entries        []TranscriptEntry
 }
 

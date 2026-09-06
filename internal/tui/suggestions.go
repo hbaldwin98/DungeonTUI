@@ -74,10 +74,12 @@ func (m *Model) refreshEditorSuggestions() {
 	m.suggestion = 0
 	if m.editing {
 		m.refreshTextAreaSuggestions(m.editBody.Value(), m.editBody.Line(), m.editBody.Column(), true)
+		m.refreshPeek()
 		return
 	}
 	if m.planning && m.planField == 1 {
 		m.refreshTextAreaSuggestions(m.planBody.Value(), m.planBody.Line(), m.planBody.Column(), true)
+		m.refreshPeek()
 	}
 }
 
@@ -267,6 +269,7 @@ func (m *Model) refreshSuggestions() {
 		m.sessionInput.SetHeight(4)
 	}
 	m.configureTranscriptViewport()
+	m.refreshPeek()
 }
 
 func (m *Model) acceptSuggestion() {

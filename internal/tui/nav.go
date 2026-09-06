@@ -260,6 +260,21 @@ func (m Model) renderTreeDetail() string {
 			if session.PlannedNotesID != "" {
 				builder.WriteString("\nSeeded from prep notes")
 			}
+			if len(session.Links) > 0 {
+				builder.WriteString("\n\n")
+				builder.WriteString(labelStyle.Render("CAST"))
+				builder.WriteString("\n")
+				for _, link := range session.Links {
+					title := link.Text
+					for _, record := range m.workspace.Records {
+						if record.ID == link.RecordID {
+							title = record.Title
+							break
+						}
+					}
+					builder.WriteString("  · " + title + "\n")
+				}
+			}
 			builder.WriteString("\n\n")
 			builder.WriteString(mutedStyle.Render("Enter/s starts live · d deletes this session"))
 			return builder.String()

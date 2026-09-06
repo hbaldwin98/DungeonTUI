@@ -100,3 +100,11 @@ Preferences may restore the last-opened campaign on relaunch, but switching is
 always available by going back. In-campaign hierarchy (sections / sessions /
 prep) comes after that entry gate.
 
+## D-015 — Entity coherence spine
+
+Entities are hubs. Sessions own durable `Links` (present/cast) while wiki
+records stay global. Live `@` / `$` auto-associate into the session set.
+Entity detail shows backlinks and a session-grouped change log (expandable
+events later). References offer an inline peek so mentions carry context in
+place. History is derived; transcripts remain immutable.
+

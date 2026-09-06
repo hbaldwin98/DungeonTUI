@@ -53,17 +53,22 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Next
 
+### Later
+
 - Named collections as a later organization aid on top of tags (Argus #39).
 - Draft future planned notes in the context of previous live sessions
   (decision #33).
-- Associate entities to sessions while keeping world/campaign globals visible
-  (Argus #30).
 - Deepen reconciliation: factual diffs, superseded history, and draft provenance.
 - Add export/import coverage for worlds, campaigns, sessions, links, and
   workspace preferences.
 - Add optional AI adapters and proposal approval flow after the factual path is
   stable.
 - Optional: interactive pane reordering and fully recursive split editing UI.
+
+## Done recently
+
+- Entity coherence spine: session `Links` + auto-associate, backlinks, session
+  History (A+C), and `@` peeks (Argus #30, #40, #41; D-015).
 
 ## Deferred
 

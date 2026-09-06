@@ -27,15 +27,15 @@ func (m Model) helpSections() [][]string {
 	switch {
 	case m.editing:
 		return [][]string{
-			{"Markdown editor", "Ctrl+S save", "Ctrl+T cycle type", "@ reference · Tab insert", "↑↓ choose suggestion", "Esc cancel"},
+			{"Markdown editor", "Ctrl+S save", "Ctrl+T cycle type", "@ reference · Tab insert", "↑↓ choose · peek PgUp/PgDn", "Esc cancel"},
 		}
 	case m.planning:
 		return [][]string{
-			{"Planned notes", "Tab title/body", "Ctrl+S save", "@ / #location suggest", "Esc cancel"},
+			{"Planned notes", "Tab title/body", "Ctrl+S save", "@ / #location suggest", "peek PgUp/PgDn", "Esc cancel"},
 		}
 	case m.session != nil:
 		return [][]string{
-			{"Session", "Enter capture", "Shift+Enter newline", "@ / $ / # suggest", "Tab cycle panes", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
+			{"Session", "Enter capture", "Shift+Enter newline", "@ / $ / # suggest · peek", "Tab cycle panes", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
 		}
 	case m.searching:
 		return [][]string{
@@ -43,7 +43,7 @@ func (m Model) helpSections() [][]string {
 		}
 	default:
 		return [][]string{
-			{"Browser", "j/k move", "←/→ or Tab panes", "Enter open", "n new · e edit", "p prep · s live", "d delete · x supersede", "f tag filter · o scope", "b library · / search", "r reconcile · q quit"},
+			{"Browser", "j/k move", "←/→ or Tab panes", "Enter open/expand history", "n new · e edit", "p prep · s live", "d delete · x supersede", "f tag filter · o scope", "b library · / search", "r reconcile · q quit"},
 		}
 	}
 }

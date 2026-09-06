@@ -112,6 +112,8 @@ func (m *Model) selectRecord(record domain.Record) {
 	m.selectedID = record.ID
 	m.selectedSessionID = ""
 	m.selectedPlanID = ""
+	m.historyCursor = 0
+	m.historyExpanded = ""
 	m.typeFilter = record.Type
 	if m.usesCampaignTree() {
 		m.focusNavType(record.Type)

@@ -97,11 +97,23 @@ func (m Model) updatePlannedNotes(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "up":
 		if m.planField == 1 && len(m.suggestions) > 0 {
 			m.suggestion = clamp(m.suggestion-1, 0, len(m.suggestions)-1)
+			m.refreshPeek()
 			return m, nil
 		}
 	case "down":
 		if m.planField == 1 && len(m.suggestions) > 0 {
 			m.suggestion = clamp(m.suggestion+1, 0, len(m.suggestions)-1)
+			m.refreshPeek()
+			return m, nil
+		}
+	case "pgup":
+		if m.peek != nil {
+			m.scrollPeek(-1)
+			return m, nil
+		}
+	case "pgdown":
+		if m.peek != nil {
+			m.scrollPeek(1)
 			return m, nil
 		}
 	}
@@ -159,9 +171,13 @@ func (m Model) renderPlannedNotesOverlay() string {
 	if m.planField == 1 {
 		suggest = renderSuggestionList(m.suggestions, m.suggestion)
 	}
+	peek := m.renderPeekPanel(5)
 	reserve := 3
 	if suggest != "" {
 		reserve += lipgloss.Height(suggest) + 1
+	}
+	if peek != "" {
+		reserve += lipgloss.Height(peek) + 1
 	}
 	sizeMarkdownTextAreaReserved(&m.planBody, width, height, reserve)
 	m.planTitle.SetWidth(max(20, width-10))
@@ -185,8 +201,15 @@ func (m Model) renderPlannedNotesOverlay() string {
 	}
 
 	body := m.planBody.View()
+	extras := make([]string, 0, 2)
 	if suggest != "" {
-		body = lipgloss.JoinVertical(lipgloss.Left, body, "", suggest)
+		extras = append(extras, suggest)
+	}
+	if peek != "" {
+		extras = append(extras, peek)
+	}
+	if len(extras) > 0 {
+		body = lipgloss.JoinVertical(lipgloss.Left, append([]string{body, ""}, extras...)...)
 	}
 	help := "? help · Tab fields · Ctrl+S save · Esc · @Entity · #location"
 	return renderFullScreenEditor(width, height, chrome.String(), body, help)

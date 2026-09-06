@@ -342,6 +342,30 @@ answer panel.
 The Proposals section acts as an inbox for generated possibilities and suggested
 changes. It is explicitly outside canon.
 
+### Entity hubs, references, and history
+
+Campaign data stays coherent when every entity is a **hub**, not a dead
+document. Mentions, session presence, prep links, and reconciliation all form
+edges around that hub. Sessions are the **time spine**.
+
+Rules:
+
+1. Entities remain global wiki records (world/campaign scoped). Sessions never
+   own a private copy of an NPC or location.
+2. A live `SessionRecord` holds a durable association set (`Links`) — the cast /
+   present set for that sit — plus an immutable transcript.
+3. Every `@` / `$` during live play auto-associates into that set.
+4. Opening an entity answers: what is it now, where is it linked, how did it
+   change.
+5. Entity **History** is session-grouped (one row per touching sit), with
+   expandable per-session events later. History is derived from associations,
+   transcript links, and reconciliation — it does not rewrite the transcript.
+6. Wherever an `@` reference appears, offer an inline **peek** (scrollable
+   summary) without forcing a full navigation away from the current activity.
+
+The typed campaign tree remains the primary navigator. Peeks, backlinks, and
+history are the wiki-ish glue that make long-lived campaigns feel connected.
+
 ### IDE-like section browsing
 
 Opening a campaign section should feel like browsing a focused project tree in

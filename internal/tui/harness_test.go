@@ -255,8 +255,19 @@ func TestSessionUsesDynamicContextAndLocation(t *testing.T) {
 	if !frame.Contains("Ruined Monastery") {
 		t.Fatalf("scene pane should show live location:\n%s", frame.Plain)
 	}
+	present := h.Model.sessionPresent()
+	if len(present) != 0 {
+		t.Fatalf("PRESENT should start empty without associations, got %#v", present)
+	}
+	h.SetSessionDraft("@Captain Vale arrives")
+	h.Key("enter")
+	present = h.Model.sessionPresent()
+	if len(present) != 1 || present[0].Title != "Captain Vale" {
+		t.Fatalf("expected Vale in PRESENT after @ capture, got %#v", present)
+	}
+	frame = h.Frame()
 	if !frame.Contains("Captain Vale") {
-		t.Fatalf("scene pane should list live NPCs:\n%s", frame.Plain)
+		t.Fatalf("scene pane should list associated cast:\n%s", frame.Plain)
 	}
 	if !frame.Contains("Threads") || !strings.Contains(frame.Plain, "Threads") {
 		t.Fatalf("campaign pane should include threads:\n%s", frame.Plain)
@@ -269,7 +280,7 @@ func TestSessionUsesDynamicContextAndLocation(t *testing.T) {
 		t.Fatal("fixture location title should be gone")
 	}
 	if !frame.Contains("NPCs") || !frame.Contains("3") {
-		// Captain Vale, Father Merrow, Sister Elayne
+		// Captain Vale, Father Merrow, Sister Elayne — globals stay visible
 		t.Fatalf("campaign pane should show live NPC count:\n%s", frame.Plain)
 	}
 
@@ -332,6 +343,11 @@ func TestSessionPaneFocusAndCommandSuggestions(t *testing.T) {
 func TestSessionContextClickSelectsLiveEntity(t *testing.T) {
 	h := NewHarness(100, 36)
 	h.Key("s")
+	h.SetSessionDraft("@Captain Vale arrives")
+	h.Key("enter")
+	// Clear review so PRESENT cast fits in the context hit map.
+	h.Model.review = nil
+	h.Model.reviewPinned = false
 	var target hitTarget
 	found := false
 	for _, hit := range h.Model.sessionHitTargets() {

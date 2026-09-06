@@ -78,6 +78,10 @@ type Model struct {
 	tagFilter         string
 	listScope         searchsvc.Scope
 	helping           bool
+	peek              *domain.Record
+	peekScroll        int
+	historyCursor     int
+	historyExpanded   string
 }
 
 func New() Model {
@@ -214,12 +218,16 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "j", "down":
 			if m.layout.Focus == prefs.PaneNav {
 				m.moveNavCursor(1)
+			} else if m.layout.Focus == prefs.PaneDetail && m.currentNav().Kind == NavType {
+				m.moveHistoryCursor(1)
 			} else {
 				m.moveBrowserCursor(1)
 			}
 		case "k", "up":
 			if m.layout.Focus == prefs.PaneNav {
 				m.moveNavCursor(-1)
+			} else if m.layout.Focus == prefs.PaneDetail && m.currentNav().Kind == NavType {
+				m.moveHistoryCursor(-1)
 			} else {
 				m.moveBrowserCursor(-1)
 			}
@@ -355,6 +363,7 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 			session.LocationID = plan.LocationID
 			session.LocationName = plan.LocationName
 		}
+		session = session.SeedLinksFrom(*plan)
 	}
 	if session.LocationID == "" && session.LocationName == "" {
 		if location := m.defaultSessionLocation(); location != nil {
@@ -540,11 +549,23 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "up":
 		if len(model.suggestions) > 0 {
 			model.suggestion = clamp(model.suggestion-1, 0, len(model.suggestions)-1)
+			model.refreshPeek()
 			return model, nil
 		}
 	case "down":
 		if len(model.suggestions) > 0 {
 			model.suggestion = clamp(model.suggestion+1, 0, len(model.suggestions)-1)
+			model.refreshPeek()
+			return model, nil
+		}
+	case "pgup":
+		if model.peek != nil {
+			model.scrollPeek(-1)
+			return model, nil
+		}
+	case "pgdown":
+		if model.peek != nil {
+			model.scrollPeek(1)
 			return model, nil
 		}
 	}
@@ -642,6 +663,7 @@ func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
 	rolls := m.evaluateRolls(text)
 	m.handleSessionCommand(text)
 	commandStatus := m.status
+	m.associateSessionLinks(links)
 	now := time.Now().UTC()
 	m.session.Entries = append(m.session.Entries, domain.TranscriptEntry{
 		ID:        fmt.Sprintf("entry-%d", now.UnixNano()),
@@ -652,6 +674,7 @@ func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
 		Revision:  1,
 	})
 	m.sessionInput.SetValue("")
+	m.refreshPeek()
 	m.refreshTranscriptViewport()
 	m.status = "Captured transcript entry"
 	if len(rolls) > 0 {
@@ -743,6 +766,15 @@ func (m *Model) configureTranscriptViewport() {
 	m.transcriptView.SetHeight(max(1, inner-1))
 }
 
+func (m *Model) associateSessionLinks(links []domain.EntityLink) {
+	if m.session == nil {
+		return
+	}
+	for _, link := range links {
+		*m.session = m.session.Associate(link)
+	}
+}
+
 func (m *Model) handleSessionCommand(text string) {
 	if strings.HasPrefix(text, "$") {
 		if record, ok := parseEntityCommand(text, m.workspace.Scope, m.session); ok {
@@ -750,6 +782,9 @@ func (m *Model) handleSessionCommand(text string) {
 			m.search = searchsvc.New(m.workspace.Records)
 			m.refreshResults()
 			m.review = &record
+			if m.session != nil {
+				*m.session = m.session.Associate(domain.EntityLink{Text: record.Title, RecordID: record.ID})
+			}
 			m.status = "Created draft entity: " + record.Title
 		} else {
 			m.status = "Use $type Name: description"
@@ -1061,11 +1096,46 @@ func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
 	case NavSessions:
 		return m.startSession()
 	default:
+		if m.layout.Focus == prefs.PaneDetail {
+			m.toggleHistoryExpand()
+			return m, nil
+		}
 		if m.selectedRecord() != nil {
 			return m.openEditor(false)
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) moveHistoryCursor(delta int) {
+	record := m.selectedRecord()
+	if record == nil {
+		return
+	}
+	rows := domain.EntitySessionHistory(m.workspace, record.ID)
+	if len(rows) == 0 {
+		return
+	}
+	m.historyCursor = clamp(m.historyCursor+delta, 0, len(rows)-1)
+}
+
+func (m *Model) toggleHistoryExpand() {
+	record := m.selectedRecord()
+	if record == nil {
+		return
+	}
+	rows := domain.EntitySessionHistory(m.workspace, record.ID)
+	if len(rows) == 0 {
+		return
+	}
+	row := rows[clamp(m.historyCursor, 0, len(rows)-1)]
+	if m.historyExpanded == row.SessionID {
+		m.historyExpanded = ""
+		m.status = "Collapsed history"
+		return
+	}
+	m.historyExpanded = row.SessionID
+	m.status = "Expanded " + row.Title
 }
 
 func (m *Model) moveBrowserCursor(delta int) {
@@ -1387,11 +1457,28 @@ func (m Model) resolveLinks(text string) []domain.EntityLink {
 		if remaining == "" {
 			break
 		}
-		for end := len(remaining); end > 0; end-- {
-			if record := m.resolveReference("@" + remaining[:end]); record != nil {
-				links = append(links, domain.EntityLink{Text: remaining[:end], RecordID: record.ID})
-				break
+		var best *domain.Record
+		bestLen := 0
+		for _, record := range m.campaignRecords() {
+			title := record.Title
+			if title == "" || !strings.HasPrefix(strings.ToLower(remaining), strings.ToLower(title)) {
+				continue
 			}
+			end := len(title)
+			if end < len(remaining) {
+				next := remaining[end]
+				if next != ' ' && next != '\n' && next != '\t' && next != ',' && next != ';' && next != '.' && next != '!' && next != '?' {
+					continue
+				}
+			}
+			if end > bestLen {
+				candidate := record
+				best = &candidate
+				bestLen = end
+			}
+		}
+		if best != nil {
+			links = append(links, domain.EntityLink{Text: remaining[:bestLen], RecordID: best.ID})
 		}
 		next := strings.Index(remaining, " @")
 		if next < 0 {
@@ -1597,11 +1684,23 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "up":
 		if len(model.suggestions) > 0 {
 			model.suggestion = clamp(model.suggestion-1, 0, len(model.suggestions)-1)
+			model.refreshPeek()
 			return model, nil
 		}
 	case "down":
 		if len(model.suggestions) > 0 {
 			model.suggestion = clamp(model.suggestion+1, 0, len(model.suggestions)-1)
+			model.refreshPeek()
+			return model, nil
+		}
+	case "pgup":
+		if model.peek != nil {
+			model.scrollPeek(-1)
+			return model, nil
+		}
+	case "pgdown":
+		if model.peek != nil {
+			model.scrollPeek(1)
 			return model, nil
 		}
 	}
@@ -1908,34 +2007,26 @@ func (m Model) findLocation(query string) *domain.Record {
 }
 
 func (m Model) sessionPresent() []domain.Record {
-	if plan := m.sessionPlannedNotes(); plan != nil && len(plan.Links) > 0 {
-		present := make([]domain.Record, 0, len(plan.Links))
-		seen := map[string]bool{}
-		for _, link := range plan.Links {
-			for index := range m.workspace.Records {
-				record := m.workspace.Records[index]
-				if record.ID != link.RecordID || seen[record.ID] {
-					continue
-				}
-				if record.Type == domain.NPC || record.Type == domain.Character || record.Type == domain.Item || record.Type == domain.Faction {
-					present = append(present, record)
-					seen[record.ID] = true
-				}
-			}
-		}
-		if len(present) > 0 {
-			return present
-		}
+	if m.session == nil || len(m.session.Links) == 0 {
+		return nil
 	}
-	present := make([]domain.Record, 0)
-	for _, record := range m.campaignRecords() {
-		if record.Authority == domain.Proposal {
+	present := make([]domain.Record, 0, len(m.session.Links))
+	seen := map[string]bool{}
+	for _, link := range m.session.Links {
+		if link.RecordID == "" || seen[link.RecordID] {
 			continue
 		}
-		if record.Type == domain.NPC || record.Type == domain.Character {
+		for index := range m.workspace.Records {
+			record := m.workspace.Records[index]
+			if record.ID != link.RecordID {
+				continue
+			}
+			// Location already has CURRENT SCENE; keep PRESENT for the cast.
+			if record.Type == domain.Location {
+				break
+			}
 			present = append(present, record)
-		}
-		if len(present) == 6 {
+			seen[record.ID] = true
 			break
 		}
 	}
@@ -2177,6 +2268,10 @@ func (m Model) renderSessionInput() string {
 			builder.WriteString(style.Render(prefix + item.Label))
 		}
 	}
+	if peek := m.renderPeekPanel(5); peek != "" {
+		builder.WriteString("\n")
+		builder.WriteString(peek)
+	}
 	return builder.String()
 }
 
@@ -2243,6 +2338,96 @@ func (m Model) renderDetail() string {
 	if record.Authority == domain.Draft {
 		builder.WriteString("\n")
 		builder.WriteString(draftNoticeStyle.Render("DRAFT ENTITY · EDITABLE · NOT YET CANON"))
+	}
+
+	builder.WriteString("\n")
+	builder.WriteString(m.renderEntityLinked(*record))
+	builder.WriteString("\n")
+	builder.WriteString(m.renderEntityHistory(*record))
+	return builder.String()
+}
+
+func (m Model) renderEntityLinked(record domain.Record) string {
+	links := domain.EntityBacklinks(m.workspace, record.ID)
+	var builder strings.Builder
+	builder.WriteString(labelStyle.Render("LINKED"))
+	builder.WriteString("\n")
+	if len(links) == 0 {
+		builder.WriteString(mutedStyle.Render("  — no backlinks yet"))
+		return builder.String()
+	}
+	seenSession := map[string]bool{}
+	transcriptHits := 0
+	wrote := false
+	for _, link := range links {
+		switch link.Kind {
+		case domain.BacklinkPrep:
+			builder.WriteString(fmt.Sprintf("  prep · %s\n", link.Title))
+			wrote = true
+		case domain.BacklinkSessionAssoc, domain.BacklinkTranscript:
+			if link.Kind == domain.BacklinkTranscript {
+				transcriptHits += link.Count
+			}
+			if seenSession[link.ID] {
+				continue
+			}
+			seenSession[link.ID] = true
+			builder.WriteString(fmt.Sprintf("  session · %s\n", link.Title))
+			wrote = true
+		}
+	}
+	if transcriptHits > 0 {
+		builder.WriteString(mutedStyle.Render(fmt.Sprintf("  (%d transcript hits)", transcriptHits)))
+		builder.WriteString("\n")
+	}
+	if !wrote {
+		builder.WriteString(mutedStyle.Render("  — no backlinks yet"))
+	}
+	return builder.String()
+}
+
+func (m Model) renderEntityHistory(record domain.Record) string {
+	rows := domain.EntitySessionHistory(m.workspace, record.ID)
+	var builder strings.Builder
+	builder.WriteString(labelStyle.Render("HISTORY"))
+	builder.WriteString("\n")
+	if len(rows) == 0 {
+		builder.WriteString(mutedStyle.Render("  — no session history yet"))
+		return builder.String()
+	}
+	for index, row := range rows {
+		marker := "  "
+		if m.layout.Focus == prefs.PaneDetail && index == m.historyCursor {
+			marker = "▸ "
+		}
+		stamp := row.StartedAt.Local().Format("2006-01-02")
+		parts := make([]string, 0, 3)
+		if row.Associated {
+			parts = append(parts, "cast")
+		}
+		if row.TranscriptHits > 0 {
+			parts = append(parts, fmt.Sprintf("%d @", row.TranscriptHits))
+		}
+		if row.ReconItems > 0 {
+			parts = append(parts, fmt.Sprintf("%d recon", row.ReconItems))
+		}
+		expand := ""
+		if m.historyExpanded == row.SessionID {
+			expand = " ▼"
+		} else if len(row.Events) > 0 {
+			expand = " ▸"
+		}
+		builder.WriteString(fmt.Sprintf("%s%s · %s · %s%s\n", marker, stamp, row.Title, strings.Join(parts, ", "), expand))
+		if m.historyExpanded == row.SessionID {
+			for _, event := range row.Events {
+				builder.WriteString(mutedStyle.Render("      · " + event.Summary))
+				builder.WriteString("\n")
+			}
+		}
+	}
+	if m.layout.Focus == prefs.PaneDetail {
+		builder.WriteString(mutedStyle.Render("j/k history · Enter expand"))
+		builder.WriteString("\n")
 	}
 	return builder.String()
 }
@@ -2313,9 +2498,13 @@ func (m Model) renderEditorOverlay() string {
 	width := max(1, m.width)
 	height := max(1, m.height)
 	suggest := renderSuggestionList(m.suggestions, m.suggestion)
+	peek := m.renderPeekPanel(5)
 	reserve := 0
 	if suggest != "" {
-		reserve = lipgloss.Height(suggest) + 1
+		reserve += lipgloss.Height(suggest) + 1
+	}
+	if peek != "" {
+		reserve += lipgloss.Height(peek) + 1
 	}
 	sizeMarkdownTextAreaReserved(&m.editBody, width, height, reserve)
 	chrome := headerStyle.Width(width).Render(
@@ -2327,8 +2516,15 @@ func (m Model) renderEditorOverlay() string {
 		chrome = lipgloss.JoinVertical(lipgloss.Left, chrome, footerStyle.Width(width).Render(m.status))
 	}
 	body := m.editBody.View()
+	extras := make([]string, 0, 2)
 	if suggest != "" {
-		body = lipgloss.JoinVertical(lipgloss.Left, body, "", suggest)
+		extras = append(extras, suggest)
+	}
+	if peek != "" {
+		extras = append(extras, peek)
+	}
+	if len(extras) > 0 {
+		body = lipgloss.JoinVertical(lipgloss.Left, append([]string{body, ""}, extras...)...)
 	}
 	help := markdownEditorHelp(m.editType)
 	return renderFullScreenEditor(width, height, chrome, body, help)

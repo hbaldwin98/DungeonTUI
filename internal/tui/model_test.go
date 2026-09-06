@@ -501,8 +501,14 @@ func TestPlannedNotesSaveAndSeedLiveSession(t *testing.T) {
 	if model.session.LocationName != plan.LocationName {
 		t.Fatalf("expected location from plan %q, got %q", plan.LocationName, model.session.LocationName)
 	}
+	if !model.session.HasLink(plan.Links[0].RecordID) {
+		t.Fatalf("expected session cast seeded from plan, got %#v", model.session.Links)
+	}
 	if model.review == nil || model.review.Title != "Captain Vale" {
 		t.Fatalf("expected review seeded from plan link, got %#v", model.review)
+	}
+	if !strings.Contains(model.View().Content, "Captain Vale") {
+		t.Fatal("PRESENT should list seeded cast")
 	}
 }
 
@@ -565,6 +571,9 @@ func TestSessionCaptureAndEntityReview(t *testing.T) {
 	if len(model.session.Entries) != 1 || len(model.session.Entries[0].Links) != 1 {
 		t.Fatalf("expected one linked transcript entry, got %#v", model.session.Entries)
 	}
+	if !model.session.HasLink(model.session.Entries[0].Links[0].RecordID) {
+		t.Fatalf("expected auto-associate into session Links, got %#v", model.session.Links)
+	}
 	if !strings.Contains(model.View().Content, "CURRENT SCENE") || !strings.Contains(model.View().Content, "Captain Vale") {
 		t.Fatal("session view should include the live scene context pane")
 	}
@@ -608,6 +617,9 @@ func TestSessionCommandsCreateDrafts(t *testing.T) {
 	}
 	if model.review == nil || model.review.ID != created.ID {
 		t.Fatal("expected created entity to open in the review context")
+	}
+	if !model.session.HasLink(created.ID) {
+		t.Fatalf("$ create should auto-associate, got %#v", model.session.Links)
 	}
 	model.sessionInput.SetValue("#random item")
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModCtrl}))
@@ -711,5 +723,75 @@ func TestMouseDragResizesBrowserAndSessionGutters(t *testing.T) {
 	}
 	if model.sessionTranscriptHeight() >= beforeTranscript {
 		t.Fatalf("expected transcript to give space to upper pane, before=%d after=%d", beforeTranscript, model.sessionTranscriptHeight())
+	}
+}
+
+func TestEntityCoherenceBacklinksHistoryAndPeek(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	model.sessionInput.SetValue("@Captain Vale searches the crypt")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if len(model.session.Links) != 1 {
+		t.Fatalf("expected association, got %#v", model.session.Links)
+	}
+	valeID := model.session.Links[0].RecordID
+	npcCountBefore := 0
+	for _, record := range model.workspace.Records {
+		if record.Type == domain.NPC && record.Authority != domain.Proposal {
+			npcCountBefore++
+		}
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if len(model.workspace.Sessions) == 0 || !model.workspace.Sessions[0].HasLink(valeID) {
+		t.Fatal("ended session should retain cast Links")
+	}
+	npcCountAfter := 0
+	for _, record := range model.workspace.Records {
+		if record.Type == domain.NPC && record.Authority != domain.Proposal {
+			npcCountAfter++
+		}
+	}
+	if npcCountAfter != npcCountBefore {
+		t.Fatalf("associating must not shrink wiki NPC list (%d → %d)", npcCountBefore, npcCountAfter)
+	}
+
+	for _, record := range model.workspace.Records {
+		if record.ID == valeID {
+			model.selectRecord(record)
+			break
+		}
+	}
+	detail := model.renderDetail()
+	if !strings.Contains(detail, "LINKED") || !strings.Contains(detail, "session ·") {
+		t.Fatalf("expected backlinks section: %q", detail)
+	}
+	if !strings.Contains(detail, "HISTORY") {
+		t.Fatalf("expected history section: %q", detail)
+	}
+	model.layout.Focus = prefs.PaneDetail
+	model.toggleHistoryExpand()
+	detail = model.renderDetail()
+	if !strings.Contains(detail, "Associated with session cast") && !strings.Contains(detail, "Review @") {
+		t.Fatalf("expected expandable history events: %q", detail)
+	}
+
+	model.sessionInput.SetValue("@Cap")
+	// reopen live to test peek without needing session; use editor instead
+	updated, _ = model.openEditor(false)
+	model = updated.(Model)
+	model.editBody.SetValue("Meet @Captain Vale later")
+	model.refreshPeek() // may miss until cursor is set
+	record := model.resolveReferenceAtCursor(model.editBody.Value(), strings.Index(model.editBody.Value(), "Vale"))
+	if record == nil || record.Title != "Captain Vale" {
+		t.Fatalf("expected peek for @Captain Vale, got %#v", record)
+	}
+	model.peek = record
+	if !strings.Contains(model.renderPeekPanel(6), "PEEK") {
+		t.Fatal("expected peek panel chrome")
 	}
 }
