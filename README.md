@@ -51,7 +51,9 @@ for future clients.
 
 During a session, typing `@` opens entity autosuggestions. `Tab` inserts the
 highlighted entity and opens its full details in the review pane above the
-transcript.
+transcript. `Ctrl+Enter` captures the entry. `$npc Name: description` creates a
+draft entity from the active session, while `#random item` creates a local draft
+generator result and `#location ...` records the current location context.
 
 ## Architecture
 
