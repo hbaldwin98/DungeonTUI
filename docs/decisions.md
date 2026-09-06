@@ -73,5 +73,12 @@ Preparation is not a global app mode. A planned session is a draft session
 document (markdown body, `@` associations, location markers). World/campaign
 entities remain global; the session associates a subset for that night. Live
 play starts from that planned context so the table sees organized scene
-context rather than the whole wiki at once.
+context rather than the whole wiki at once. One planned brief may span
+multiple live timed runs; each run keeps its own immutable transcript.
+
+## D-011 — Post-session playback is derived, not transcript rewrite
+
+After play, viewing a session should support scrubbing what changed
+(rewind/fast-forward over entity diffs and reconciliation items). That view is
+derived from linked records and never mutates the original transcript.
 

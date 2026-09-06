@@ -426,6 +426,12 @@ Sessions have two phases that share one record shape:
 2. **Live** — starting play from a planned session opens capture *in that
    context*: the brief and its associations seed the scene/context panes, while
    a fresh immutable transcript records what actually happens at the table.
+   One planned brief may cover several live timed runs (multi-night arcs);
+   each run keeps its own transcript and reconciliation.
+
+Afterward, the DM should be able to open a session or planned arc and scrub
+what changed — rewind/fast-forward across entity diffs and reconciliation
+items — without rewriting the original transcript.
 
 A campaign can have an explicit session lifecycle. Starting a session creates a
 session record and opens a transcript pane with a focused multiline input. The
