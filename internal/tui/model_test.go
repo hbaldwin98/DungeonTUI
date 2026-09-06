@@ -440,6 +440,8 @@ func TestHelpOverlayListsBrowserCommands(t *testing.T) {
 		t.Fatal("esc should close help")
 	}
 }
+
+func TestTagAndScopeFiltersNarrowBrowserList(t *testing.T) {
 	model := New()
 	model.width = 100
 	model.height = 36
