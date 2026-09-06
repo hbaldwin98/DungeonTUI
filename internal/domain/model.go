@@ -129,12 +129,14 @@ type TranscriptEntry struct {
 }
 
 type SessionRecord struct {
-	ID        string
-	Title     string
-	Scope     Scope
-	StartedAt time.Time
-	EndedAt   *time.Time
-	Entries   []TranscriptEntry
+	ID           string
+	Title        string
+	Scope        Scope
+	StartedAt    time.Time
+	EndedAt      *time.Time
+	LocationID   string
+	LocationName string
+	Entries      []TranscriptEntry
 }
 
 func (r Record) Validate() error {

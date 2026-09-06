@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -201,6 +202,10 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 		Scope:     m.workspace.Scope,
 		StartedAt: started,
 	}
+	if location := m.defaultSessionLocation(); location != nil {
+		session.LocationID = location.ID
+		session.LocationName = location.Title
+	}
 	m.session = &session
 	m.sessionInput.SetValue("")
 	m.sessionInput.SetWidth(max(30, m.width-8))
@@ -310,7 +315,7 @@ func (m *Model) refreshSuggestions() {
 		m.configureTranscriptViewport()
 		return
 	}
-	for _, record := range m.visibleRecords() {
+	for _, record := range m.campaignRecords() {
 		if strings.Contains(strings.ToLower(record.Title), query) {
 			m.suggestions = append(m.suggestions, record)
 		}
@@ -344,6 +349,7 @@ func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
 	links := m.resolveLinks(text)
 	rolls := m.evaluateRolls(text)
 	m.handleSessionCommand(text)
+	commandStatus := m.status
 	now := time.Now().UTC()
 	m.session.Entries = append(m.session.Entries, domain.TranscriptEntry{
 		ID:        fmt.Sprintf("entry-%d", now.UnixNano()),
@@ -358,6 +364,8 @@ func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
 	m.status = "Captured transcript entry"
 	if len(rolls) > 0 {
 		m.status = formatRollStatus(rolls)
+	} else if commandStatus != "" && commandStatus != "Captured transcript entry" {
+		m.status = commandStatus
 	}
 	if m.store != nil {
 		m.persistWorkspace()
@@ -456,8 +464,8 @@ func (m *Model) handleSessionCommand(text string) {
 		}
 		return
 	}
-	if strings.HasPrefix(text, "#location ") {
-		m.status = "Current location: " + strings.TrimSpace(strings.TrimPrefix(text, "#location "))
+	if strings.HasPrefix(text, "#location") {
+		m.applyLocationCommand(text)
 		return
 	}
 	if strings.HasPrefix(text, "#random ") {
@@ -473,6 +481,35 @@ func (m *Model) handleSessionCommand(text string) {
 		m.review = &record
 		m.status = "Generated draft entity: " + record.Title
 	}
+}
+
+func (m *Model) applyLocationCommand(text string) {
+	if m.session == nil {
+		return
+	}
+	argument := strings.TrimSpace(strings.TrimPrefix(text, "#location"))
+	if argument == "" || strings.EqualFold(argument, "CURRENTLOCATION") {
+		name := m.session.LocationName
+		if name == "" {
+			m.status = "No current location · use #location Name"
+			return
+		}
+		m.status = "Current location: " + name
+		if location := m.sessionLocationRecord(); location != nil {
+			m.review = location
+		}
+		return
+	}
+	if record := m.findLocation(argument); record != nil {
+		m.session.LocationID = record.ID
+		m.session.LocationName = record.Title
+		m.review = record
+		m.status = "Current location: " + record.Title
+		return
+	}
+	m.session.LocationID = ""
+	m.session.LocationName = argument
+	m.status = "Current location: " + argument + " (unlinked)"
 }
 
 func parseEntityCommand(text string, scope domain.Scope, session *domain.SessionRecord) (domain.Record, bool) {
@@ -523,12 +560,18 @@ func randomDraft(kind string, scope domain.Scope, session *domain.SessionRecord)
 	}
 	now := time.Now()
 	title := fmt.Sprintf("Generated %s", strings.ToLower(string(entityType)))
+	summary := "A context-aware local generator draft."
+	body := "Generated during the active session. Review and edit before treating this as campaign truth."
+	if session != nil && session.LocationName != "" {
+		summary = "Draft generated near " + session.LocationName + "."
+		body = "Generated during the active session at " + session.LocationName + ". Review and edit before treating this as campaign truth."
+	}
 	return domain.Record{
 		ID:        fmt.Sprintf("generated-%d", now.UnixNano()),
 		Type:      entityType,
 		Title:     title,
-		Summary:   "A context-aware local generator draft.",
-		Body:      "Generated during the active session. Review and edit before treating this as campaign truth.",
+		Summary:   summary,
+		Body:      body,
 		Authority: domain.Draft,
 		Scope:     scope,
 		Source:    source,
@@ -650,7 +693,7 @@ func (m Model) resolveReference(text string) *domain.Record {
 	query = strings.TrimRight(query, ".,!?;:")
 	var best *domain.Record
 	bestScore := 0
-	for _, record := range m.visibleRecords() {
+	for _, record := range m.campaignRecords() {
 		title := strings.ToLower(record.Title)
 		needle := strings.ToLower(query)
 		score := 0
@@ -1005,20 +1048,23 @@ func (m Model) updateSessionMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cm
 		m.sessionInput.Focus()
 		return m, nil
 	}
-	if m.paneLayout == 2 || msg.X < m.width/2 {
+	if m.paneLayout == 2 || msg.X < m.splitWidth(m.width) {
 		return m, nil
 	}
-	threads := make([]domain.Record, 0)
-	for _, record := range m.visibleRecords() {
-		if record.Type == domain.Thread || record.Type == domain.NPC || record.Type == domain.Character {
-			threads = append(threads, record)
-		}
+	items := m.sessionContextItems()
+	if len(items) == 0 {
+		return m, nil
 	}
-	index := msg.Y - 3
-	if index >= 0 && index < len(threads) {
-		record := threads[index]
-		m.review = &record
+	// Header + panel top border/padding + "CURRENT SCENE" title ≈ first content rows.
+	index := msg.Y - 4
+	if index < 0 {
+		index = 0
 	}
+	if index >= len(items) {
+		index = len(items) - 1
+	}
+	record := items[index]
+	m.review = &record
 	return m, nil
 }
 
@@ -1033,17 +1079,149 @@ func (m *Model) refreshResults() {
 }
 
 func (m Model) visibleRecords() []domain.Record {
+	return m.scopedRecords(true)
+}
+
+func (m Model) campaignRecords() []domain.Record {
+	return m.scopedRecords(false)
+}
+
+func (m Model) scopedRecords(applyTypeFilter bool) []domain.Record {
 	records := make([]domain.Record, 0, len(m.workspace.Records))
 	for _, record := range m.workspace.Records {
 		if record.Scope.CampaignID == m.workspace.Scope.CampaignID ||
 			(record.Scope.CampaignID == "" && record.Scope.WorldID == m.workspace.Scope.WorldID) {
-			if m.typeFilter != "" && record.Type != m.typeFilter {
+			if applyTypeFilter && m.typeFilter != "" && record.Type != m.typeFilter {
 				continue
 			}
 			records = append(records, record)
 		}
 	}
 	return records
+}
+
+func (m Model) defaultSessionLocation() *domain.Record {
+	var fallback *domain.Record
+	for _, record := range m.campaignRecords() {
+		if record.Type != domain.Location || record.Authority == domain.Proposal {
+			continue
+		}
+		candidate := record
+		if containsTag(record, "current-scene") {
+			return &candidate
+		}
+		if fallback == nil {
+			fallback = &candidate
+		}
+	}
+	return fallback
+}
+
+func (m Model) sessionLocationRecord() *domain.Record {
+	if m.session == nil || m.session.LocationID == "" {
+		return nil
+	}
+	for _, record := range m.campaignRecords() {
+		if record.ID == m.session.LocationID {
+			candidate := record
+			return &candidate
+		}
+	}
+	return nil
+}
+
+func (m Model) findLocation(query string) *domain.Record {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if needle == "" {
+		return nil
+	}
+	var best *domain.Record
+	bestScore := 0
+	for _, record := range m.campaignRecords() {
+		if record.Type != domain.Location || record.Authority == domain.Proposal {
+			continue
+		}
+		title := strings.ToLower(record.Title)
+		score := 0
+		switch {
+		case title == needle:
+			score = 4
+		case strings.HasPrefix(title, needle):
+			score = 3
+		case strings.Contains(title, needle):
+			score = 2
+		}
+		for _, alias := range record.Aliases {
+			if strings.EqualFold(alias, query) {
+				score = 4
+			}
+		}
+		if score > bestScore {
+			candidate := record
+			best = &candidate
+			bestScore = score
+		}
+	}
+	return best
+}
+
+func (m Model) sessionPresent() []domain.Record {
+	present := make([]domain.Record, 0)
+	for _, record := range m.campaignRecords() {
+		if record.Authority == domain.Proposal {
+			continue
+		}
+		if record.Type == domain.NPC || record.Type == domain.Character {
+			present = append(present, record)
+		}
+		if len(present) == 6 {
+			break
+		}
+	}
+	return present
+}
+
+func (m Model) sessionThreads() []domain.Record {
+	threads := make([]domain.Record, 0)
+	for _, record := range m.campaignRecords() {
+		if record.Type != domain.Thread || record.Authority == domain.Proposal {
+			continue
+		}
+		threads = append(threads, record)
+		if len(threads) == 5 {
+			break
+		}
+	}
+	return threads
+}
+
+func (m Model) sessionContextItems() []domain.Record {
+	items := make([]domain.Record, 0)
+	if location := m.sessionLocationRecord(); location != nil {
+		items = append(items, *location)
+	}
+	items = append(items, m.sessionPresent()...)
+	items = append(items, m.sessionThreads()...)
+	return items
+}
+
+func (m Model) countByType(entityType domain.EntityType) int {
+	count := 0
+	for _, record := range m.campaignRecords() {
+		if record.Type == entityType && record.Authority != domain.Proposal {
+			count++
+		}
+	}
+	return count
+}
+
+func containsTag(record domain.Record, tag string) bool {
+	for _, value := range record.Tags {
+		if strings.EqualFold(value, tag) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) View() tea.View {
@@ -1146,26 +1324,28 @@ func (m Model) renderCampaignPane() string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("CAMPAIGN"))
 	builder.WriteString("\n\n")
-	sections := []string{"Session", "World", "NPCs", "Locations", "Factions", "Threads", "Timeline", "Players", "Secrets"}
+	sections := []struct {
+		label string
+		count int
+	}{
+		{label: "Session", count: -1},
+		{label: "World", count: -1},
+		{label: "NPCs", count: m.countByType(domain.NPC)},
+		{label: "Locations", count: m.countByType(domain.Location)},
+		{label: "Factions", count: m.countByType(domain.Faction)},
+		{label: "Threads", count: m.countByType(domain.Thread)},
+		{label: "Items", count: m.countByType(domain.Item)},
+		{label: "Notes", count: m.countByType(domain.Note)},
+	}
 	for index, section := range sections {
 		marker := "  "
 		if index == 0 {
 			marker = "▸ "
 		}
-		count := ""
-		switch section {
-		case "NPCs":
-			count = "42"
-		case "Locations":
-			count = "18"
-		case "Factions":
-			count = "7"
-		case "Threads":
-			count = "11"
-		}
-		builder.WriteString(marker + section)
-		if count != "" {
-			builder.WriteString(strings.Repeat(" ", max(1, 14-len(section)-len(count))) + count)
+		builder.WriteString(marker + section.label)
+		if section.count >= 0 {
+			count := strconv.Itoa(section.count)
+			builder.WriteString(strings.Repeat(" ", max(1, 14-len(section.label)-len(count))) + count)
 		}
 		builder.WriteRune('\n')
 	}
@@ -1176,47 +1356,67 @@ func (m Model) renderContextPane() string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("CURRENT SCENE"))
 	builder.WriteString("\n\n")
-	builder.WriteString(detailTitleStyle.Render("Greywatch Monastery"))
-	builder.WriteString("\n")
-	builder.WriteString("Party entered through the collapsed\n")
-	builder.WriteString("eastern transept.\n\n")
-	builder.WriteString(labelStyle.Render("PRESENT"))
-	builder.WriteString("\n")
-	builder.WriteString("◆ Captain Vale\n◆ Father Merrow\n\n")
-	builder.WriteString(labelStyle.Render("ACTIVE THREADS"))
-	builder.WriteString("\n")
-	groups := []struct {
-		label string
-		types []domain.EntityType
-	}{
-		{label: "", types: []domain.EntityType{domain.Thread}},
+
+	locationName := ""
+	locationSummary := ""
+	if m.session != nil {
+		locationName = m.session.LocationName
 	}
-	for _, group := range groups {
-		if group.label != "" {
-			builder.WriteString(labelStyle.Render(group.label))
+	if location := m.sessionLocationRecord(); location != nil {
+		locationName = location.Title
+		locationSummary = location.Summary
+		if locationSummary == "" {
+			locationSummary = location.Body
+		}
+	}
+	if locationName == "" {
+		builder.WriteString(mutedStyle.Render("No location set"))
+		builder.WriteString("\n")
+		builder.WriteString(mutedStyle.Render("Use #location Name"))
+		builder.WriteString("\n\n")
+	} else {
+		builder.WriteString(detailTitleStyle.Render(locationName))
+		builder.WriteString("\n")
+		if locationSummary != "" {
+			builder.WriteString(wrapWords(locationSummary, 36))
 			builder.WriteString("\n")
 		}
-		count := 0
-		for _, record := range m.visibleRecords() {
-			if !containsType(group.types, record.Type) {
-				continue
+		builder.WriteRune('\n')
+	}
+
+	builder.WriteString(labelStyle.Render("PRESENT"))
+	builder.WriteString("\n")
+	present := m.sessionPresent()
+	if len(present) == 0 {
+		builder.WriteString(mutedStyle.Render("  —") + "\n")
+	} else {
+		for _, record := range present {
+			marker := "◆ "
+			if m.review != nil && m.review.ID == record.ID {
+				marker = "▸ "
 			}
+			builder.WriteString(marker + record.Title + "\n")
+		}
+	}
+	builder.WriteRune('\n')
+
+	builder.WriteString(labelStyle.Render("ACTIVE THREADS"))
+	builder.WriteString("\n")
+	threads := m.sessionThreads()
+	if len(threads) == 0 {
+		builder.WriteString(mutedStyle.Render("  —") + "\n")
+	} else {
+		for _, record := range threads {
 			marker := "  "
 			if m.review != nil && m.review.ID == record.ID {
 				marker = "▸ "
 			}
 			builder.WriteString(marker + record.Title + "\n")
-			count++
-			if count == 4 {
-				break
-			}
 		}
-		if count == 0 {
-			builder.WriteString(mutedStyle.Render("  —") + "\n")
-		}
-		builder.WriteString("\n")
 	}
+
 	if m.review != nil {
+		builder.WriteRune('\n')
 		builder.WriteString(labelStyle.Render("SELECTED"))
 		builder.WriteString("\n")
 		builder.WriteString(detailTitleStyle.Render(m.review.Title))
@@ -1227,13 +1427,23 @@ func (m Model) renderContextPane() string {
 	return builder.String()
 }
 
-func containsType(types []domain.EntityType, wanted domain.EntityType) bool {
-	for _, entityType := range types {
-		if entityType == wanted {
-			return true
-		}
+func wrapWords(text string, width int) string {
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return ""
 	}
-	return false
+	var lines []string
+	current := words[0]
+	for _, word := range words[1:] {
+		if lipgloss.Width(current+" "+word) > width {
+			lines = append(lines, current)
+			current = word
+			continue
+		}
+		current += " " + word
+	}
+	lines = append(lines, current)
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderReview() string {

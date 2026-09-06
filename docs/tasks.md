@@ -20,13 +20,13 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   entries (`#d20+5`, `#damage 2d6+3`, `#10+2*3`).
 - Persist pane split positions and session pane layout cycle in
   `preferences.json`, separate from campaign `workspace.json`.
+- Session scene/context panes driven by live campaign records and session
+  location (`#location`, `current-scene` seed, present NPCs, open threads).
 
 ## In progress
 
 - General configurable pane system: named pane types, visibility, ordering,
   focus, and arbitrary two-axis split tree.
-- Replace static session scene/context fixture content with dynamic notes,
-  character briefs, threads, location, and current-scene records.
 
 ## Next
 

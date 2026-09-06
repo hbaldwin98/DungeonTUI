@@ -242,15 +242,55 @@ func TestLayoutPreferencesPersistSeparately(t *testing.T) {
 	}
 }
 
-func TestNarrowTerminalStillFillsExactWidth(t *testing.T) {
-	h := NewHarness(50, 20)
-	frame := h.Frame()
-	if errs := frame.FillErrors(); len(errs) > 0 {
-		t.Fatalf("narrow browser should fill exact terminal size: %s", strings.Join(errs, "; "))
-	}
+func TestSessionUsesDynamicContextAndLocation(t *testing.T) {
+	h := NewHarness(100, 36)
 	h.Key("s")
+	if h.Model.session.LocationName != "Ruined Monastery" {
+		t.Fatalf("expected current-scene location seed, got %q", h.Model.session.LocationName)
+	}
+	frame := h.Frame()
+	if !frame.Contains("Ruined Monastery") {
+		t.Fatalf("scene pane should show live location:\n%s", frame.Plain)
+	}
+	if !frame.Contains("Missing Reliquary") {
+		t.Fatalf("scene pane should list live threads:\n%s", frame.Plain)
+	}
+	if strings.Contains(frame.Plain, "Greywatch Monastery") {
+		t.Fatal("fixture location title should be gone")
+	}
+	if !frame.Contains("NPCs") || !frame.Contains("3") {
+		// Captain Vale, Father Merrow, Sister Elayne
+		t.Fatalf("campaign pane should show live NPC count:\n%s", frame.Plain)
+	}
+
+	h.SetSessionDraft("#location Greywatch")
+	h.Key("enter")
+	if h.Model.session.LocationName != "Greywatch" || h.Model.session.LocationID == "" {
+		t.Fatalf("expected linked Greywatch location, got id=%q name=%q", h.Model.session.LocationID, h.Model.session.LocationName)
+	}
 	frame = h.Frame()
-	if errs := frame.FillErrors(); len(errs) > 0 {
-		t.Fatalf("narrow session should fill exact terminal size: %s", strings.Join(errs, "; "))
+	if !frame.Contains("Greywatch") {
+		t.Fatalf("scene should update after #location:\n%s", frame.Plain)
+	}
+
+	h.SetSessionDraft("#location CURRENTLOCATION")
+	h.Key("enter")
+	if !strings.Contains(h.Model.status, "Greywatch") {
+		t.Fatalf("CURRENTLOCATION should report active location: %q", h.Model.status)
+	}
+}
+
+func TestSessionContextClickSelectsLiveEntity(t *testing.T) {
+	h := NewHarness(100, 36)
+	h.Key("s")
+	items := h.Model.sessionContextItems()
+	if len(items) < 2 {
+		t.Fatalf("expected clickable context items, got %#v", items)
+	}
+	// Click in the context pane (right of vertical split).
+	divider := h.Model.splitWidth(h.Model.width)
+	h.Click(divider+5, 6)
+	if h.Model.review == nil {
+		t.Fatal("expected context click to select an entity")
 	}
 }

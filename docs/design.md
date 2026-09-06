@@ -9,10 +9,12 @@ an evolving design rather than a fixed implementation specification.
 The current implementation is a usable Bubble Tea vertical slice: persistent
 JSON campaign records, typed browsing/search, draft entity editing, session
 lifecycle, multiline transcript capture, `@` links/autosuggestions, `$` draft
-creation, local `#random`/`#location` commands, entity review, scrollback, and
-mouse-driven session pane resizing. The layout is intentionally still being
-validated. Pane preferences are currently in-memory; persistence and a more
-general pane graph remain planned work.
+creation, local `#random`/`#location` commands, `#` dice/arithmetic rolls,
+entity review, scrollback, mouse-driven session pane resizing, and session
+scene panes driven by live campaign records rather than hard-coded fixtures.
+The layout is intentionally still being validated. Pane split preferences
+persist separately from campaign JSON; a more general pane graph remains
+planned work.
 
 ## Product thesis
 
