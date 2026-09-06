@@ -162,14 +162,21 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 
 func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	model := m
+	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModShift != 0 {
+		previous := model.sessionInput.Value()
+		model.sessionInput.SetValue(previous + "\n")
+		model.previousInput = previous
+		return model, nil
+	}
 	switch msg.String() {
 	case "ctrl+e":
 		return model.endSession()
 	case "enter", "ctrl+enter", "\r", "\n":
 		return model.submitTranscript()
 	case "shift+enter":
-		model.sessionInput.SetValue(model.sessionInput.Value() + "\n")
-		model.previousInput = model.sessionInput.Value()
+		previous := model.sessionInput.Value()
+		model.sessionInput.SetValue(previous + "\n")
+		model.previousInput = previous
 		return model, nil
 	case "ctrl+z":
 		if model.sessionInput.Value() != "" && model.previousInput != "" {
