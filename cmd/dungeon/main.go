@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	program := tea.NewProgram(tui.New())
+	program := tea.NewProgram(tui.NewPersistent())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "dungeon: %v\n", err)
 		os.Exit(1)

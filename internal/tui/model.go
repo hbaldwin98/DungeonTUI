@@ -3,13 +3,16 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
+	"github.com/hbaldwin98/dungeon/internal/storage"
 )
 
 type Model struct {
@@ -24,10 +27,42 @@ type Model struct {
 	includeIdeas bool
 	results      []searchsvc.Result
 	selected     int
+	typeFilter   domain.EntityType
+	store        storage.Store
+	status       string
+	editing      bool
+	creating     bool
+	editIndex    int
+	editField    int
+	editType     domain.EntityType
+	editTitle    textinput.Model
+	editSummary  textinput.Model
+	editBody     textarea.Model
 }
 
 func New() Model {
-	workspace := demoWorkspace()
+	return newModel(demoWorkspace(), nil)
+}
+
+// NewPersistent loads the owner's workspace from the platform config
+// directory. A first run starts with the small demo workspace and persists it
+// on the first successful edit.
+func NewPersistent() Model {
+	path, err := storage.DefaultPath()
+	if err != nil {
+		return newModel(demoWorkspace(), nil)
+	}
+	store := storage.NewJSON(path)
+	workspace, err := store.Load()
+	if err != nil {
+		model := newModel(demoWorkspace(), store)
+		model.status = "New workspace · edit or create an entity to save"
+		return model
+	}
+	return newModel(workspace, store)
+}
+
+func newModel(workspace domain.Workspace, store storage.Store) Model {
 	input := textinput.New()
 	input.Placeholder = "Search titles, aliases, notes, and sources"
 	input.Prompt = "> "
@@ -35,6 +70,7 @@ func New() Model {
 
 	model := Model{
 		workspace:    workspace,
+		store:        store,
 		search:       searchsvc.New(workspace.Records),
 		searchInput:  input,
 		searchScope:  searchsvc.CurrentCampaign,
@@ -55,6 +91,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.editing {
+			return m.updateEditor(msg)
+		}
 		if m.searching {
 			return m.updateSearch(msg)
 		}
@@ -72,6 +111,12 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "/":
 			return m.openSearch()
+		case "n":
+			return m.openEditor(true)
+		case "e":
+			return m.openEditor(false)
+		case "t":
+			m.cycleTypeFilter()
 		}
 	case tea.MouseClickMsg:
 		return m.updateMouseClick(msg)
@@ -161,6 +206,155 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) cycleTypeFilter() {
+	types := []domain.EntityType{"", domain.NPC, domain.Character, domain.Location, domain.Faction, domain.Item, domain.Thread, domain.Session, domain.Event, domain.Note, domain.Rule}
+	for index, entityType := range types {
+		if entityType == m.typeFilter {
+			m.typeFilter = types[(index+1)%len(types)]
+			m.cursor = 0
+			return
+		}
+	}
+}
+
+func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
+	title := textinput.New()
+	title.Prompt = "Title: "
+	title.CharLimit = 160
+	summary := textinput.New()
+	summary.Prompt = "Summary: "
+	summary.CharLimit = 240
+	body := textarea.New()
+	body.Prompt = "Body: "
+	body.SetWidth(max(30, m.width-12))
+	body.SetHeight(6)
+	model := m
+	model.editing = true
+	model.creating = create
+	model.editIndex = m.cursor
+	model.editField = 0
+	model.editType = domain.NPC
+	model.editTitle = title
+	model.editSummary = summary
+	model.editBody = body
+	if create {
+		model.editTitle.SetValue("New NPC")
+		model.editBody.SetValue("")
+	} else {
+		records := m.visibleRecords()
+		if len(records) == 0 || m.cursor >= len(records) {
+			return m, nil
+		}
+		record := records[m.cursor]
+		model.editType = record.Type
+		model.editTitle.SetValue(record.Title)
+		model.editSummary.SetValue(record.Summary)
+		model.editBody.SetValue(record.Body)
+	}
+	return model, model.focusEditor()
+}
+
+func (m *Model) focusEditor() tea.Cmd {
+	m.editTitle.Blur()
+	m.editSummary.Blur()
+	m.editBody.Blur()
+	switch m.editField {
+	case 0:
+		return m.editTitle.Focus()
+	case 1:
+		return m.editSummary.Focus()
+	default:
+		return m.editBody.Focus()
+	}
+}
+
+func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	model := m
+	switch msg.String() {
+	case "esc":
+		model.editing = false
+		return model, nil
+	case "tab", "shift+tab":
+		if msg.String() == "tab" {
+			model.editField = (model.editField + 1) % 3
+		} else {
+			model.editField = (model.editField + 2) % 3
+		}
+		return model, model.focusEditor()
+	case "ctrl+t":
+		model.editType = nextEntityType(model.editType)
+		return model, nil
+	case "ctrl+s", "ctrl+enter":
+		return model.saveEditor()
+	}
+	var cmd tea.Cmd
+	switch model.editField {
+	case 0:
+		model.editTitle, cmd = model.editTitle.Update(msg)
+	case 1:
+		model.editSummary, cmd = model.editSummary.Update(msg)
+	default:
+		model.editBody, cmd = model.editBody.Update(msg)
+	}
+	return model, cmd
+}
+
+func (m Model) saveEditor() (tea.Model, tea.Cmd) {
+	title := strings.TrimSpace(m.editTitle.Value())
+	if title == "" {
+		m.status = "Title is required"
+		return m, nil
+	}
+	records := m.visibleRecords()
+	scope := m.workspace.Scope
+	record := domain.Record{
+		ID:        fmt.Sprintf("%s-%d", strings.ToLower(strings.ReplaceAll(title, " ", "-")), time.Now().UnixNano()),
+		Type:      m.editType,
+		Title:     title,
+		Summary:   strings.TrimSpace(m.editSummary.Value()),
+		Body:      m.editBody.Value(),
+		Authority: domain.Draft,
+		Scope:     scope,
+		Source:    "DM draft",
+	}
+	if !m.creating {
+		if m.editIndex < 0 || m.editIndex >= len(records) {
+			m.status = "Entity no longer exists"
+			m.editing = false
+			return m, nil
+		}
+		record = records[m.editIndex]
+		record.Title = title
+		record.Summary = strings.TrimSpace(m.editSummary.Value())
+		record.Body = m.editBody.Value()
+	}
+	if err := record.Validate(); err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	if m.creating {
+		m.workspace.Records = append(m.workspace.Records, record)
+		m.cursor = max(0, len(m.visibleRecords())-1)
+	} else {
+		for index := range m.workspace.Records {
+			if m.workspace.Records[index].ID == record.ID {
+				m.workspace.Records[index] = record
+				break
+			}
+		}
+	}
+	m.search = searchsvc.New(m.workspace.Records)
+	m.refreshResults()
+	m.editing = false
+	m.status = "Saved draft: " + record.Title
+	if m.store != nil {
+		if err := m.store.Save(m.workspace); err != nil {
+			m.status = "Saved in memory; persistence failed: " + err.Error()
+		}
+	}
+	return m, nil
+}
+
 func (m Model) updateSearchClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	width := min(88, max(52, m.width-10))
 	visibleRows := min(10, max(4, m.height-12))
@@ -224,6 +418,9 @@ func (m Model) visibleRecords() []domain.Record {
 	for _, record := range m.workspace.Records {
 		if record.Scope.CampaignID == m.workspace.Scope.CampaignID ||
 			(record.Scope.CampaignID == "" && record.Scope.WorldID == m.workspace.Scope.WorldID) {
+			if m.typeFilter != "" && record.Type != m.typeFilter {
+				continue
+			}
 			records = append(records, record)
 		}
 	}
@@ -255,9 +452,13 @@ func (m Model) View() tea.View {
 		MaxHeight(bodyHeight).
 		Render(m.renderDetail())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, detail)
+	help := "/ search  n new draft  e edit  t filter type  j/k navigate  mouse: click/scroll  q quit"
+	if m.status != "" {
+		help = m.status + "  ·  " + help
+	}
 	footer := footerStyle.
 		Width(contentWidth).
-		Render("/ search  j/k navigate  mouse: click/scroll  q quit")
+		Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 	view := appStyle.
 		Width(contentWidth).
@@ -267,6 +468,8 @@ func (m Model) View() tea.View {
 
 	if m.searching {
 		view = m.renderSearchOverlay()
+	} else if m.editing {
+		view = m.renderEditorOverlay()
 	}
 
 	result := tea.NewView(view)
@@ -291,7 +494,11 @@ func (m Model) renderHeader(width int) string {
 
 func (m Model) renderList() string {
 	var builder strings.Builder
-	builder.WriteString(sectionStyle.Render("CAMPAIGN RECORDS"))
+	section := "CAMPAIGN RECORDS"
+	if m.typeFilter != "" {
+		section = string(m.typeFilter) + " RECORDS"
+	}
+	builder.WriteString(sectionStyle.Render(section))
 	builder.WriteString("\n\n")
 
 	for index, record := range m.visibleRecords() {
@@ -403,6 +610,41 @@ func (m Model) renderSearchOverlay() string {
 		lipgloss.WithWhitespaceChars(" "),
 		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
 	)
+}
+
+func (m Model) renderEditorOverlay() string {
+	width := min(88, max(52, m.width-10))
+	label := "EDIT ENTITY"
+	if m.creating {
+		label = "NEW DRAFT ENTITY"
+	}
+	var builder strings.Builder
+	builder.WriteString(searchTitleStyle.Render(label))
+	builder.WriteString("  type: ")
+	builder.WriteString(filterStyle.Render(string(m.editType)))
+	builder.WriteString("\n\n")
+	builder.WriteString(m.editTitle.View())
+	builder.WriteString("\n")
+	builder.WriteString(m.editSummary.View())
+	builder.WriteString("\n")
+	builder.WriteString(m.editBody.View())
+	builder.WriteString("\n")
+	builder.WriteString(helpStyle.Render("Tab/Shift+Tab next field  Ctrl+S save draft  Esc cancel"))
+	overlay := searchPanelStyle.Width(width).Render(builder.String())
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
+	)
+}
+
+func nextEntityType(current domain.EntityType) domain.EntityType {
+	types := []domain.EntityType{domain.NPC, domain.Character, domain.Location, domain.Faction, domain.Item, domain.Creature, domain.Thread, domain.Session, domain.Scene, domain.Event, domain.Note, domain.Rule}
+	for index, entityType := range types {
+		if entityType == current {
+			return types[(index+1)%len(types)]
+		}
+	}
+	return types[0]
 }
 
 func max(a, b int) int {

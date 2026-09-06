@@ -4,9 +4,9 @@ Dungeon is a personal, terminal-native campaign workstation for a human Dungeon
 Master. Its factual campaign wiki remains strictly separate from AI-generated
 answers and proposals.
 
-The first implementation is an interaction spike for the core product loop. It
-contains in-memory demonstration data while the domain and navigation model are
-validated.
+The first implementation includes a persistent local workspace with
+demonstration data for a first run. Draft entities are saved as portable JSON
+in the platform user configuration directory after editing.
 
 ## Run
 
@@ -23,7 +23,11 @@ go run ./cmd/dungeon
 |---|---|
 | `/` | Open typed fuzzy search |
 | `j` / `k` | Navigate records |
-| `Ctrl+S` | Change search scope |
+| `n` | Create a new draft entity |
+| `e` | Edit the selected entity |
+| `t` | Cycle the visible entity type |
+| `Tab` / `Shift+Tab` | Move between editor fields |
+| `Ctrl+S` | Save the editor, or change search scope while searching |
 | `Ctrl+A` | Include or exclude AI proposals from search |
 | `Enter` | Open a search result |
 | `Esc` | Close search |
@@ -36,6 +40,11 @@ or search results.
 The search overlay defaults to the current campaign and factual records only.
 Its header always displays the active scope and whether AI proposals are
 included. Results carry entity-type and authority labels.
+
+The workspace stores the active campaign and records through a UI-independent
+JSON storage boundary. The type filter keeps NPCs, locations, items, sessions,
+and other entity kinds visibly separate while preserving one shared domain model
+for future clients.
 
 ## Architecture
 

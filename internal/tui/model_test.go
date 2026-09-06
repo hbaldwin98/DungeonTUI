@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/hbaldwin98/dungeon/internal/domain"
 )
 
 func TestSearchStartsCampaignScopedAndFactsOnly(t *testing.T) {
@@ -94,6 +96,37 @@ func TestViewFillsTerminal(t *testing.T) {
 	for index, line := range lines {
 		if width := lipgloss.Width(line); width != model.width {
 			t.Fatalf("row %d: expected width %d, got %d", index, model.width, width)
+		}
+	}
+}
+
+func TestCreateDraftEntity(t *testing.T) {
+	model := New()
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
+	model = updated.(Model)
+	if !model.editing || !model.creating {
+		t.Fatal("expected new draft editor")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if model.editing {
+		t.Fatal("expected editor to close after saving")
+	}
+	if got := model.workspace.Records[len(model.workspace.Records)-1]; got.Authority != domain.Draft || got.Type != domain.NPC {
+		t.Fatalf("expected saved NPC draft, got %#v", got)
+	}
+}
+
+func TestTypeFilterSeparatesRecords(t *testing.T) {
+	model := New()
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 't', Text: "t"}))
+	model = updated.(Model)
+	if model.typeFilter != domain.NPC {
+		t.Fatalf("expected NPC filter, got %q", model.typeFilter)
+	}
+	for _, record := range model.visibleRecords() {
+		if record.Type != domain.NPC {
+			t.Fatalf("type filter leaked %q record", record.Type)
 		}
 	}
 }

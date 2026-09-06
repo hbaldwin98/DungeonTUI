@@ -54,14 +54,18 @@ func (a Authority) Label() string {
 type EntityType string
 
 const (
-	NPC      EntityType = "NPC"
-	Location EntityType = "LOCATION"
-	Faction  EntityType = "FACTION"
-	Item     EntityType = "ITEM"
-	Thread   EntityType = "THREAD"
-	Session  EntityType = "SESSION"
-	Rule     EntityType = "RULE"
-	Note     EntityType = "NOTE"
+	NPC       EntityType = "NPC"
+	Character EntityType = "CHARACTER"
+	Location  EntityType = "LOCATION"
+	Faction   EntityType = "FACTION"
+	Item      EntityType = "ITEM"
+	Creature  EntityType = "CREATURE"
+	Thread    EntityType = "THREAD"
+	Session   EntityType = "SESSION"
+	Scene     EntityType = "SCENE"
+	Event     EntityType = "EVENT"
+	Rule      EntityType = "RULE"
+	Note      EntityType = "NOTE"
 )
 
 type Scope struct {

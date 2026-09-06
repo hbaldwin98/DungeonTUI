@@ -376,6 +376,14 @@ without leaving the campaign workspace. Ending the session timestamps and
 closes capture while preserving the transcript as campaign data for later
 reconciliation.
 
+Transcript entry must be reversible. The input editor supports character-level
+undo and redo before submission. After a message is submitted, the DM can
+undo, edit, or restore that message without losing the original text. This
+covers accidental submissions, bad rolls, duplicate entries, and corrections
+made during a hectic table moment. Storage may represent this as revisions or
+tombstones, but the normal view shows the current restored version and history
+remains available when needed.
+
 Transcript references are lightweight links resolved against the active
 campaign and its shared world records:
 
@@ -508,9 +516,13 @@ Domain services --+-- future HTTP/API -- web UI
 
 ### Storage strategy
 
-SQLite is a pragmatic initial system of record: transactional, local, portable,
-easy to back up, and capable of structured queries plus FTS5. Portability does
-not require every internal record to be a Markdown file.
+SQLite is a pragmatic eventual system of record: transactional, local,
+portable, easy to back up, and capable of structured queries plus FTS5.
+The first persisted vertical slice uses a documented JSON workspace because it
+keeps the data inspectable while the entity model is still changing. The
+storage boundary must allow that implementation to move to SQLite without
+changing domain or TUI code. Portability does not require every internal record
+to be a Markdown file.
 
 The application should provide versioned, documented export and import formats.
 A useful export bundle may contain:
