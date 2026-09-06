@@ -46,3 +46,10 @@ follow-on task rather than an implicit claim of the JSON campaign store.
 `#random` generation inherit the active world, campaign, session, source, and
 location context. Generated entities remain drafts/proposals until approved.
 
+## D-007 — Agentic TUI validation uses in-process screencaps
+
+Layout and interaction regressions are exercised through an in-process harness
+that drives `Update`/`View`, asserts exact terminal fill, and writes plain-text
+plus ANSI screencaps. This is preferred over flaky PTY golden files for agent
+and CI use.
+

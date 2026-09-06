@@ -17,6 +17,18 @@ go mod tidy
 go run ./cmd/dungeon
 ```
 
+## Validate / screencap
+
+Agents and local checks can drive the TUI without a real tty:
+
+```sh
+go test ./internal/tui -run Harness
+go run ./cmd/dungeon-harness -scenario all -out testdata/harness
+```
+
+Scenarios cover browser/search/session flows, mouse-wheel scrolling, and gutter
+resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`.
+
 ## Current controls
 
 | Key | Action |

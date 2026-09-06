@@ -366,8 +366,10 @@ func (m *Model) refreshTranscriptViewport() {
 
 func (m *Model) configureTranscriptViewport() {
 	transcriptHeight := m.sessionTranscriptHeight()
+	inner := panelInnerHeight(transcriptHeight)
+	// Leave one row for the "SESSION TRANSCRIPT" title above the viewport.
 	m.transcriptView.SetWidth(max(1, m.width-4))
-	m.transcriptView.SetHeight(max(1, transcriptHeight-2))
+	m.transcriptView.SetHeight(max(1, inner-1))
 }
 
 func (m *Model) handleSessionCommand(text string) {
@@ -496,6 +498,19 @@ func (m Model) endSession() (tea.Model, tea.Cmd) {
 	m.session.EndedAt = &ended
 	m.sessionInput.Blur()
 	m.status = fmt.Sprintf("Session ended · %d transcript entries", len(m.session.Entries))
+	// Always retain the ended session in the workspace, even when no store is
+	// attached (demo / harness). Persistence remains best-effort afterward.
+	updated := false
+	for index := range m.workspace.Sessions {
+		if m.workspace.Sessions[index].ID == m.session.ID {
+			m.workspace.Sessions[index] = *m.session
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		m.workspace.Sessions = append(m.workspace.Sessions, *m.session)
+	}
 	if m.store != nil {
 		m.persistWorkspace()
 	}
@@ -944,11 +959,11 @@ func (m Model) View() tea.View {
 		return m.sessionView()
 	}
 
-	contentWidth := max(60, m.width)
+	contentWidth := max(1, m.width)
 	header := m.renderHeader(contentWidth)
-	bodyHeight := max(10, m.height-2)
+	bodyHeight := max(1, m.height-2)
 	listWidth := m.splitWidth(contentWidth)
-	detailWidth := max(30, contentWidth-listWidth)
+	detailWidth := max(1, contentWidth-listWidth)
 
 	list := panelStyle.
 		Width(listWidth).
@@ -989,23 +1004,23 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) sessionView() tea.View {
-	width := max(60, m.width)
+	width := max(1, m.width)
 	inputHeight := m.sessionInputHeight()
 	transcriptHeight := m.sessionTranscriptHeight()
 	upperHeight := m.sessionUpperHeight()
 	leftWidth := m.splitWidth(width)
-	rightWidth := max(28, width-leftWidth)
+	rightWidth := max(1, width-leftWidth)
 	header := headerStyle.Width(width).Render(m.renderSessionHeader())
-	scene := panelStyle.Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderCampaignPane())
-	context := panelStyle.Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderContextPane())
+	scene := panelStyle.Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
+	context := panelStyle.Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
 	upper := lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
 	if m.paneLayout == 1 {
-		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderContextPane())
+		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
 	} else if m.paneLayout == 2 {
-		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderCampaignPane())
+		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
 	}
-	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(inputHeight))
-	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(m.renderSessionInput())
+	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
+	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitLines(m.renderSessionInput(), panelInnerHeight(inputHeight)))
 	help := "Enter/Ctrl+Enter capture   Shift+Enter newline   Ctrl+P panes   wheel scroll log   drag gutters   Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
@@ -1182,11 +1197,12 @@ func (m Model) renderTranscript(transcriptHeight int) string {
 		builder.WriteString(mutedStyle.Render("No captured entries yet."))
 	} else {
 		viewport := m.transcriptView
+		inner := panelInnerHeight(transcriptHeight)
 		viewport.SetWidth(max(1, m.width-4))
-		viewport.SetHeight(max(1, transcriptHeight-2))
+		viewport.SetHeight(max(1, inner-1))
 		builder.WriteString(viewport.View())
 	}
-	return builder.String()
+	return fitLines(builder.String(), panelInnerHeight(transcriptHeight))
 }
 
 func (m Model) renderHeader(width int) string {
@@ -1416,4 +1432,22 @@ func abs(value int) int {
 		return -value
 	}
 	return value
+}
+
+// panelInnerHeight is the content rows available inside panelStyle
+// (rounded border + vertical padding).
+func panelInnerHeight(panelHeight int) int {
+	const chrome = 4 // top/bottom border + top/bottom padding
+	return max(1, panelHeight-chrome)
+}
+
+func fitLines(content string, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) <= maxLines {
+		return content
+	}
+	return strings.Join(lines[:maxLines], "\n")
 }

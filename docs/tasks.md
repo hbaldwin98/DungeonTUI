@@ -14,6 +14,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Local `#random` drafts and `#location` session context.
 - Scrollable transcript viewport and mouse-wheel navigation.
 - Vertical and horizontal gutter dragging with complementary pane resizing.
+- In-process agentic TUI harness with keyboard/mouse driving and text/ANSI
+  screencaps (`go run ./cmd/dungeon-harness -scenario all`).
 
 ## In progress
 

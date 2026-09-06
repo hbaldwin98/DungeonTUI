@@ -2,3 +2,6 @@
 .agents/
 .claude/
 .codex/
+
+# Generated TUI harness screencaps
+testdata/harness/
