@@ -434,6 +434,22 @@ assembled campaign context. Both produce drafts or AI proposals, never canon,
 and the transcript records which generator produced the result, its context,
 and its seed or provider metadata for reproducibility.
 
+### Live entity review
+
+During an active session, the transcript is paired with an entity review pane
+above the chat input. Resolving an `@` reference, creating an entity with `$`,
+or accepting a generator result can automatically open that entity in the pane
+so the DM can immediately read its full details, description, authority, and
+source without leaving the session. The pane should show the entity type and
+scope prominently, preserving the factual-versus-draft distinction at the
+table.
+
+Automatic opening changes the review selection, not the transcript focus. The
+DM can pin an entity, return to the previous entity, close the review pane, or
+disable automatic opening for the rest of the session. Multiple recently
+opened entities may be kept as a short stack or tab strip, with the layout
+controlled by the configurable pane preferences.
+
 Session capture is deliberately factual-data-first. AI may later summarize a
 transcript or suggest events, but those outputs become labelled proposals and
 must not alter the transcript or campaign facts automatically.
