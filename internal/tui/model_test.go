@@ -259,3 +259,43 @@ func TestSessionTranscriptScrollsAndPanesCycle(t *testing.T) {
 		t.Fatalf("expected pane layout cycle, got %d", model.paneLayout)
 	}
 }
+
+func TestMouseDragResizesBrowserAndSessionGutters(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 30
+	divider := model.splitWidth(model.width)
+	updated, _ := model.Update(tea.MouseClickMsg{X: divider, Y: 10, Button: tea.MouseLeft})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.MouseMotionMsg{X: 52, Y: 10, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if model.paneSplit != 52 {
+		t.Fatalf("expected browser gutter at 52, got %d", model.paneSplit)
+	}
+	updated, _ = model.Update(tea.MouseReleaseMsg{X: 52, Y: 10, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if model.draggingSplit {
+		t.Fatal("expected browser gutter drag to end on release")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	divider = model.splitWidth(model.width)
+	updated, _ = model.Update(tea.MouseClickMsg{X: divider, Y: 4, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if !model.draggingSplit {
+		t.Fatal("expected session gutter drag to start")
+	}
+	upper := model.sessionUpperHeight()
+	updated, _ = model.Update(tea.MouseReleaseMsg{X: divider, Y: 4, Button: tea.MouseLeft})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.MouseClickMsg{X: 70, Y: upper + 1, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if !model.draggingSplit || model.dragAxis != "horizontal" {
+		t.Fatal("expected horizontal gutter drag to start")
+	}
+	updated, _ = model.Update(tea.MouseMotionMsg{X: 70, Y: upper + 4, Button: tea.MouseLeft})
+	model = updated.(Model)
+	if model.horizontalSplit != upper+3 {
+		t.Fatalf("expected horizontal split at %d, got %d", upper+3, model.horizontalSplit)
+	}
+}

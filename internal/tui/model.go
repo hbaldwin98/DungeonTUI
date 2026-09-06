@@ -17,37 +17,41 @@ import (
 )
 
 type Model struct {
-	workspace      domain.Workspace
-	search         searchsvc.Service
-	cursor         int
-	width          int
-	height         int
-	searching      bool
-	searchInput    textinput.Model
-	searchScope    searchsvc.Scope
-	includeIdeas   bool
-	results        []searchsvc.Result
-	selected       int
-	typeFilter     domain.EntityType
-	store          storage.Store
-	status         string
-	editing        bool
-	creating       bool
-	editIndex      int
-	editField      int
-	editType       domain.EntityType
-	editTitle      textinput.Model
-	editSummary    textinput.Model
-	editBody       textarea.Model
-	session        *domain.SessionRecord
-	sessionInput   textarea.Model
-	review         *domain.Record
-	reviewPinned   bool
-	suggestions    []domain.Record
-	suggestion     int
-	previousInput  string
-	transcriptView viewport.Model
-	paneLayout     int
+	workspace       domain.Workspace
+	search          searchsvc.Service
+	cursor          int
+	width           int
+	height          int
+	searching       bool
+	searchInput     textinput.Model
+	searchScope     searchsvc.Scope
+	includeIdeas    bool
+	results         []searchsvc.Result
+	selected        int
+	typeFilter      domain.EntityType
+	store           storage.Store
+	status          string
+	editing         bool
+	creating        bool
+	editIndex       int
+	editField       int
+	editType        domain.EntityType
+	editTitle       textinput.Model
+	editSummary     textinput.Model
+	editBody        textarea.Model
+	session         *domain.SessionRecord
+	sessionInput    textarea.Model
+	review          *domain.Record
+	reviewPinned    bool
+	suggestions     []domain.Record
+	suggestion      int
+	previousInput   string
+	transcriptView  viewport.Model
+	paneLayout      int
+	paneSplit       int
+	horizontalSplit int
+	draggingSplit   bool
+	dragAxis        string
 }
 
 func New() Model {
@@ -156,6 +160,19 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m.updateMouseWheel(msg)
+	case tea.MouseMotionMsg:
+		if m.draggingSplit {
+			if m.dragAxis == "horizontal" {
+				m.horizontalSplit = clamp(msg.Y-1, 6, max(7, m.height-12))
+			} else {
+				m.paneSplit = clamp(msg.X, 24, max(25, m.width-24))
+			}
+		}
+		return m, nil
+	case tea.MouseReleaseMsg:
+		m.draggingSplit = false
+		m.dragAxis = ""
+		return m, nil
 	}
 
 	return m, nil
@@ -347,8 +364,7 @@ func (m *Model) refreshTranscriptViewport() {
 }
 
 func (m *Model) configureTranscriptViewport() {
-	available := max(8, m.height-2)
-	transcriptHeight := min(7, max(5, available/4))
+	transcriptHeight := m.sessionTranscriptHeight()
 	m.transcriptView.SetWidth(max(1, m.width-4))
 	m.transcriptView.SetHeight(max(1, transcriptHeight-2))
 }
@@ -638,7 +654,12 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.openSearch()
 	}
 
-	listWidth := min(40, max(28, m.width/3))
+	listWidth := m.splitWidth(m.width)
+	if abs(msg.X-listWidth) <= 1 {
+		m.draggingSplit = true
+		m.dragAxis = "vertical"
+		return m, nil
+	}
 	if msg.X >= 0 && msg.X < listWidth {
 		const firstRecordRow = 5
 		index := msg.Y - firstRecordRow
@@ -853,13 +874,19 @@ func (m Model) updateSessionMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cm
 	// The lower portion is always the transcript/input region. Clicking there
 	// returns focus to capture, while clicking the context pane selects the
 	// corresponding entity for review.
-	available := max(8, m.height-2)
-	inputHeight := 7
-	if len(m.suggestions) > 0 {
-		inputHeight = 9
+	upperHeight := m.sessionUpperHeight()
+	divider := m.splitWidth(m.width)
+	horizontal := upperHeight + 1
+	if msg.Y <= upperHeight && abs(msg.X-divider) <= 1 {
+		m.draggingSplit = true
+		m.dragAxis = "vertical"
+		return m, nil
 	}
-	transcriptHeight := min(7, max(5, available/4))
-	upperHeight := max(6, available-inputHeight-transcriptHeight)
+	if abs(msg.Y-horizontal) <= 1 {
+		m.draggingSplit = true
+		m.dragAxis = "horizontal"
+		return m, nil
+	}
 	if msg.Y > upperHeight+1 {
 		m.sessionInput.Focus()
 		return m, nil
@@ -919,7 +946,7 @@ func (m Model) View() tea.View {
 	contentWidth := max(60, m.width)
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(10, m.height-2)
-	listWidth := min(40, max(28, contentWidth/3))
+	listWidth := m.splitWidth(contentWidth)
 	detailWidth := max(30, contentWidth-listWidth)
 
 	list := panelStyle.
@@ -933,7 +960,7 @@ func (m Model) View() tea.View {
 		MaxHeight(bodyHeight).
 		Render(m.renderDetail())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, detail)
-	help := "/ search  n new draft  e edit  t filter type  s start session  mouse: click/scroll  q quit"
+	help := "/ search  n new draft  e edit  t filter type  s start session  drag gutters  q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
@@ -962,14 +989,10 @@ func (m Model) View() tea.View {
 
 func (m Model) sessionView() tea.View {
 	width := max(60, m.width)
-	available := max(8, m.height-2)
-	inputHeight := 7
-	if len(m.suggestions) > 0 {
-		inputHeight = 9
-	}
-	transcriptHeight := min(7, max(5, available/4))
-	upperHeight := max(6, available-inputHeight-transcriptHeight)
-	leftWidth := max(28, width/2)
+	inputHeight := m.sessionInputHeight()
+	transcriptHeight := m.sessionTranscriptHeight()
+	upperHeight := m.sessionUpperHeight()
+	leftWidth := m.splitWidth(width)
 	rightWidth := max(28, width-leftWidth)
 	header := headerStyle.Width(width).Render(m.renderSessionHeader())
 	scene := panelStyle.Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(m.renderCampaignPane())
@@ -982,7 +1005,7 @@ func (m Model) sessionView() tea.View {
 	}
 	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(inputHeight))
 	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(m.renderSessionInput())
-	help := "Enter/Ctrl+Enter capture   Shift+Enter newline   Ctrl+P panes   wheel scroll log   Ctrl+E end"
+	help := "Enter/Ctrl+Enter capture   Shift+Enter newline   Ctrl+P panes   wheel scroll log   drag gutters   Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
@@ -1353,6 +1376,41 @@ func clamp(value, low, high int) int {
 	}
 	if value > high {
 		return high
+	}
+	return value
+}
+
+func (m Model) splitWidth(total int) int {
+	if m.paneSplit > 0 {
+		return clamp(m.paneSplit, 24, max(25, total-24))
+	}
+	return clamp(total/3, 28, max(29, total-28))
+}
+
+func (m Model) sessionInputHeight() int {
+	if len(m.suggestions) > 0 {
+		return 9
+	}
+	return 7
+}
+
+func (m Model) sessionTranscriptHeight() int {
+	available := max(8, m.height-2)
+	return min(8, max(6, available/4))
+}
+
+func (m Model) sessionUpperHeight() int {
+	available := max(8, m.height-2)
+	defaultHeight := max(6, available-m.sessionInputHeight()-m.sessionTranscriptHeight())
+	if m.horizontalSplit > 0 {
+		return clamp(m.horizontalSplit, 6, max(7, available-m.sessionInputHeight()-5))
+	}
+	return defaultHeight
+}
+
+func abs(value int) int {
+	if value < 0 {
+		return -value
 	}
 	return value
 }

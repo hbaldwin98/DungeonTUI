@@ -510,6 +510,11 @@ entity lists, notes, character briefs, and thread lists without changing
 transcript state. Pane focus and visibility must be apparent, and clicking a
 context entry opens its details directly.
 
+Vertical gutters between adjacent panes are draggable with the mouse. Resizing
+is continuous while the left button is held, constrained so neither pane can
+collapse, and the resulting split is retained as a personal workspace
+preference.
+
 Session capture is deliberately factual-data-first. AI may later summarize a
 transcript or suggest events, but those outputs become labelled proposals and
 must not alter the transcript or campaign facts automatically.

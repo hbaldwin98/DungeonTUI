@@ -56,7 +56,8 @@ transcript. `Ctrl+Enter` captures the entry. `$npc Name: description` creates a
 draft entity from the active session, while `#random item` creates a local draft
 generator result and `#location ...` records the current location context.
 The session log scrolls with the mouse wheel; clicking the context pane selects
-an entity for review.
+an entity for review. Drag the vertical gutter between list/detail or
+scene/context panes to resize them.
 
 ## Architecture
 
