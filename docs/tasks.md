@@ -30,12 +30,14 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   always offers `@` / `$` / `#` starters with filtered completions.
 - Denser campaign browser: typed section panes fill the terminal, with `+` to
   add panes and Ctrl+P to cycle section presets (Argus #25).
+- Session reconciliation records derived on end-session without mutating the
+  transcript; `r` opens approve/reject review (Argus #26).
 
 ## In progress
 
 ## Next
 
-- Add session reconciliation records without mutating the raw transcript.
+- Deepen reconciliation: factual diffs, superseded history, and draft provenance.
 - Add export/import coverage for worlds, campaigns, sessions, links, and
   workspace preferences.
 - Add optional AI adapters and proposal approval flow after the factual path is
