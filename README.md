@@ -39,7 +39,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `e` | Edit the selected entity |
 | `t` | Cycle the visible entity type |
 | `s` | Start a session |
-| `Tab` / `Shift+Tab` | Move between editor fields |
+| `Tab` / `Shift+Tab` | Move between editor fields; in session, accept a suggestion or cycle pane focus |
 | `Ctrl+S` | Save the editor, or change search scope while searching |
 | `Enter` / `Ctrl+Enter` | Capture a transcript entry during a session |
 | `Shift+Enter` | Insert a newline in the transcript editor |
@@ -63,22 +63,25 @@ JSON storage boundary. The type filter keeps NPCs, locations, items, sessions,
 and other entity kinds visibly separate while preserving one shared domain model
 for future clients.
 
-During a session, typing `@` opens entity autosuggestions. `Tab` or a mouse
-click inserts the highlighted entity and opens its full details in the review
-pane above the transcript. Click campaign sections or context entities to open
-review; use the `[pin]` / `[clear]` controls on the selected entity. `Ctrl+Enter`
-captures the entry. `$npc Name: description` creates a
-draft entity from the active session, while `#random item` creates a local draft
-generator result and `#location ...` records the current location context.
-Inline `#d20+5` / `#damage 2d6+3` expressions are evaluated locally and stored
-with the transcript entry (expression, faces, and total) without becoming canon.
-`#location Name` sets the session's current location (linked when a matching
-location entity exists); the CURRENT SCENE pane shows that location, present
-NPCs/characters, and open threads from the live campaign record.
-The session log scrolls with the mouse wheel; clicking the context pane selects
-an entity for review. Drag vertical gutters to reallocate left/right panes and
-horizontal gutters to reallocate upper/transcript panes. Split positions and the
-Ctrl+P session pane layout are stored in `preferences.json` beside the campaign
+During a session, click any pane (campaign, context, transcript, or input) to
+focus it — the focused pane gets an accent border. `Tab` / `Shift+Tab` cycle
+focus; with input focused and suggestions visible, `Tab` inserts the highlighted
+choice. Empty input always offers `@`, `$`, and `#` starters; typing one of those
+filters entity references, draft create templates, or roll/random/location
+commands. `j`/`k`/`Enter` navigate campaign and context lists when those panes
+are focused. Click campaign sections or context entities to open review; use the
+`[pin]` / `[clear]` controls on the selected entity. `Ctrl+Enter` captures the
+entry. `$npc Name: description` creates a draft entity from the active session,
+while `#random item` creates a local draft generator result and `#location ...`
+records the current location context. Inline `#d20+5` / `#damage 2d6+3`
+expressions are evaluated locally and stored with the transcript entry
+(expression, faces, and total) without becoming canon. `#location Name` sets the
+session's current location (linked when a matching location entity exists); the
+CURRENT SCENE pane shows that location, present NPCs/characters, and open
+threads from the live campaign record. The session log scrolls with the mouse
+wheel. Drag vertical gutters to reallocate left/right panes and horizontal
+gutters to reallocate upper/transcript panes. Split positions and the Ctrl+P
+session pane layout are stored in `preferences.json` beside the campaign
 workspace file as named pane split trees (ratios + campaign/context visibility).
 
 See [the decision record](docs/decisions.md) and [task snapshot](docs/tasks.md)

@@ -182,7 +182,7 @@ func TestSessionViewFillsTerminal(t *testing.T) {
 			t.Fatalf("row %d: expected width %d, got %d", index, model.width, lipgloss.Width(line))
 		}
 	}
-	if !strings.Contains(model.View().Content, "Type a transcript entry") {
+	if !strings.Contains(model.View().Content, "Type a transcript entry") && !strings.Contains(model.View().Content, "@ entity reference") {
 		t.Fatalf("empty session input should explain how to enter and submit text: %q", model.View().Content)
 	}
 }

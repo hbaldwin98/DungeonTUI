@@ -42,6 +42,11 @@ var (
 			BorderForeground(colorBorder).
 			Padding(1, 2)
 
+	focusedPanelStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(colorAccent).
+				Padding(1, 2)
+
 	normalItemStyle   = lipgloss.NewStyle().Foreground(colorText)
 	selectedItemStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 

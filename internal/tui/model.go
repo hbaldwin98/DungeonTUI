@@ -46,8 +46,10 @@ type Model struct {
 	sessionInput   textarea.Model
 	review         *domain.Record
 	reviewPinned   bool
-	suggestions    []domain.Record
+	suggestions    []Suggestion
 	suggestion     int
+	campaignCursor int
+	contextCursor  int
 	previousInput  string
 	transcriptView viewport.Model
 	layout         prefs.Layout
@@ -163,6 +165,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateMouseClick(msg)
 	case tea.MouseWheelMsg:
 		if m.session != nil {
+			m.setSessionFocus(prefs.PaneTranscript)
 			var cmd tea.Cmd
 			m.transcriptView, cmd = m.transcriptView.Update(msg)
 			return m, cmd
@@ -212,20 +215,26 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 	m.sessionInput.SetWidth(max(30, m.width-8))
 	m.sessionInput.SetHeight(5)
 	m.sessionInput.Focus()
+	m.setSessionFocus(prefs.PaneInput)
 	m.configureTranscriptViewport()
 	m.refreshTranscriptViewport()
-	m.status = "Session started · Ctrl+E ends capture"
+	m.refreshSuggestions()
+	m.status = "Session started · click panes to focus · Ctrl+E ends capture"
 	return m, nil
 }
 
 func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	model := m
+	focus := model.sessionFocus()
+
 	if msg.String() == "ctrl+up" || msg.String() == "ctrl+down" || msg.String() == "pgup" || msg.String() == "pgdown" {
+		model.setSessionFocus(prefs.PaneTranscript)
 		var cmd tea.Cmd
 		model.transcriptView, cmd = model.transcriptView.Update(msg)
 		return model, cmd
 	}
 	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModShift != 0 {
+		model.setSessionFocus(prefs.PaneInput)
 		previous := model.sessionInput.Value()
 		model.sessionInput.SetValue(previous + "\n")
 		model.previousInput = previous
@@ -238,6 +247,72 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		model.layout.CycleSessionUpperVisibility()
 		model.persistPreferences()
 		return model, nil
+	case "tab":
+		if focus == prefs.PaneInput && len(model.suggestions) > 0 {
+			model.acceptSuggestion()
+			return model, nil
+		}
+		model.cycleSessionFocus()
+		return model, nil
+	case "shift+tab":
+		model.cycleSessionFocusReverse()
+		return model, nil
+	case "esc":
+		model.sessionInput.Blur()
+		return model, nil
+	}
+
+	if focus == prefs.PaneTranscript {
+		switch msg.String() {
+		case "j", "down":
+			var cmd tea.Cmd
+			model.transcriptView, cmd = model.transcriptView.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+			return model, cmd
+		case "k", "up":
+			var cmd tea.Cmd
+			model.transcriptView, cmd = model.transcriptView.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+			return model, cmd
+		}
+	}
+
+	if focus == prefs.PaneCampaign {
+		switch msg.String() {
+		case "j", "down":
+			model.campaignCursor = clamp(model.campaignCursor+1, 0, max(0, len(model.campaignNavItems())-1))
+			return model, nil
+		case "k", "up":
+			model.campaignCursor = clamp(model.campaignCursor-1, 0, max(0, len(model.campaignNavItems())-1))
+			return model, nil
+		case "enter":
+			model.activateCampaignCursor()
+			return model, nil
+		}
+	}
+
+	if focus == prefs.PaneContext {
+		switch msg.String() {
+		case "j", "down":
+			model.contextCursor = clamp(model.contextCursor+1, 0, max(0, len(model.sessionContextItems())-1))
+			return model, nil
+		case "k", "up":
+			model.contextCursor = clamp(model.contextCursor-1, 0, max(0, len(model.sessionContextItems())-1))
+			return model, nil
+		case "enter":
+			model.activateContextCursor()
+			return model, nil
+		}
+	}
+
+	// Printable input and suggestion navigation belong to the input pane.
+	if focus != prefs.PaneInput {
+		if len(msg.Text) > 0 || msg.String() == "backspace" || msg.String() == "ctrl+enter" || msg.String() == "enter" || msg.String() == "\r" || msg.String() == "\n" {
+			model.setSessionFocus(prefs.PaneInput)
+		} else {
+			return model, nil
+		}
+	}
+
+	switch msg.String() {
 	case "enter", "ctrl+enter", "\r", "\n":
 		return model.submitTranscript()
 	case "shift+enter":
@@ -270,11 +345,6 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return model, nil
 			}
 		}
-	case "tab":
-		if len(model.suggestions) > 0 {
-			model.acceptSuggestion()
-			return model, nil
-		}
 	case "up":
 		if len(model.suggestions) > 0 {
 			model.suggestion = clamp(model.suggestion-1, 0, len(model.suggestions)-1)
@@ -285,9 +355,6 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			model.suggestion = clamp(model.suggestion+1, 0, len(model.suggestions)-1)
 			return model, nil
 		}
-	case "esc":
-		model.sessionInput.Blur()
-		return model, nil
 	}
 	previous := model.sessionInput.Value()
 	var cmd tea.Cmd
@@ -302,44 +369,76 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return model, cmd
 }
 
-func (m *Model) refreshSuggestions() {
-	m.suggestions = nil
-	m.suggestion = 0
-	value := m.sessionInput.Value()
-	index := strings.LastIndex(value, "@")
-	if index < 0 || (index > 0 && value[index-1] != ' ' && value[index-1] != '\n') {
-		m.configureTranscriptViewport()
+func (m *Model) cycleSessionFocus() {
+	order := m.sessionFocusOrder()
+	if len(order) == 0 {
 		return
 	}
-	query := strings.ToLower(strings.TrimSpace(value[index+1:]))
-	if query == "" {
-		m.configureTranscriptViewport()
-		return
-	}
-	for _, record := range m.campaignRecords() {
-		if strings.Contains(strings.ToLower(record.Title), query) {
-			m.suggestions = append(m.suggestions, record)
-		}
-		if len(m.suggestions) == 5 {
-			break
+	current := m.sessionFocus()
+	for index, pane := range order {
+		if pane == current {
+			m.setSessionFocus(order[(index+1)%len(order)])
+			return
 		}
 	}
-	m.configureTranscriptViewport()
+	m.setSessionFocus(order[0])
 }
 
-func (m *Model) acceptSuggestion() {
-	if len(m.suggestions) == 0 {
+func (m *Model) cycleSessionFocusReverse() {
+	order := m.sessionFocusOrder()
+	if len(order) == 0 {
 		return
 	}
-	value := m.sessionInput.Value()
-	index := strings.LastIndex(value, "@")
-	if index < 0 {
+	current := m.sessionFocus()
+	for index, pane := range order {
+		if pane == current {
+			m.setSessionFocus(order[(index-1+len(order))%len(order)])
+			return
+		}
+	}
+	m.setSessionFocus(order[len(order)-1])
+}
+
+func (m Model) sessionFocusOrder() []prefs.Pane {
+	order := make([]prefs.Pane, 0, 4)
+	if m.layout.SessionLeafVisible(prefs.PaneCampaign) {
+		order = append(order, prefs.PaneCampaign)
+	}
+	if m.layout.SessionLeafVisible(prefs.PaneContext) {
+		order = append(order, prefs.PaneContext)
+	}
+	order = append(order, prefs.PaneTranscript, prefs.PaneInput)
+	return order
+}
+
+func (m Model) campaignNavItems() []domain.EntityType {
+	return []domain.EntityType{domain.NPC, domain.Location, domain.Faction, domain.Thread, domain.Item, domain.Note}
+}
+
+func (m *Model) activateCampaignCursor() {
+	items := m.campaignNavItems()
+	if len(items) == 0 {
 		return
 	}
-	record := m.suggestions[clamp(m.suggestion, 0, len(m.suggestions)-1)]
-	m.sessionInput.SetValue(value[:index] + "@" + record.Title + " ")
+	entityType := items[clamp(m.campaignCursor, 0, len(items)-1)]
+	for _, record := range m.campaignRecords() {
+		if record.Type == entityType && record.Authority != domain.Proposal {
+			candidate := record
+			m.review = &candidate
+			m.status = "Reviewing " + record.Title
+			return
+		}
+	}
+}
+
+func (m *Model) activateContextCursor() {
+	items := m.sessionContextItems()
+	if len(items) == 0 {
+		return
+	}
+	record := items[clamp(m.contextCursor, 0, len(items)-1)]
 	m.review = &record
-	m.suggestions = nil
+	m.status = "Reviewing " + record.Title
 }
 
 func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
@@ -1042,7 +1141,7 @@ func (m Model) updateSessionMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cm
 		return m.applyHit(hit)
 	}
 	if msg.Y > upperHeight+1 {
-		m.sessionInput.Focus()
+		m.setSessionFocus(prefs.PaneInput)
 	}
 	return m, nil
 }
@@ -1050,16 +1149,19 @@ func (m Model) updateSessionMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cm
 func (m Model) applyHit(hit hitTarget) (tea.Model, tea.Cmd) {
 	switch hit.Action {
 	case hitSelectRecord:
+		m.setSessionFocus(prefs.PaneContext)
 		if hit.Record != nil {
 			record := *hit.Record
 			m.review = &record
 			m.status = "Reviewing " + record.Title
 		}
 	case hitAcceptSuggestion:
+		m.setSessionFocus(prefs.PaneInput)
 		m.suggestion = hit.Suggestion
 		m.acceptSuggestion()
-		m.status = "Inserted @" + m.suggestionsTitle(hit)
+		m.status = "Inserted " + m.suggestionsTitle(hit)
 	case hitPinReview:
+		m.setSessionFocus(prefs.PaneContext)
 		if m.review != nil {
 			m.reviewPinned = !m.reviewPinned
 			if m.reviewPinned {
@@ -1069,10 +1171,18 @@ func (m Model) applyHit(hit hitTarget) (tea.Model, tea.Cmd) {
 			}
 		}
 	case hitClearReview:
+		m.setSessionFocus(prefs.PaneContext)
 		m.review = nil
 		m.reviewPinned = false
 		m.status = "Cleared entity review"
 	case hitCampaignType:
+		m.setSessionFocus(prefs.PaneCampaign)
+		for index, entityType := range m.campaignNavItems() {
+			if entityType == hit.EntityType {
+				m.campaignCursor = index
+				break
+			}
+		}
 		for _, record := range m.campaignRecords() {
 			if record.Type == hit.EntityType && record.Authority != domain.Proposal {
 				candidate := record
@@ -1081,20 +1191,21 @@ func (m Model) applyHit(hit hitTarget) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-	case hitFocusInput:
-		m.sessionInput.Focus()
+	case hitFocusPane:
+		m.setSessionFocus(hit.Pane)
+		m.status = "Focused " + string(hit.Pane)
 	}
 	return m, nil
 }
 
 func (m Model) suggestionsTitle(hit hitTarget) string {
+	if hit.Suggestion >= 0 && hit.Suggestion < len(m.suggestions) {
+		return m.suggestions[hit.Suggestion].Insert
+	}
 	if hit.Record != nil {
 		return hit.Record.Title
 	}
-	if hit.Suggestion >= 0 && hit.Suggestion < len(m.suggestions) {
-		return m.suggestions[hit.Suggestion].Title
-	}
-	return "entity"
+	return "suggestion"
 }
 
 func (m *Model) refreshResults() {
@@ -1321,17 +1432,17 @@ func (m Model) sessionView() tea.View {
 	var upper string
 	switch {
 	case campaignOn && contextOn:
-		scene := panelStyle.Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
-		context := panelStyle.Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
+		scene := m.panelStyleFor(prefs.PaneCampaign).Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
+		context := m.panelStyleFor(prefs.PaneContext).Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
 		upper = lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
 	case contextOn:
-		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
+		upper = m.panelStyleFor(prefs.PaneContext).Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
 	default:
-		upper = panelStyle.Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
+		upper = m.panelStyleFor(prefs.PaneCampaign).Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
 	}
-	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
-	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitLines(m.renderSessionInput(), panelInnerHeight(inputHeight)))
-	help := "Enter capture   click entities/suggestions   [pin]/[clear] review   Ctrl+P panes   wheel scroll   Ctrl+E end"
+	transcript := m.panelStyleFor(prefs.PaneTranscript).Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
+	input := m.panelStyleFor(prefs.PaneInput).Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitLines(m.renderSessionInput(), panelInnerHeight(inputHeight)))
+	help := "click pane to focus   Tab cycle   @/$/# suggest   Enter capture   Ctrl+P panes   Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
@@ -1405,16 +1516,22 @@ func (m Model) renderReview() string {
 }
 
 func (m Model) renderSessionInput() string {
-	if strings.TrimSpace(m.sessionInput.Value()) == "" && len(m.suggestions) == 0 {
-		return sectionStyle.Render("INPUT") + "  " + mutedStyle.Render("> Type a transcript entry, $entity command, or #command; press Enter to submit")
-	}
 	var builder strings.Builder
-	builder.WriteString(sectionStyle.Render("INPUT") + "  " + m.sessionInput.View())
+	focusMark := ""
+	if m.sessionFocus() == prefs.PaneInput {
+		focusMark = " · focused"
+	}
+	builder.WriteString(sectionStyle.Render("INPUT") + mutedStyle.Render(focusMark))
+	if strings.TrimSpace(m.sessionInput.Value()) == "" {
+		builder.WriteString("  " + m.sessionInput.View())
+	} else {
+		builder.WriteString("  " + m.sessionInput.View())
+	}
 	if len(m.suggestions) > 0 {
 		builder.WriteString("\n")
-		builder.WriteString(mutedStyle.Render("@ suggestions  click / ↑↓ / Tab insert"))
-		for index, record := range m.suggestions {
-			if index >= 3 {
+		builder.WriteString(mutedStyle.Render("@ / $ / # suggestions  click / ↑↓ / Tab insert"))
+		for index, item := range m.suggestions {
+			if index >= 5 {
 				break
 			}
 			prefix := "  "
@@ -1424,7 +1541,7 @@ func (m Model) renderSessionInput() string {
 				style = selectedSearchResultStyle
 			}
 			builder.WriteString("\n")
-			builder.WriteString(style.Render(prefix + string(record.Type) + "  " + record.Title))
+			builder.WriteString(style.Render(prefix + item.Label))
 		}
 	}
 	return builder.String()
@@ -1644,10 +1761,11 @@ func (m Model) splitWidth(total int) int {
 }
 
 func (m Model) sessionInputHeight() int {
-	if len(m.suggestions) > 0 {
-		return 9
+	if len(m.suggestions) == 0 {
+		return 7
 	}
-	return 7
+	// label + compact editor + hint + suggestion rows
+	return clamp(4+1+min(5, len(m.suggestions)), 8, 12)
 }
 
 func (m Model) sessionTranscriptHeight() int {

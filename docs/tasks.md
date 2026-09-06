@@ -26,11 +26,16 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   `@` suggestions, and review pin/clear controls.
 - Named pane split trees in `preferences.json` (browser + session) with
   persisted ratios and campaign/context visibility cycling via Ctrl+P.
+- Click-to-focus session panes (accent border); Tab cycles focus; empty input
+  always offers `@` / `$` / `#` starters with filtered completions.
 
 ## In progress
 
 ## Next
 
+- Denser campaign browser: split entity types into their own sections/panes,
+  support adding extra panes/views, and fill the empty space in the default
+  records view (Argus #25).
 - Add session reconciliation records without mutating the raw transcript.
 - Add export/import coverage for worlds, campaigns, sessions, links, and
   workspace preferences.

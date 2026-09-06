@@ -16,7 +16,7 @@ const (
 	hitAcceptSuggestion
 	hitPinReview
 	hitClearReview
-	hitFocusInput
+	hitFocusPane
 	hitCampaignType
 )
 
@@ -27,6 +27,7 @@ type hitTarget struct {
 	Record     *domain.Record
 	Suggestion int
 	EntityType domain.EntityType
+	Pane       prefs.Pane
 }
 
 type contentLine struct {
@@ -56,18 +57,23 @@ func (m Model) sessionHitTargets() []hitTarget {
 	contextOn := m.layout.SessionLeafVisible(prefs.PaneContext)
 	switch {
 	case campaignOn && contextOn:
+		hits = append(hits, hitTarget{MinX: 0, MaxX: divider - 1, MinY: upperTop, MaxY: upperTop + upperHeight - 1, Action: hitFocusPane, Pane: prefs.PaneCampaign})
+		hits = append(hits, hitTarget{MinX: divider, MaxX: m.width - 1, MinY: upperTop, MaxY: upperTop + upperHeight - 1, Action: hitFocusPane, Pane: prefs.PaneContext})
 		hits = append(hits, m.panelHits(0, divider, upperTop, upperHeight, m.campaignContentLines())...)
 		hits = append(hits, m.panelHits(divider, m.width-divider, upperTop, upperHeight, m.contextContentLines())...)
 	case contextOn:
+		hits = append(hits, hitTarget{MinX: 0, MaxX: m.width - 1, MinY: upperTop, MaxY: upperTop + upperHeight - 1, Action: hitFocusPane, Pane: prefs.PaneContext})
 		hits = append(hits, m.panelHits(0, m.width, upperTop, upperHeight, m.contextContentLines())...)
 	default:
+		hits = append(hits, hitTarget{MinX: 0, MaxX: m.width - 1, MinY: upperTop, MaxY: upperTop + upperHeight - 1, Action: hitFocusPane, Pane: prefs.PaneCampaign})
 		hits = append(hits, m.panelHits(0, m.width, upperTop, upperHeight, m.campaignContentLines())...)
 	}
+	hits = append(hits, hitTarget{MinX: 0, MaxX: m.width - 1, MinY: transcriptTop, MaxY: transcriptTop + transcriptHeight - 1, Action: hitFocusPane, Pane: prefs.PaneTranscript})
 	hits = append(hits, m.panelHits(0, m.width, inputTop, inputHeight, m.inputContentLines())...)
 	hits = append(hits, hitTarget{
 		MinX: 0, MaxX: m.width - 1,
 		MinY: inputTop, MaxY: inputTop + inputHeight - 1,
-		Action: hitFocusInput,
+		Action: hitFocusPane, Pane: prefs.PaneInput,
 	})
 	return hits
 }
@@ -119,7 +125,7 @@ func (m Model) hitTest(x, y int) (hitTarget, bool) {
 	hits := m.sessionHitTargets()
 	for i := len(hits) - 1; i >= 0; i-- {
 		hit := hits[i]
-		if hit.Action == hitFocusInput {
+		if hit.Action == hitFocusPane {
 			continue
 		}
 		if x >= hit.MinX && x <= hit.MaxX && y >= hit.MinY && y <= hit.MaxY {
@@ -127,7 +133,7 @@ func (m Model) hitTest(x, y int) (hitTarget, bool) {
 		}
 	}
 	for _, hit := range hits {
-		if hit.Action != hitFocusInput {
+		if hit.Action != hitFocusPane {
 			continue
 		}
 		if x >= hit.MinX && x <= hit.MaxX && y >= hit.MinY && y <= hit.MaxY {
@@ -156,9 +162,15 @@ func (m Model) campaignContentLines() []contentLine {
 		{label: "Items", entityType: domain.Item, count: m.countByType(domain.Item)},
 		{label: "Notes", entityType: domain.Note, count: m.countByType(domain.Note)},
 	}
-	for index, section := range sections {
+	navIndex := 0
+	for _, section := range sections {
 		marker := "  "
-		if index == 0 {
+		if section.entityType != "" {
+			if navIndex == m.campaignCursor && m.sessionFocus() == prefs.PaneCampaign {
+				marker = "▸ "
+			}
+			navIndex++
+		} else if section.label == "Session" && m.sessionFocus() != prefs.PaneCampaign {
 			marker = "▸ "
 		}
 		text := marker + section.label
@@ -240,7 +252,13 @@ func (m Model) contextContentLines() []contentLine {
 		for index := range present {
 			record := present[index]
 			marker := "◆ "
-			if m.review != nil && m.review.ID == record.ID {
+			itemIndex := index
+			if location := m.sessionLocationRecord(); location != nil {
+				itemIndex++
+			}
+			if m.sessionFocus() == prefs.PaneContext && m.contextCursor == itemIndex {
+				marker = "▸ "
+			} else if m.review != nil && m.review.ID == record.ID {
 				marker = "▸ "
 			}
 			candidate := record
@@ -259,10 +277,16 @@ func (m Model) contextContentLines() []contentLine {
 	if len(threads) == 0 {
 		lines = append(lines, contentLine{Text: "  —", PinX: -1, ClearX: -1})
 	} else {
+		offset := len(present)
+		if m.sessionLocationRecord() != nil {
+			offset++
+		}
 		for index := range threads {
 			record := threads[index]
 			marker := "  "
-			if m.review != nil && m.review.ID == record.ID {
+			if m.sessionFocus() == prefs.PaneContext && m.contextCursor == offset+index {
+				marker = "▸ "
+			} else if m.review != nil && m.review.ID == record.ID {
 				marker = "▸ "
 			}
 			candidate := record
@@ -283,24 +307,27 @@ func (m Model) inputContentLines() []contentLine {
 	if len(m.suggestions) == 0 {
 		return lines
 	}
-	lines = append(lines, contentLine{Text: "@ suggestions  click to insert", PinX: -1, ClearX: -1})
-	for index, record := range m.suggestions {
-		if index >= 3 {
+	lines = append(lines, contentLine{Text: "suggestions  click / Tab insert", PinX: -1, ClearX: -1})
+	for index, item := range m.suggestions {
+		if index >= 5 {
 			break
 		}
 		prefix := "  "
 		if index == m.suggestion {
 			prefix = "▸ "
 		}
-		candidate := record
-		lines = append(lines, contentLine{
-			Text:       prefix + string(record.Type) + "  " + record.Title,
+		line := contentLine{
+			Text:       prefix + item.Label,
 			Action:     hitAcceptSuggestion,
-			Record:     &candidate,
 			Suggestion: index,
 			PinX:       -1,
 			ClearX:     -1,
-		})
+		}
+		if item.Record != nil {
+			candidate := *item.Record
+			line.Record = &candidate
+		}
+		lines = append(lines, line)
 	}
 	return lines
 }

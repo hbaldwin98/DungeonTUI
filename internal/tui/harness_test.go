@@ -290,6 +290,45 @@ func TestSessionUsesDynamicContextAndLocation(t *testing.T) {
 	}
 }
 
+func TestSessionPaneFocusAndCommandSuggestions(t *testing.T) {
+	h := NewHarness(100, 36)
+	h.Key("s")
+	if len(h.Model.suggestions) != 3 {
+		t.Fatalf("empty input should offer @/$/# starters, got %#v", h.Model.suggestions)
+	}
+	divider := h.Model.splitWidth(h.Model.width)
+	h.Click(2, 4)
+	if h.Model.sessionFocus() != prefs.PaneCampaign {
+		t.Fatalf("expected campaign focus, got %q", h.Model.sessionFocus())
+	}
+	h.Click(divider+4, 4)
+	if h.Model.sessionFocus() != prefs.PaneContext {
+		t.Fatalf("expected context focus, got %q", h.Model.sessionFocus())
+	}
+	upper := h.Model.sessionUpperHeight()
+	h.Click(10, upper+3)
+	if h.Model.sessionFocus() != prefs.PaneTranscript {
+		t.Fatalf("expected transcript focus, got %q", h.Model.sessionFocus())
+	}
+
+	h.Click(10, h.Model.height-4)
+	if h.Model.sessionFocus() != prefs.PaneInput {
+		t.Fatalf("expected input focus, got %q", h.Model.sessionFocus())
+	}
+	h.SetSessionDraft("#")
+	if len(h.Model.suggestions) == 0 || !strings.Contains(h.Model.suggestions[0].Insert, "#") {
+		t.Fatalf("expected # command suggestions, got %#v", h.Model.suggestions)
+	}
+	h.SetSessionDraft("$")
+	if len(h.Model.suggestions) == 0 || !strings.HasPrefix(h.Model.suggestions[0].Insert, "$") {
+		t.Fatalf("expected $ create suggestions, got %#v", h.Model.suggestions)
+	}
+	h.SetSessionDraft("@")
+	if len(h.Model.suggestions) == 0 {
+		t.Fatal("expected @ entity suggestions with empty query")
+	}
+}
+
 func TestSessionContextClickSelectsLiveEntity(t *testing.T) {
 	h := NewHarness(100, 36)
 	h.Key("s")
