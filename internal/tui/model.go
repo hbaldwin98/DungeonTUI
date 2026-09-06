@@ -38,6 +38,12 @@ type Model struct {
 	editTitle    textinput.Model
 	editSummary  textinput.Model
 	editBody     textarea.Model
+	session      *domain.SessionRecord
+	sessionInput textarea.Model
+	review       *domain.Record
+	reviewPinned bool
+	suggestions  []domain.Record
+	suggestion   int
 }
 
 func New() Model {
@@ -76,6 +82,10 @@ func newModel(workspace domain.Workspace, store storage.Store) Model {
 		searchScope:  searchsvc.CurrentCampaign,
 		includeIdeas: false,
 	}
+	model.sessionInput = textarea.New()
+	model.sessionInput.Prompt = "│ "
+	model.sessionInput.Placeholder = "Start a session to capture play…"
+	model.sessionInput.SetHeight(4)
 	model.refreshResults()
 	return model
 }
@@ -93,6 +103,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if m.editing {
 			return m.updateEditor(msg)
+		}
+		if m.session != nil {
+			return m.updateSession(msg)
 		}
 		if m.searching {
 			return m.updateSearch(msg)
@@ -117,6 +130,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m.openEditor(false)
 		case "t":
 			m.cycleTypeFilter()
+		case "s":
+			return m.startSession()
 		}
 	case tea.MouseClickMsg:
 		return m.updateMouseClick(msg)
@@ -125,6 +140,215 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) startSession() (tea.Model, tea.Cmd) {
+	started := time.Now().UTC()
+	session := domain.SessionRecord{
+		ID:        fmt.Sprintf("session-%d", started.UnixNano()),
+		Title:     "Session " + started.Format("2006-01-02 15:04"),
+		Scope:     m.workspace.Scope,
+		StartedAt: started,
+	}
+	m.session = &session
+	m.sessionInput.SetValue("")
+	m.sessionInput.SetWidth(max(30, m.width-8))
+	m.sessionInput.Focus()
+	m.status = "Session started · Ctrl+E ends capture"
+	return m, nil
+}
+
+func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	model := m
+	switch msg.String() {
+	case "ctrl+e":
+		return model.endSession()
+	case "ctrl+enter":
+		return model.submitTranscript()
+	case "tab":
+		if len(model.suggestions) > 0 {
+			model.acceptSuggestion()
+			return model, nil
+		}
+	case "up":
+		if len(model.suggestions) > 0 {
+			model.suggestion = clamp(model.suggestion-1, 0, len(model.suggestions)-1)
+			return model, nil
+		}
+	case "down":
+		if len(model.suggestions) > 0 {
+			model.suggestion = clamp(model.suggestion+1, 0, len(model.suggestions)-1)
+			return model, nil
+		}
+	case "esc":
+		model.sessionInput.Blur()
+		return model, nil
+	}
+	var cmd tea.Cmd
+	model.sessionInput, cmd = model.sessionInput.Update(msg)
+	model.refreshSuggestions()
+	if !model.reviewPinned {
+		model.review = model.resolveReference(model.sessionInput.Value())
+	}
+	return model, cmd
+}
+
+func (m *Model) refreshSuggestions() {
+	m.suggestions = nil
+	m.suggestion = 0
+	value := m.sessionInput.Value()
+	index := strings.LastIndex(value, "@")
+	if index < 0 || (index > 0 && value[index-1] != ' ' && value[index-1] != '\n') {
+		return
+	}
+	query := strings.ToLower(strings.TrimSpace(value[index+1:]))
+	if query == "" {
+		return
+	}
+	for _, record := range m.visibleRecords() {
+		if strings.Contains(strings.ToLower(record.Title), query) {
+			m.suggestions = append(m.suggestions, record)
+		}
+		if len(m.suggestions) == 5 {
+			break
+		}
+	}
+}
+
+func (m *Model) acceptSuggestion() {
+	if len(m.suggestions) == 0 {
+		return
+	}
+	value := m.sessionInput.Value()
+	index := strings.LastIndex(value, "@")
+	if index < 0 {
+		return
+	}
+	record := m.suggestions[clamp(m.suggestion, 0, len(m.suggestions)-1)]
+	m.sessionInput.SetValue(value[:index] + "@" + record.Title + " ")
+	m.review = &record
+	m.suggestions = nil
+}
+
+func (m Model) submitTranscript() (tea.Model, tea.Cmd) {
+	text := strings.TrimSpace(m.sessionInput.Value())
+	if text == "" || m.session == nil {
+		return m, nil
+	}
+	links := m.resolveLinks(text)
+	now := time.Now().UTC()
+	m.session.Entries = append(m.session.Entries, domain.TranscriptEntry{
+		ID:        fmt.Sprintf("entry-%d", now.UnixNano()),
+		Text:      text,
+		CreatedAt: now,
+		Links:     links,
+		Revision:  1,
+	})
+	m.sessionInput.SetValue("")
+	m.status = "Captured transcript entry"
+	if m.store != nil {
+		m.persistWorkspace()
+	}
+	return m, nil
+}
+
+func (m Model) endSession() (tea.Model, tea.Cmd) {
+	if m.session == nil {
+		return m, nil
+	}
+	ended := time.Now().UTC()
+	m.session.EndedAt = &ended
+	m.sessionInput.Blur()
+	m.status = fmt.Sprintf("Session ended · %d transcript entries", len(m.session.Entries))
+	if m.store != nil {
+		m.persistWorkspace()
+	}
+	m.session = nil
+	return m, nil
+}
+
+func (m *Model) persistWorkspace() {
+	if m.store == nil {
+		return
+	}
+	if m.session != nil {
+		updated := false
+		for index := range m.workspace.Sessions {
+			if m.workspace.Sessions[index].ID == m.session.ID {
+				m.workspace.Sessions[index] = *m.session
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			m.workspace.Sessions = append(m.workspace.Sessions, *m.session)
+		}
+	}
+	if err := m.store.Save(m.workspace); err != nil {
+		m.status = "Saved in memory; persistence failed: " + err.Error()
+	}
+}
+
+func (m Model) resolveReference(text string) *domain.Record {
+	last := strings.LastIndex(text, "@")
+	if last < 0 || last+1 >= len(text) {
+		return nil
+	}
+	query := strings.TrimSpace(text[last+1:])
+	if query == "" {
+		return nil
+	}
+	query = strings.TrimRight(query, ".,!?;:")
+	var best *domain.Record
+	bestScore := 0
+	for _, record := range m.visibleRecords() {
+		title := strings.ToLower(record.Title)
+		needle := strings.ToLower(query)
+		score := 0
+		if strings.HasPrefix(needle, title) {
+			score = 4
+		} else if title == needle {
+			score = 3
+		} else if strings.HasPrefix(title, needle) {
+			score = 2
+		} else if strings.Contains(title, needle) {
+			score = 1
+		}
+		for _, alias := range record.Aliases {
+			alias = strings.ToLower(alias)
+			if strings.HasPrefix(needle, alias) && len(alias) > len(title) {
+				score = 4
+			}
+		}
+		if score > bestScore {
+			candidate := record
+			best = &candidate
+			bestScore = score
+		}
+	}
+	return best
+}
+
+func (m Model) resolveLinks(text string) []domain.EntityLink {
+	var links []domain.EntityLink
+	for index := strings.Index(text, "@"); index >= 0; {
+		remaining := text[index+1:]
+		if remaining == "" {
+			break
+		}
+		for end := len(remaining); end > 0; end-- {
+			if record := m.resolveReference("@" + remaining[:end]); record != nil {
+				links = append(links, domain.EntityLink{Text: remaining[:end], RecordID: record.ID})
+				break
+			}
+		}
+		next := strings.Index(remaining, " @")
+		if next < 0 {
+			break
+		}
+		index += next + 1
+	}
+	return links
 }
 
 func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -434,6 +658,9 @@ func (m Model) View() tea.View {
 		view.MouseMode = tea.MouseModeCellMotion
 		return view
 	}
+	if m.session != nil {
+		return m.sessionView()
+	}
 
 	contentWidth := max(60, m.width)
 	header := m.renderHeader(contentWidth)
@@ -452,7 +679,7 @@ func (m Model) View() tea.View {
 		MaxHeight(bodyHeight).
 		Render(m.renderDetail())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, detail)
-	help := "/ search  n new draft  e edit  t filter type  j/k navigate  mouse: click/scroll  q quit"
+	help := "/ search  n new draft  e edit  t filter type  s start session  mouse: click/scroll  q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
@@ -477,6 +704,95 @@ func (m Model) View() tea.View {
 	result.MouseMode = tea.MouseModeCellMotion
 	result.WindowTitle = "Dungeon · " + m.workspace.Scope.Campaign
 	return result
+}
+
+func (m Model) sessionView() tea.View {
+	width := max(60, m.width)
+	header := m.renderHeader(width)
+	bodyHeight := max(10, m.height-2)
+	reviewHeight := max(8, bodyHeight/2)
+	transcriptHeight := max(5, bodyHeight-reviewHeight-6)
+	review := panelStyle.Width(width).Height(reviewHeight).MaxHeight(reviewHeight).Render(m.renderReview())
+	transcript := panelStyle.Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript())
+	inputHeight := 5
+	if len(m.suggestions) > 0 {
+		inputHeight = 7
+	}
+	input := panelStyle.Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(m.renderSessionInput())
+	help := "SESSION ACTIVE  Ctrl+Enter capture  Ctrl+E end session  @ link entities  Ctrl+Z undo"
+	footer := footerStyle.Width(width).Render(help)
+	content := lipgloss.JoinVertical(lipgloss.Left, header, review, transcript, input, footer)
+	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
+	result := tea.NewView(view)
+	result.AltScreen = true
+	result.MouseMode = tea.MouseModeCellMotion
+	result.WindowTitle = "Dungeon · " + m.workspace.Scope.Campaign + " · Session"
+	return result
+}
+
+func (m Model) renderReview() string {
+	if m.review == nil {
+		return sectionStyle.Render("ENTITY REVIEW") + "\n\n" + mutedStyle.Render("Type @ followed by an entity name to open its details here.")
+	}
+	record := *m.review
+	var builder strings.Builder
+	builder.WriteString(sectionStyle.Render("ENTITY REVIEW"))
+	builder.WriteString("  ")
+	builder.WriteString(typeStyle.Render(string(record.Type)))
+	builder.WriteString("  ")
+	builder.WriteString(authorityStyle(record.Authority).Render(record.Authority.Marker() + " " + record.Authority.Label()))
+	builder.WriteString("\n")
+	builder.WriteString(detailTitleStyle.Render(record.Title))
+	builder.WriteString("\n")
+	builder.WriteString(record.Summary)
+	builder.WriteString("\n\n")
+	builder.WriteString(record.Body)
+	builder.WriteString("\n")
+	builder.WriteString(labelStyle.Render("SOURCE"))
+	builder.WriteString(" " + record.Source)
+	return builder.String()
+}
+
+func (m Model) renderSessionInput() string {
+	var builder strings.Builder
+	builder.WriteString(m.sessionInput.View())
+	if len(m.suggestions) > 0 {
+		builder.WriteString("\n")
+		builder.WriteString(mutedStyle.Render("@ suggestions  ↑/↓ choose  Tab insert"))
+		for index, record := range m.suggestions {
+			if index >= 3 {
+				break
+			}
+			prefix := "  "
+			style := searchResultStyle
+			if index == m.suggestion {
+				prefix = "▸ "
+				style = selectedSearchResultStyle
+			}
+			builder.WriteString("\n")
+			builder.WriteString(style.Render(prefix + string(record.Type) + "  " + record.Title))
+		}
+	}
+	return builder.String()
+}
+
+func (m Model) renderTranscript() string {
+	var builder strings.Builder
+	builder.WriteString(sectionStyle.Render("SESSION TRANSCRIPT"))
+	builder.WriteString("\n")
+	if m.session == nil || len(m.session.Entries) == 0 {
+		builder.WriteString(mutedStyle.Render("No captured entries yet."))
+		return builder.String()
+	}
+	start := max(0, len(m.session.Entries)-5)
+	for _, entry := range m.session.Entries[start:] {
+		stamp := entry.CreatedAt.Local().Format("15:04")
+		builder.WriteString(mutedStyle.Render(stamp))
+		builder.WriteString("  ")
+		builder.WriteString(entry.Text)
+		builder.WriteRune('\n')
+	}
+	return builder.String()
 }
 
 func (m Model) renderHeader(width int) string {

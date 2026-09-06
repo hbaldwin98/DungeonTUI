@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type Authority string
 
@@ -99,6 +102,29 @@ type Record struct {
 	IsAIContent bool
 }
 
+type EntityLink struct {
+	Text     string
+	RecordID string
+}
+
+type TranscriptEntry struct {
+	ID        string
+	Text      string
+	CreatedAt time.Time
+	Links     []EntityLink
+	Revision  int
+	Undone    bool
+}
+
+type SessionRecord struct {
+	ID        string
+	Title     string
+	Scope     Scope
+	StartedAt time.Time
+	EndedAt   *time.Time
+	Entries   []TranscriptEntry
+}
+
 func (r Record) Validate() error {
 	if r.ID == "" {
 		return fmt.Errorf("record ID is required")
@@ -116,8 +142,9 @@ func (r Record) Validate() error {
 }
 
 type Workspace struct {
-	Scope   Scope
-	Records []Record
+	Scope    Scope
+	Records  []Record
+	Sessions []SessionRecord
 }
 
 func NewWorkspace(scope Scope, records []Record) (Workspace, error) {

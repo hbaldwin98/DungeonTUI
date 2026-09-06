@@ -130,3 +130,50 @@ func TestTypeFilterSeparatesRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionCaptureAndEntityReview(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 30
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	if model.session == nil {
+		t.Fatal("expected active session")
+	}
+	model.sessionInput.SetValue("@Cap")
+	model.refreshSuggestions()
+	if len(model.suggestions) == 0 {
+		t.Fatal("expected entity autosuggestions while typing a reference")
+	}
+	model.sessionInput.SetValue("@Captain Vale searches the reliquary")
+	model.review = model.resolveReference(model.sessionInput.Value())
+	if model.review == nil || model.review.Title != "Captain Vale" {
+		t.Fatalf("expected Captain Vale review, got %#v", model.review)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if len(model.session.Entries) != 1 || len(model.session.Entries[0].Links) != 1 {
+		t.Fatalf("expected one linked transcript entry, got %#v", model.session.Entries)
+	}
+	if !strings.Contains(model.View().Content, "ENTITY REVIEW") || !strings.Contains(model.View().Content, "Captain Vale") {
+		t.Fatal("session view should include the live entity review pane")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	if model.session != nil {
+		t.Fatal("expected session to end with Ctrl+E")
+	}
+}
+
+func TestSessionViewFillsTerminal(t *testing.T) {
+	model := New()
+	model.width = 80
+	model.height = 24
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
+	model = updated.(Model)
+	for index, line := range strings.Split(model.View().Content, "\n") {
+		if lipgloss.Width(line) != model.width {
+			t.Fatalf("row %d: expected width %d, got %d", index, model.width, lipgloss.Width(line))
+		}
+	}
+}

@@ -26,8 +26,11 @@ go run ./cmd/dungeon
 | `n` | Create a new draft entity |
 | `e` | Edit the selected entity |
 | `t` | Cycle the visible entity type |
+| `s` | Start a session |
 | `Tab` / `Shift+Tab` | Move between editor fields |
 | `Ctrl+S` | Save the editor, or change search scope while searching |
+| `Ctrl+Enter` | Capture a transcript entry during a session |
+| `Ctrl+E` | End the active session |
 | `Ctrl+A` | Include or exclude AI proposals from search |
 | `Enter` | Open a search result |
 | `Esc` | Close search |
@@ -45,6 +48,10 @@ The workspace stores the active campaign and records through a UI-independent
 JSON storage boundary. The type filter keeps NPCs, locations, items, sessions,
 and other entity kinds visibly separate while preserving one shared domain model
 for future clients.
+
+During a session, typing `@` opens entity autosuggestions. `Tab` inserts the
+highlighted entity and opens its full details in the review pane above the
+transcript.
 
 ## Architecture
 
