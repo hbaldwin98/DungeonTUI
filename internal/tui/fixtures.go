@@ -82,5 +82,22 @@ func demoWorkspace() domain.Workspace {
 	if err != nil {
 		panic(err)
 	}
+	workspace.Library = []domain.WorldRef{
+		{
+			ID:   "ashen-realms",
+			Name: "The Ashen Realms",
+			Campaigns: []domain.CampaignRef{
+				{ID: "ashen-crown", Name: "The Ashen Crown"},
+				{ID: "embers-north", Name: "Embers in the North"},
+			},
+		},
+		{
+			ID:   "barovia",
+			Name: "Barovia",
+			Campaigns: []domain.CampaignRef{
+				{ID: "ravenloft", Name: "Mists of Ravenloft"},
+			},
+		},
+	}
 	return workspace
 }

@@ -78,6 +78,19 @@ type Scope struct {
 	Campaign   string
 }
 
+// CampaignRef names one campaign under a world in the library catalog.
+type CampaignRef struct {
+	ID   string
+	Name string
+}
+
+// WorldRef is a world entry in the library catalog (Obsidian-vault style).
+type WorldRef struct {
+	ID        string
+	Name      string
+	Campaigns []CampaignRef
+}
+
 func (s Scope) Label() string {
 	if s.Campaign != "" {
 		return s.Campaign
@@ -158,6 +171,7 @@ func (r Record) Validate() error {
 
 type Workspace struct {
 	Scope           Scope
+	Library         []WorldRef
 	Records         []Record
 	Sessions        []SessionRecord
 	Reconciliations []ReconciliationRecord

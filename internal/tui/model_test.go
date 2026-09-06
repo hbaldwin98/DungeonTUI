@@ -12,6 +12,37 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/prefs"
 )
 
+func TestLibraryPickerSelectsCampaign(t *testing.T) {
+	model := newModel(demoWorkspace(), nil, nil)
+	model.width = 80
+	model.height = 24
+	model.openPicker()
+	if !model.picking {
+		t.Fatal("expected picker")
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.pickerLevel != "campaign" {
+		t.Fatalf("expected campaign list, got %q", model.pickerLevel)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.picking {
+		t.Fatal("expected to enter campaign context")
+	}
+	if model.workspace.Scope.CampaignID != "ashen-crown" {
+		t.Fatalf("scope=%#v", model.workspace.Scope)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'b', Text: "b"}))
+	model = updated.(Model)
+	if !model.picking || model.pickerLevel != "world" {
+		t.Fatal("b should return to world picker")
+	}
+	if !strings.Contains(model.View().Content, "WORLDS") {
+		t.Fatalf("expected library picker view: %q", model.View().Content)
+	}
+}
+
 func TestSearchStartsCampaignScopedAndFactsOnly(t *testing.T) {
 	model := New()
 	model.width = 120

@@ -74,6 +74,10 @@ type Layout struct {
 	Browser SplitTree `json:"browser"`
 	Session SplitTree `json:"session"`
 	Focus   Pane      `json:"focus,omitempty"`
+
+	// Last-opened campaign context for vault-style relaunch.
+	ActiveWorldID    string `json:"active_world_id,omitempty"`
+	ActiveCampaignID string `json:"active_campaign_id,omitempty"`
 }
 
 // SplitTree is a rooted pane graph for one workspace mode.

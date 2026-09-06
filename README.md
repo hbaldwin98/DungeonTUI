@@ -10,7 +10,8 @@ in the platform user configuration directory after editing.
 
 ## Run
 
-Dungeon requires Go 1.25 or newer.
+Dungeon requires Go 1.25 or newer. On launch you choose a world and campaign
+(Obsidian-vault style); `b` returns to that library picker to switch context.
 
 ```sh
 go mod tidy
@@ -42,6 +43,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `+` / `-` | Add or close the focused type pane |
 | `t` / `Tab` | Cycle focused campaign type section |
 | `+` | Add another typed section pane |
+| `b` | Back to world/campaign library picker |
 | `p` | Draft planned session notes (prep markdown, not live) |
 | `s` | Start a live session (uses planned notes as context when present) |
 | `Tab` / `Shift+Tab` | In editor: move fields; in session: suggest/cycle focus |

@@ -78,11 +78,11 @@ After play, viewing a session should support scrubbing what changed
 (rewind/fast-forward over entity diffs and reconciliation items). That view is
 derived from linked records and never mutates the original transcript.
 
-## D-013 — Hierarchical library tree is the primary organizer
+## D-014 — Launch with a world/campaign picker
 
-Organization should be a drill-down tree: Library → World → Campaign → typed
-wiki sections, Sessions, and Prep notes. Flat multi-type panes and ad-hoc
-folders are secondary. Tags/collections and scope filters sit on top of that
-tree; they do not replace it. Clutter comes from missing hierarchy in the UI,
-not from needing another horizontal list of everything at once.
+Dungeon opens like an Obsidian vault switcher: pick a world, then a campaign,
+then work inside that context. `b` returns to the library picker to switch.
+Preferences may restore the last-opened campaign on relaunch, but switching is
+always available by going back. In-campaign hierarchy (sections / sessions /
+prep) comes after that entry gate.
 

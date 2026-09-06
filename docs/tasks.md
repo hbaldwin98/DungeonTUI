@@ -40,13 +40,15 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   summary / body) instead of form fields (Argus #33).
 - Close focused type/session panes with `-`; delete and supersede require `y`
   confirmation (Argus #34).
+- Library launch picker: choose world → campaign (vault-style); `b` switches
+  back (Argus #35; decision #36 / D-014).
 
 ## In progress
 
 ## Next
 
-- Hierarchical library navigator: world → campaign → sections / sessions /
-  prep (Argus #35–#36; decision #35 / D-013).
+- Hierarchical library navigator inside a campaign: sections / sessions / prep
+  (Argus #36; decision #35 / D-013).
 - Tags/collections and scope filters as secondary organization (Argus #37).
 - Draft future planned notes in the context of previous live sessions
   (decision #33).

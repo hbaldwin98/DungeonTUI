@@ -65,19 +65,29 @@ type Model struct {
 	planTitle      textinput.Model
 	planBody       textarea.Model
 	planField      int
+	picking        bool
+	pickerLevel    string // "world" or "campaign"
+	pickerCursor   int
+	pickerWorldID  string
 }
 
 func New() Model {
-	return newModel(demoWorkspace(), nil, nil)
+	model := newModel(demoWorkspace(), nil, nil)
+	model.enterDemoCampaign()
+	return model
 }
 
 // NewPersistent loads the owner's workspace from the platform config
 // directory. A first run starts with the small demo workspace and persists it
 // on the first successful edit. Layout preferences load from a sibling file.
+// Launch opens an Obsidian-style world/campaign picker unless a prior scope
+// can be restored from preferences.
 func NewPersistent() Model {
 	path, err := storage.DefaultPath()
 	if err != nil {
-		return newModel(demoWorkspace(), nil, nil)
+		model := newModel(demoWorkspace(), nil, nil)
+		model.openPicker()
+		return model
 	}
 	store := storage.NewJSON(path)
 	prefStore := prefs.NewJSON(prefs.BesideWorkspace(path))
@@ -85,11 +95,19 @@ func NewPersistent() Model {
 	if err != nil {
 		model := newModel(demoWorkspace(), store, prefStore)
 		model.applyPreferences()
-		model.status = "New workspace · edit or create an entity to save"
+		model.openPicker()
+		model.status = "New library · choose a world and campaign"
 		return model
 	}
 	model := newModel(workspace, store, prefStore)
 	model.applyPreferences()
+	model.workspace.EnsureLibrary()
+	if scope, ok := model.workspace.ScopeFor(model.layout.ActiveWorldID, model.layout.ActiveCampaignID); ok {
+		model.enterScope(scope)
+		model.status = "Restored " + scope.Campaign + " · b back to library"
+		return model
+	}
+	model.openPicker()
 	return model
 }
 
@@ -117,6 +135,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	model.transcriptView.MouseWheelEnabled = true
 	model.layout = prefs.DefaultLayout()
 	model.rollRNG = dice.DefaultRNG()
+	model.workspace.EnsureLibrary()
 	model.refreshResults()
 	model.ensureBrowserSelection()
 	return model
@@ -136,6 +155,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.picking {
+			return m.updatePicker(msg)
+		}
 		if m.editing {
 			return m.updateEditor(msg)
 		}
@@ -179,6 +201,11 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.addNextBrowserTypePane()
 		case "-":
 			return m.closeFocusedPane()
+		case "b":
+			if m.session == nil && !m.deleteConfirm {
+				m.openPicker()
+				return m, nil
+			}
 		case "p":
 			return m.openPlannedNotes(true)
 		case "s":
@@ -1711,6 +1738,13 @@ func (m Model) View() tea.View {
 		view.MouseMode = tea.MouseModeCellMotion
 		return view
 	}
+	if m.picking {
+		result := tea.NewView(m.renderPicker())
+		result.AltScreen = true
+		result.MouseMode = tea.MouseModeCellMotion
+		result.WindowTitle = "Dungeon · Library"
+		return result
+	}
 	if m.session != nil {
 		return m.sessionView()
 	}
@@ -1719,7 +1753,7 @@ func (m Model) View() tea.View {
 	header := m.renderHeader(contentWidth)
 	bodyHeight := max(1, m.height-2)
 	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-	help := "/ search  n new  e edit  p prep  +/− panes  d delete  x supersede  s live  r reconcile  q quit"
+	help := "/ search  n new  e edit  p prep  b library  +/− panes  d/x confirm  s live  r reconcile  q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
