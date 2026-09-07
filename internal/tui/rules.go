@@ -1,25 +1,43 @@
 package tui
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
+	"github.com/hbaldwin98/dungeon/internal/storage"
 )
 
 func (m *Model) attachReferences() {
 	m.adventures = nil
-	fetcher := m.adventureFetcher()
-	if fetcher == nil {
-		return
-	}
 	enabled := map[string]bool{}
 	for _, id := range m.workspace.EnabledSourceIDs(m.workspace.Scope) {
 		enabled[id] = true
 	}
+	stored := map[string]fivetools.AdventureBook{}
+	if store := sqliteStore(m.store); store != nil {
+		if blobs, err := store.LoadAdventures(); err == nil {
+			for _, book := range decodeAdventureBlobs(blobs) {
+				stored[book.ID] = book
+			}
+		}
+	}
+	fetcher := m.adventureFetcher()
 	for _, doc := range m.workspace.Sources {
 		if doc.Kind != domain.SourceAdventure || !strings.HasPrefix(doc.ID, "src-5e-") || !enabled[doc.ID] {
+			continue
+		}
+		if book, ok := stored[doc.ID]; ok {
+			book.ID = doc.ID
+			if book.Title == "" {
+				book.Title = doc.Title
+			}
+			m.adventures = append(m.adventures, book)
+			continue
+		}
+		if fetcher == nil {
 			continue
 		}
 		book, err := fivetools.LoadAdventure(fetcher, fivetools.SourceCode(doc.ID), doc.Title)
@@ -30,6 +48,21 @@ func (m *Model) attachReferences() {
 		book.Title = doc.Title
 		m.adventures = append(m.adventures, book)
 	}
+}
+
+func decodeAdventureBlobs(blobs []storage.Blob) []fivetools.AdventureBook {
+	out := make([]fivetools.AdventureBook, 0, len(blobs))
+	for _, blob := range blobs {
+		var book fivetools.AdventureBook
+		if err := json.Unmarshal(blob.Data, &book); err != nil {
+			continue
+		}
+		if book.ID == "" {
+			book.ID = blob.ID
+		}
+		out = append(out, book)
+	}
+	return out
 }
 
 func (m Model) adventureFetcher() fivetools.Fetcher {

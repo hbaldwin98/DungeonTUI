@@ -36,15 +36,16 @@ const (
 	selectDocsSQL = `SELECT kind, id, session_id, title, body, tags, aliases, type_label, authority, world_id, campaign_id, source_id, include_empty, record_json, snippet FROM docs WHERE 1=1`
 )
 
-// IndexPath places search.sqlite next to workspace.json.
+// IndexPath places a sidecar search.sqlite next to a JSON workspace (tests).
 func IndexPath(workspacePath string) string {
 	return filepath.Join(filepath.Dir(workspacePath), "search.sqlite")
 }
 
 type Index struct {
-	mu   sync.RWMutex
-	db   *sql.DB
-	path string
+	mu    sync.RWMutex
+	db    *sql.DB
+	path  string
+	owned bool
 }
 
 func Open(path string, docs []Document) (*Index, error) {
@@ -92,7 +93,12 @@ func openIndex(path string) (*Index, error) {
 		db.Close()
 		return nil, fmt.Errorf("configure search index: %w", err)
 	}
-	return &Index{db: db, path: path}, nil
+	return &Index{db: db, path: path, owned: true}, nil
+}
+
+// Attach uses an already-open campaign database. Close does not close db.
+func Attach(db *sql.DB) *Index {
+	return &Index{db: db, owned: false}
 }
 
 func fileDSN(path string) string {
@@ -105,10 +111,11 @@ func (idx *Index) Close() {
 	}
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
-	if idx.db != nil {
-		idx.db.Close()
-		idx.db = nil
+	if !idx.owned || idx.db == nil {
+		return
 	}
+	idx.db.Close()
+	idx.db = nil
 }
 
 func (idx *Index) Replace(docs []Document) error {
@@ -170,12 +177,26 @@ func replaceDB(db *sql.DB, docs []Document) error {
 	if err != nil {
 		return fmt.Errorf("begin search index write: %w", err)
 	}
-	if _, err := tx.Exec(`DROP TABLE IF EXISTS docs`); err != nil {
+	if err := WriteDocs(tx, docs); err != nil {
 		tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit search index: %w", err)
+	}
+	return nil
+}
+
+// WriteDocs replaces the FTS table inside an existing transaction so campaign
+// rows and search can commit together.
+func WriteDocs(tx *sql.Tx, docs []Document) error {
+	if tx == nil {
+		return fmt.Errorf("search index transaction is required")
+	}
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS docs`); err != nil {
 		return fmt.Errorf("reset search index: %w", err)
 	}
 	if _, err := tx.Exec(createDocsSQL); err != nil {
-		tx.Rollback()
 		return fmt.Errorf("create search index: %w", err)
 	}
 	stmt, err := tx.Prepare(`INSERT INTO docs (
@@ -183,14 +204,12 @@ func replaceDB(db *sql.DB, docs []Document) error {
 		world_id, campaign_id, source_id, include_empty, record_json, snippet
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
-		tx.Rollback()
 		return fmt.Errorf("prepare search index insert: %w", err)
 	}
+	defer stmt.Close()
 	for _, doc := range docs {
 		recordJSON, err := marshalRecord(doc)
 		if err != nil {
-			stmt.Close()
-			tx.Rollback()
 			return err
 		}
 		if _, err := stmt.Exec(
@@ -210,17 +229,8 @@ func replaceDB(db *sql.DB, docs []Document) error {
 			recordJSON,
 			doc.Snippet,
 		); err != nil {
-			stmt.Close()
-			tx.Rollback()
 			return fmt.Errorf("insert search document %s/%s: %w", doc.Kind, doc.ID, err)
 		}
-	}
-	if err := stmt.Close(); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("close search index insert: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit search index: %w", err)
 	}
 	return nil
 }

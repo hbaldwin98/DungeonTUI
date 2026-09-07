@@ -9,7 +9,8 @@ import (
 )
 
 // Bundle is one chosen 5e.tools adventure. CacheOnly books write no wiki rows;
-// JSON stays in the local 5e.tools cache for the Sources reader and @ peeks.
+// raw JSON stays in the local 5e.tools cache as ingest source. Parsed books
+// persist in workspace.sqlite.
 type Bundle struct {
 	Entry      Entry
 	Doc        domain.SourceDocument

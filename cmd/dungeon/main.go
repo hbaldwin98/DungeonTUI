@@ -62,14 +62,15 @@ func runImport(args []string) error {
 }
 
 func runParsedImport(target, kindFlag, dataDir string, remove bool) error {
-	path, err := storage.DefaultPath()
+	store, err := storage.OpenDefault()
 	if err != nil {
 		return err
 	}
-	return runStoredImport(storage.NewJSON(path), path, target, kindFlag, dataDir, remove)
+	defer store.Close()
+	return runStoredImport(store, store.Path, target, kindFlag, dataDir, remove)
 }
 
-func runStoredImport(store storage.JSONStore, path, target, kindFlag, dataDir string, remove bool) error {
+func runStoredImport(store storage.Store, path, target, kindFlag, dataDir string, remove bool) error {
 	ws, err := loadImportWorkspace(store, path, remove)
 	if err != nil {
 		return err
@@ -78,7 +79,7 @@ func runStoredImport(store storage.JSONStore, path, target, kindFlag, dataDir st
 	return routeStoredImport(store, ws, target, kindFlag, dataDir, remove)
 }
 
-func routeStoredImport(store storage.JSONStore, ws domain.Workspace, target, kindFlag, dataDir string, remove bool) error {
+func routeStoredImport(store storage.Store, ws domain.Workspace, target, kindFlag, dataDir string, remove bool) error {
 	if remove {
 		return removeImportSource(store, ws, target)
 	}
@@ -100,7 +101,7 @@ func parseImportArgs(args []string) (*flag.FlagSet, *string, *string, *bool, err
 	return fs, kindFlag, dataDir, remove, nil
 }
 
-func loadImportWorkspace(store storage.JSONStore, path string, removing bool) (domain.Workspace, error) {
+func loadImportWorkspace(store storage.Store, path string, removing bool) (domain.Workspace, error) {
 	ws, err := store.Load()
 	if err == nil {
 		return ws, nil
@@ -119,7 +120,7 @@ func newOrFailedImportWorkspace(path string, removing bool, loadErr error) (doma
 	return newImportWorkspace(), nil
 }
 
-func removeImportSource(store storage.JSONStore, ws domain.Workspace, query string) error {
+func removeImportSource(store storage.Store, ws domain.Workspace, query string) error {
 	doc, ok := ws.FindSource(query)
 	if !ok {
 		return fmt.Errorf("no ingested source matching %q", query)
@@ -130,7 +131,7 @@ func removeImportSource(store storage.JSONStore, ws domain.Workspace, query stri
 	return saveRemovedImport(store, ws, doc)
 }
 
-func saveRemovedImport(store storage.JSONStore, ws domain.Workspace, doc domain.SourceDocument) error {
+func saveRemovedImport(store storage.Store, ws domain.Workspace, doc domain.SourceDocument) error {
 	if err := store.Save(ws); err != nil {
 		return err
 	}
@@ -138,7 +139,7 @@ func saveRemovedImport(store storage.JSONStore, ws domain.Workspace, doc domain.
 	return nil
 }
 
-func applyImportTarget(store storage.JSONStore, ws domain.Workspace, target, kindFlag, dataDir string) error {
+func applyImportTarget(store storage.Store, ws domain.Workspace, target, kindFlag, dataDir string) error {
 	kind, err := ingest.ParseKind(kindFlag)
 	if err != nil {
 		return err
@@ -146,7 +147,7 @@ func applyImportTarget(store storage.JSONStore, ws domain.Workspace, target, kin
 	return applyParsedImportTarget(store, ws, target, dataDir, kind)
 }
 
-func applyParsedImportTarget(store storage.JSONStore, ws domain.Workspace, target, dataDir string, kind domain.SourceKind) error {
+func applyParsedImportTarget(store storage.Store, ws domain.Workspace, target, dataDir string, kind domain.SourceKind) error {
 	var lastProgress string
 	ws, report, err := ingest.ApplyTarget(ws, target, ingest.Options{
 		Kind:    kind,
@@ -167,7 +168,7 @@ func applyParsedImportTarget(store storage.JSONStore, ws domain.Workspace, targe
 	return saveAppliedImport(store, ws, report)
 }
 
-func saveAppliedImport(store storage.JSONStore, ws domain.Workspace, report ingest.Report) error {
+func saveAppliedImport(store storage.Store, ws domain.Workspace, report ingest.Report) error {
 	if err := store.Save(ws); err != nil {
 		return err
 	}
@@ -205,11 +206,10 @@ func newImportWorkspace() domain.Workspace {
 }
 
 func loadWorkspace() (domain.Workspace, storage.Store, error) {
-	path, err := storage.DefaultPath()
+	store, err := storage.OpenDefault()
 	if err != nil {
-		return domain.Workspace{}, nil, err
+		return domain.Workspace{}, store, err
 	}
-	store := storage.NewJSON(path)
 	ws, err := store.Load()
 	if err != nil {
 		return domain.Workspace{}, store, err
@@ -242,11 +242,11 @@ func runExport(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	path, err := storage.DefaultPath()
+	store, err := storage.OpenDefault()
 	if err != nil {
 		return err
 	}
-	store := storage.NewJSON(path)
+	defer store.Close()
 	if strings.TrimSpace(*out) != "" {
 		if err := store.ExportTo(*out); err != nil {
 			return err
@@ -269,11 +269,11 @@ func runRestore(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	path, err := storage.DefaultPath()
+	store, err := storage.OpenDefault()
 	if err != nil {
 		return err
 	}
-	store := storage.NewJSON(path)
+	defer store.Close()
 	if fs.NArg() == 0 {
 		if err := store.RestoreBackup(); err != nil {
 			return err

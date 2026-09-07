@@ -19,7 +19,7 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Local `#` dice and arithmetic evaluation with results linked to transcript
   entries (`#d20+5`, `#damage 2d6+3`, `#10+2*3`).
 - Persist pane split positions and session pane layout cycle in
-  `preferences.json`, separate from campaign `workspace.json`.
+  `preferences.json`, separate from campaign `workspace.sqlite`.
 - Session scene/context panes driven by live campaign records and session
   location (`#location`, `current-scene` seed, present NPCs, open threads).
 - Mouse-addressable session review: click context entities, campaign sections,
@@ -68,9 +68,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   `SourceDocument`s, campaign enablement, and `@` association (Argus #47–#54;
   D-021–D-023). Dedicated Import screen with a 5e.tools catalog (`I`)
   (Argus #51; D-022). `d` then `y` on SOURCES removes a book so it can be
-  ingested again (Argus #61). SQLite FTS5 indexes wiki, prep, sessions,
-  recon, and cached adventure references; JSON stays the campaign store
-  (Argus #55; D-024, D-032).
+  ingested again (Argus #61). Campaign data and FTS5 search live in
+  `workspace.sqlite`; JSON is export/migrate (Argus #55, #107; D-024, D-032).
   Imported records file under source/type folders, collapsed by default
   (Argus #56–#57; D-025).
 - Wiki/prep detail, link previews, and `@` peeks render markdown with
@@ -90,13 +89,15 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   structure **before** wiki rows are written (Argus #64, #67; D-030, D-033).
   The `classify` CLI and import-agent harness are removed (Argus #99).
 - Campaign search covers wiki, prep, sessions, transcripts, reconciliation, and
-  labeled adventure references (Argus #94). SQLite FTS5 is the search backend;
-  `search.sqlite` is rebuildable and must not block workspace save (Argus #55).
+  labeled adventure references (Argus #94). SQLite holds campaign data and FTS
+  in `workspace.sqlite` (Argus #55, #107).
 - Reconciliation applies editable, source-linked wiki mutations; the transcript
   stays immutable (Argus #95).
 - Session and record transactions live in `internal/app` (Argus #97).
 - Empty first-run library, `dungeon export` / `dungeon restore`, MIT license,
   `make build`, and GitHub Actions CI (Argus #100).
+- SQLite is the campaign store (`workspace.sqlite`); JSON is export and
+  migrate-from (Argus #107).
 
 ## In progress
 
@@ -109,7 +110,7 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Deferred
 
-- SQLite operational store for campaign data (JSON remains SoT; FTS5 search
-  already shipped, Argus #55; D-024, D-032). Optional embeddings later.
+- Optional embeddings later (JSON export remains; sqlite is the operational
+  store, Argus #55, #107; D-024, D-032).
 - Context-aware AI generators.
 - Web/API client over the shared domain services.

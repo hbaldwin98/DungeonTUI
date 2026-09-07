@@ -62,10 +62,10 @@ owner's wiki wins on a name collision. `@` peeks stay the small overlay.
 Adventure sites from **markdown FILES** are classified from structure (front
 matter, numbered rooms) **before** wiki rows are written.
 
-Search is SQLite FTS5 over wiki, prep, sessions, transcripts, recon, and
-enabled adventure **reference** caches (D-024, D-032). The workspace JSON is
-still the inspectable campaign store; `search.sqlite` is a rebuildable index.
-Adventure JSON lives in the local 5e.tools cache. Embeddings stay out.
+Campaign data and FTS5 search live in `workspace.sqlite` (D-024, D-032). JSON
+is export/restore (and a one-time migrate from `workspace.json`). Adventure
+JSON dumps stay in the local 5e.tools cache as ingest source. Embeddings stay
+out.
 
 
 ## Validate / screencap
@@ -161,7 +161,7 @@ cmd/dungeon       executable entry point
 internal/domain   UI-independent campaign concepts and invariants
 internal/app      session/record/recon transactions and persistence rollback
 internal/search   typed, scoped search service
-internal/storage  JSON workspace, export, and restore
+internal/storage  SQLite campaign store, JSON export/restore
 internal/tui      Bubble Tea presentation and interaction
 ```
 

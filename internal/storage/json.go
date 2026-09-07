@@ -183,11 +183,3 @@ func (s JSONStore) replaceValidated(workspace domain.Workspace) error {
 	}
 	return nil
 }
-
-func DefaultPath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("find user config directory: %w", err)
-	}
-	return filepath.Join(dir, "dungeon", "workspace.json"), nil
-}

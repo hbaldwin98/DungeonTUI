@@ -127,6 +127,13 @@ func FromDocuments(docs []Document) Service {
 	return Service{index: idx}
 }
 
+func FromIndex(idx *Index) Service {
+	if idx == nil {
+		return Service{}
+	}
+	return Service{index: idx}
+}
+
 func OpenPath(path string, docs []Document) (Service, error) {
 	idx, err := Open(path, docs)
 	if err != nil {

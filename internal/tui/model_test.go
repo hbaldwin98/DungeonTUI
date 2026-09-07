@@ -603,6 +603,35 @@ func TestPersistSucceedsWhenSearchIndexCannotWrite(t *testing.T) {
 	}
 }
 
+func TestSQLiteStoreHoldsCampaignData(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "workspace.sqlite")
+	store := storage.NewSQLite(path)
+	defer store.Close()
+	model := newModel(demoWorkspace(), store, nil)
+	if err := model.persistWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "workspace.json")); !os.IsNotExist(err) {
+		t.Fatal("sqlite store must not write workspace.json")
+	}
+	model.searching = true
+	model.searchInput.SetValue("vale")
+	model.rebuildSearch()
+	model.refreshResults()
+	if len(model.results) == 0 {
+		t.Fatal("expected FTS hits from workspace.sqlite")
+	}
+	store.Close()
+	loaded, err := storage.NewSQLite(path).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Records) == 0 {
+		t.Fatal("expected campaign records in sqlite")
+	}
+}
+
 func searchHasKind(results []searchsvc.Result, kind searchsvc.Kind, id string) bool {
 	for _, result := range results {
 		if result.Kind == kind && result.TargetID() == id {

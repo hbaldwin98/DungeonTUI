@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -135,12 +136,15 @@ func New() Model {
 // a sibling file. Launch opens an Obsidian-style world/campaign picker unless
 // a prior scope can be restored from preferences.
 func NewPersistent() Model {
-	path, err := storage.DefaultPath()
+	store, err := storage.OpenDefault()
 	if err != nil {
-		return newPickerModel(demoWorkspace(), nil, nil, "")
+		if store == nil || store.Path == "" {
+			return newPickerModel(demoWorkspace(), nil, nil, "")
+		}
+		prefStore := prefs.NewJSON(prefs.BesideWorkspace(store.Path))
+		return newLoadFailureModel(store, prefStore, err)
 	}
-	store := storage.NewJSON(path)
-	prefStore := prefs.NewJSON(prefs.BesideWorkspace(path))
+	prefStore := prefs.NewJSON(prefs.BesideWorkspace(store.Path))
 	workspace, err := store.Load()
 	if err != nil {
 		return newLoadFailureModel(store, prefStore, err)
@@ -222,11 +226,19 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 }
 
 func indexPathFromStore(store storage.Store) string {
+	if _, ok := store.(*storage.SQLiteStore); ok {
+		return ""
+	}
 	js, ok := store.(storage.JSONStore)
 	if !ok || js.Path == "" {
 		return ""
 	}
 	return searchsvc.IndexPath(js.Path)
+}
+
+func sqliteStore(store storage.Store) *storage.SQLiteStore {
+	s, _ := store.(*storage.SQLiteStore)
+	return s
 }
 
 func (m Model) Init() tea.Cmd {
@@ -1602,7 +1614,24 @@ func (m *Model) persistWorkspace() error {
 		m.status = "Saved in memory; persistence failed: " + err.Error()
 		return err
 	}
+	m.persistAdventures()
 	return nil
+}
+
+func (m *Model) persistAdventures() {
+	store := sqliteStore(m.store)
+	if store == nil {
+		return
+	}
+	books := make([]storage.Blob, 0, len(m.adventures))
+	for _, book := range m.adventures {
+		data, err := json.Marshal(book)
+		if err != nil {
+			continue
+		}
+		books = append(books, storage.Blob{ID: book.ID, Data: data})
+	}
+	_ = store.SaveAdventures(books)
 }
 
 func (m *Model) applyPreferences() {
@@ -2205,9 +2234,17 @@ func (m Model) suggestionsTitle(hit hitTarget) string {
 }
 
 func (m *Model) rebuildSearch() {
-	m.search.Close()
 	docs := searchsvc.DocumentsFromWorkspace(m.workspace)
 	docs = append(docs, m.referenceDocuments()...)
+	if store := sqliteStore(m.store); store != nil {
+		if err := store.Reindex(docs); err != nil {
+			m.search = searchsvc.FromDocuments(docs)
+			return
+		}
+		m.search = store.Search()
+		return
+	}
+	m.search.Close()
 	if m.searchPath != "" {
 		svc, _ := searchsvc.OpenPath(m.searchPath, docs)
 		m.search = svc

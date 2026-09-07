@@ -83,7 +83,7 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "dungeon", "preferences.json"), nil
 }
 
-// BesideWorkspace derives preferences.json next to a workspace.json path.
+// BesideWorkspace derives preferences.json next to the campaign workspace file.
 func BesideWorkspace(workspacePath string) string {
 	return filepath.Join(filepath.Dir(workspacePath), "preferences.json")
 }

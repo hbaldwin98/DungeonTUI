@@ -678,11 +678,10 @@ These tokens should complement interactive filters rather than replace them.
 ### Search implementation direction
 
 Use a common search service returning typed results regardless of UI. The
-backend is SQLite FTS5 over wiki records, prep notes, sessions, transcripts,
-reconciliation items, and labeled adventure references, with the same fuzzy
-title match (`cptvl` → Captain Vale). JSON workspace remains the inspectable
-campaign store; the index is derived (D-024). The result contract stays the
-same.
+backend is SQLite FTS5 in the campaign database over wiki records, prep notes,
+sessions, transcripts, reconciliation items, and labeled adventure references,
+with the same fuzzy title match (`cptvl` → Captain Vale). JSON is export
+(D-024). The result contract stays the same.
 
 The search result contract should contain enough metadata for any client:
 
@@ -722,17 +721,16 @@ Domain services --+-- future HTTP/API -- web UI
 
 ### Storage strategy
 
-SQLite is a pragmatic eventual system of record: transactional, local,
-portable, easy to back up, and capable of structured queries plus FTS5.
-The persisted campaign slice is a documented JSON workspace because it
-keeps the data inspectable while the entity model is still changing. Owner
-markdown FILES become wiki `Record`s. Published 5e.tools adventures cache as
-read-only reference books, never campaign canon. There is no mechanical 5e
-ruleset plugin in this app (D-029). Search already uses a derived SQLite FTS5
-index (D-024); a later move of the *operational* store to SQLite (and optional
-embeddings for AI retrieval) must not change domain or TUI code. Cached
-embeddings are derived operational data and are not required to reconstruct
-canon. Portability does not require every internal record to be a Markdown file.
+SQLite is the operational system of record: transactional, local, portable,
+easy to back up, and capable of structured queries plus FTS5. Campaign data
+and search live in `workspace.sqlite` (D-024). JSON is the portable export and
+the migrate-from format for older `workspace.json` files. Owner markdown FILES
+become wiki `Record`s. Published 5e.tools adventures cache as read-only
+reference books, never campaign canon. There is no mechanical 5e ruleset
+plugin in this app (D-029). Optional embeddings for AI retrieval must not
+change domain or TUI code. Cached embeddings are derived operational data and
+are not required to reconstruct canon. Portability does not require every
+internal record to be a Markdown file.
 
 The application should provide versioned, documented export and import formats.
 A useful export bundle may contain:

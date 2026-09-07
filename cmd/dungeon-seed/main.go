@@ -23,7 +23,7 @@ func main() {
 		}
 		fmt.Println("backed up", backup)
 	}
-	if err := storage.NewJSON(path).Save(tui.ShowcaseWorkspace()); err != nil {
+	if err := storage.NewSQLite(path).Save(tui.ShowcaseWorkspace()); err != nil {
 		fmt.Fprintf(os.Stderr, "dungeon-seed: %v\n", err)
 		os.Exit(1)
 	}

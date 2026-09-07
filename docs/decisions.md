@@ -193,16 +193,13 @@ named reference hits for `@` peeks. Raw JSON stays out of the repository; a
 local 5e.tools checkout can be passed with `-data`. The durable copy is the
 local 5e.tools cache used by the Sources reader.
 
-## D-024 — SQLite FTS5 is a rebuildable search index; JSON stays the campaign store
+## D-024 — SQLite is the campaign store; JSON is export
 
-Search uses a SQLite FTS5 index (`search.sqlite` beside `workspace.json`, or
-an in-memory database in tests) over wiki records, prep notes, sessions,
-transcripts, reconciliation items, and enabled adventure **reference** hits.
-The JSON workspace remains the inspectable campaign source of truth. The index
-is derived and may be deleted and rebuilt; a corrupt or unwritable index must
-not fail a workspace save. Embeddings stay optional and are not required to
-reconstruct canon. A later SQLite *operational* store is a separate move
-(design: Storage strategy).
+Campaign data lives in `workspace.sqlite`: library, wiki, prep, sessions,
+transcripts, reconciliations, collections, adventure books, and the FTS5
+search index. JSON is the portable export/restore format and the one-time
+migrate-from path (`workspace.json` → sqlite). Embeddings stay optional and
+are not required to reconstruct canon.
 
 ## D-025 — Imported wiki records file under source folders
 
@@ -266,14 +263,12 @@ rather than dropping the unread tail (Argus #60). `PgUp`/`PgDn`, Home/End, and
 the mouse wheel over the pane (or while it is focused) move the body. `j`/`k`
 keep hop-row movement when REFERENCES/LINKED/CAST exist (Argus #61, D-020).
 
-## D-032 — Adventure cache is local durable data; FTS5 indexes its hits
+## D-032 — Adventure cache is ingest source; sqlite stores parsed books
 
-5e.tools adventure JSON is fetched at ingest and stored on the owner's
-machine. The Sources reader and `@` peeks rebuild from that cache. Cached
-adventures still must not land on `Workspace.Records` (D-037). The FTS5
-search index (D-024, Argus #55) includes those reference hits so `/` search
-does not scan caches on every keystroke. Embeddings stay optional and are not
-required to reconstruct canon.
+5e.tools adventure JSON is fetched at ingest and cached on the owner's
+machine. Parsed adventure books and their FTS hits live in `workspace.sqlite`
+(D-024). Cached adventures still must not land on `Workspace.Records` (D-037).
+Embeddings stay optional and are not required to reconstruct canon.
 
 ## D-033 — Classify before wiki write
 
