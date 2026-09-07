@@ -2,6 +2,7 @@
 .agents/
 .claude/
 .codex/
+.cursor/hooks.json
 
 # Generated TUI harness screencaps
 testdata/harness/

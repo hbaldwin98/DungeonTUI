@@ -104,6 +104,15 @@ func longestRecordName(records []Record, rest string) (Record, int) {
 	return best, bestLen
 }
 
+// ScanMentionName returns the unmatched @ token at the start of rest.
+func ScanMentionName(rest string) string {
+	n := unmatchedMentionLen(rest)
+	if n == 0 {
+		return ""
+	}
+	return rest[:n]
+}
+
 func unmatchedMentionLen(rest string) int {
 	if rest == "" {
 		return 0

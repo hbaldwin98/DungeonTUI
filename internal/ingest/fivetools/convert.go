@@ -3,13 +3,11 @@ package fivetools
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/hbaldwin98/dungeon/internal/classify"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 )
-
-var numberedRoom = regexp.MustCompile(`^(\d+)(?:\.(\s+|$)|$)`)
 
 type draft struct {
 	Type    domain.EntityType
@@ -191,6 +189,8 @@ func formatMonster(item map[string]any) string {
 	writeNamedBlocks(&b, "Reactions", item["reaction"])
 	writeNamedBlocks(&b, "Legendary Actions", item["legendary"])
 	writeNamedBlocks(&b, "Mythic Actions", item["mythic"])
+	writeProseSection(&b, "Lair Actions", item["lairActions"])
+	writeProseSection(&b, "Regional Effects", item["regionalEffects"])
 	return strings.TrimSpace(b.String()) + "\n"
 }
 
@@ -467,6 +467,18 @@ func writeKV(b *strings.Builder, label, value string) {
 	b.WriteString("\n")
 }
 
+func writeProseSection(b *strings.Builder, heading string, v any) {
+	text := strings.TrimSpace(renderValue(v))
+	if text == "" {
+		return
+	}
+	b.WriteString("\n### ")
+	b.WriteString(heading)
+	b.WriteString("\n\n")
+	b.WriteString(text)
+	b.WriteString("\n")
+}
+
 func writeNamedBlocks(b *strings.Builder, heading string, v any) {
 	items := asList(v)
 	if len(items) == 0 {
@@ -711,6 +723,31 @@ func convertItems(items []map[string]any, code string) []draft {
 	return out
 }
 
+func formatMagicVariant(item map[string]any) string {
+	var b strings.Builder
+	b.WriteString("# ")
+	b.WriteString(asString(item["name"]))
+	b.WriteString("\n\n")
+	b.WriteString("*Magic item variant*\n\n")
+	inherits := asMap(item["inherits"])
+	if inherits != nil {
+		writeKV(&b, "Rarity", asString(inherits["rarity"]))
+		writeKV(&b, "Requires Attunement", attuneText(inherits))
+		if prefix := asString(inherits["namePrefix"]); prefix != "" {
+			writeKV(&b, "Name prefix", strings.TrimSpace(prefix))
+		}
+		if suffix := asString(inherits["nameSuffix"]); suffix != "" {
+			writeKV(&b, "Name suffix", strings.TrimSpace(suffix))
+		}
+		if text := strings.TrimSpace(renderValue(inherits["entries"])); text != "" {
+			b.WriteString("\n")
+			b.WriteString(text)
+			b.WriteString("\n")
+		}
+	}
+	return strings.TrimSpace(b.String()) + "\n"
+}
+
 func formatItem(item map[string]any) string {
 	var b strings.Builder
 	b.WriteString("# ")
@@ -734,6 +771,9 @@ func formatItem(item map[string]any) string {
 }
 
 func itemTypeLine(item map[string]any) string {
+	if item == nil {
+		return ""
+	}
 	parts := []string{}
 	if rarity := asString(item["rarity"]); rarity != "" && rarity != "none" {
 		parts = append(parts, rarity)
@@ -910,14 +950,14 @@ func convertAdventure(data []byte) ([]draft, []planDraft) {
 		}
 	}
 	npcs := indexAdventureNPCs(sections)
+	tops := chapterOutlineTitles(sections)
 	split := func(m map[string]any) bool {
-		return shouldSplitAdventureBlock(m, npcs)
+		return shouldSplitAdventureBlock(m, npcs, tops)
 	}
 	drafts := make([]draft, 0)
-	plans := make([]planDraft, 0)
 	seen := map[string]bool{}
 	add := func(d draft) {
-		key := d.Prefix + ":" + strings.ToLower(d.Group+"\x00"+d.Title)
+		key := strings.ToLower(string(d.Type)) + ":" + strings.ToLower(d.Group+"\x00"+d.Title)
 		if d.Title == "" || seen[key] {
 			return
 		}
@@ -926,29 +966,20 @@ func convertAdventure(data []byte) ([]draft, []planDraft) {
 	}
 	for _, section := range sections {
 		title := asString(section["name"])
-		lower := strings.ToLower(title)
-		if title == "" || lower == "credits" {
+		if title == "" {
 			continue
 		}
 		body := truncate(renderSkipping(section["entries"], split), 8000)
-		if strings.HasPrefix(lower, "appendix b") {
+		for _, name := range extractItemNames(section["entries"]) {
+			add(draft{Type: domain.Item, Title: name, Body: "Magic item from " + title + ".", Tags: []string{"item", "adventure"}, Prefix: "item"})
+		}
+		tags := outlineTags(section)
+		add(draft{Type: domain.Note, Title: title, Body: body, Tags: tags, Prefix: "note"})
+		if classify.FrontMatter(title) {
+			walkFrontMatterExtras(section["entries"], title, add, npcs, tops, split)
 			continue
 		}
-		if strings.HasPrefix(lower, "appendix a") {
-			for _, name := range extractItemNames(section["entries"]) {
-				add(draft{Type: domain.Item, Title: name, Body: "Magic item from " + title + ".", Tags: []string{"item", "adventure"}, Prefix: "item"})
-			}
-			add(draft{Type: domain.Note, Title: title, Body: body, Tags: []string{"adventure"}, Prefix: "note"})
-			continue
-		}
-		if lower == "introduction" {
-			add(draft{Type: domain.Note, Title: title, Body: body, Tags: []string{"adventure"}, Prefix: "note"})
-			walkNamed(section["entries"], title, 1, add, npcs, split)
-			continue
-		}
-		add(draft{Type: domain.Location, Title: title, Body: body, Tags: []string{"adventure"}, Prefix: "location"})
-		plans = append(plans, planDraft{Title: title, Body: body})
-		walkNamed(section["entries"], title, 1, add, npcs, split)
+		walkOutline(section["entries"], title, add, npcs, split)
 	}
 	for _, npc := range npcs {
 		if npc == nil || npc.Title == "" {
@@ -971,8 +1002,80 @@ func convertAdventure(data []byte) ([]draft, []planDraft) {
 			Group:   npc.Group,
 		})
 	}
+	organizeAdventureDrafts(drafts)
 	applyLocationGroups(drafts)
+	plans := make([]planDraft, 0)
+	for _, d := range drafts {
+		if d.Type == domain.Location && (d.Group == "" || strings.EqualFold(d.Group, d.Title)) {
+			plans = append(plans, planDraft{Title: d.Title, Body: d.Body})
+		}
+	}
 	return drafts, plans
+}
+
+func outlineTags(node map[string]any) []string {
+	tags := []string{"adventure", "outline"}
+	typ := asString(node["type"])
+	if typ != "" {
+		tags = append(tags, "5e-"+typ)
+	}
+	return tags
+}
+
+func chapterOutlineTitles(sections []map[string]any) map[string]bool {
+	out := map[string]bool{}
+	var walk func(any)
+	walk = func(v any) {
+		for _, item := range asList(v) {
+			m := asMap(item)
+			if m == nil {
+				continue
+			}
+			if title := asString(m["name"]); title != "" {
+				out[strings.ToLower(title)] = true
+			}
+			walk(m["entries"])
+		}
+	}
+	for _, section := range sections {
+		title := asString(section["name"])
+		if classify.FrontMatter(title) {
+			continue
+		}
+		if title != "" {
+			out[strings.ToLower(title)] = true
+		}
+		walk(section["entries"])
+	}
+	return out
+}
+
+func reprintsChapter(m map[string]any, tops map[string]bool) bool {
+	if tops[strings.ToLower(asString(m["name"]))] {
+		return true
+	}
+	for _, item := range asList(m["entries"]) {
+		child := asMap(item)
+		if child != nil && reprintsChapter(child, tops) {
+			return true
+		}
+	}
+	return false
+}
+
+func organizeAdventureDrafts(drafts []draft) {
+	for i, d := range drafts {
+		switch d.Type {
+		case domain.NPC, domain.Item, domain.Creature, domain.Rule:
+			continue
+		}
+		d.Type = classify.Assign(d.Title, d.Group, d.Tags)
+		d.Prefix = classify.PrefixFor(d.Type)
+		if d.Type == domain.Location && classify.NumberedRoom(d.Title) {
+			d.Tags = unique(append(d.Tags, "room"))
+		}
+		drafts[i] = d
+	}
 }
 
 type planDraft struct {
@@ -987,17 +1090,20 @@ type npcDraft struct {
 	Group string
 }
 
-func shouldSplitAdventureBlock(m map[string]any, npcs map[string]*npcDraft) bool {
+func shouldSplitAdventureBlock(m map[string]any, npcs map[string]*npcDraft, tops map[string]bool) bool {
 	title := asString(m["name"])
 	if title == "" {
 		return false
 	}
 	typ := asString(m["type"])
 	lower := strings.ToLower(title)
-	if lower == "credits" || strings.Contains(lower, "important npc") {
+	if classify.FrontMatter(title) || classify.NPCRosterTitle(title) {
 		return true
 	}
-	if numberedRoom.MatchString(title) || typ == "section" {
+	if classify.NumberedRoom(title) || typ == "section" {
+		return true
+	}
+	if tops[lower] {
 		return true
 	}
 	_, ok := npcs[lower]
@@ -1013,8 +1119,7 @@ func indexAdventureNPCs(sections []map[string]any) map[string]*npcDraft {
 			if m == nil {
 				continue
 			}
-			title := asString(m["name"])
-			if strings.Contains(strings.ToLower(title), "important npc") {
+			if isNPCNameTable(m) {
 				for _, hit := range npcRowsFrom(m) {
 					key := strings.ToLower(hit.Title)
 					if out[key] == nil {
@@ -1024,8 +1129,9 @@ func indexAdventureNPCs(sections []map[string]any) map[string]*npcDraft {
 					}
 				}
 			}
+			title := asString(m["name"])
 			next := parent
-			if title != "" && asString(m["type"]) == "section" && !numberedRoom.MatchString(title) {
+			if title != "" && asString(m["type"]) == "section" && !classify.NumberedRoom(title) && !classify.FrontMatter(title) {
 				next = title
 			}
 			walk(m["entries"], next)
@@ -1035,6 +1141,101 @@ func indexAdventureNPCs(sections []map[string]any) map[string]*npcDraft {
 		walk(section["entries"], asString(section["name"]))
 	}
 	return out
+}
+
+func isNPCNameTable(m map[string]any) bool {
+	if asString(m["type"]) != "table" {
+		return false
+	}
+	hasName, hasRole := false, false
+	for _, lab := range asList(m["colLabels"]) {
+		label := strings.ToLower(strings.TrimSpace(plainCell(lab)))
+		if label == "name" || label == "npc" {
+			hasName = true
+		}
+		if label == "role" || label == "occupation" || label == "notes" || label == "description" {
+			hasRole = true
+		}
+	}
+	if !hasName {
+		return false
+	}
+	if hasRole {
+		return true
+	}
+	raw, _ := json.Marshal(m)
+	return strings.Contains(strings.ToLower(string(raw)), "{@creature ")
+}
+
+func walkFrontMatterExtras(entries any, parent string, add func(draft), npcs map[string]*npcDraft, tops map[string]bool, split func(map[string]any) bool) {
+	for _, item := range asList(entries) {
+		m := asMap(item)
+		if m == nil {
+			continue
+		}
+		title := asString(m["name"])
+		if title == "" {
+			walkFrontMatterExtras(m["entries"], parent, add, npcs, tops, split)
+			continue
+		}
+		lower := strings.ToLower(title)
+		if reprintsChapter(m, tops) {
+			continue
+		}
+		if classify.NPCRosterTitle(title) {
+			continue
+		}
+		if _, ok := npcs[lower]; ok {
+			body := strings.TrimSpace(renderSkipping(m["entries"], split))
+			if npc := npcs[lower]; len(body) > len(npc.Body) {
+				npc.Body = body
+			}
+			continue
+		}
+		body := truncate(renderSkipping(m["entries"], split), 6000)
+		add(draft{Type: domain.Note, Title: title, Body: body, Tags: outlineTags(m), Prefix: "note", Group: parent})
+		walkFrontMatterExtras(m["entries"], joinGroup(parent, title), add, npcs, tops, split)
+	}
+}
+
+func walkOutline(entries any, parent string, add func(draft), npcs map[string]*npcDraft, split func(map[string]any) bool) {
+	for _, item := range asList(entries) {
+		m := asMap(item)
+		if m == nil {
+			continue
+		}
+		title := asString(m["name"])
+		if title == "" {
+			walkOutline(m["entries"], parent, add, npcs, split)
+			continue
+		}
+		lower := strings.ToLower(title)
+		if classify.NPCRosterTitle(title) {
+			walkOutline(m["entries"], parent, add, npcs, split)
+			continue
+		}
+		if npc, ok := npcs[lower]; ok {
+			body := strings.TrimSpace(renderSkipping(m["entries"], split))
+			if len(body) > len(npc.Body) {
+				npc.Body = body
+			}
+			if npc.Group == "" {
+				npc.Group = parent
+			}
+			continue
+		}
+		typ := asString(m["type"])
+		keep := typ == "section" || classify.NumberedRoom(title)
+		if keep {
+			body := truncate(renderSkipping(m["entries"], split), 6000)
+			add(draft{Type: domain.Note, Title: title, Body: body, Tags: outlineTags(m), Prefix: "note", Group: parent})
+		}
+		nextParent := parent
+		if keep && !classify.NumberedRoom(title) {
+			nextParent = joinGroup(parent, title)
+		}
+		walkOutline(m["entries"], nextParent, add, npcs, split)
+	}
 }
 
 func npcRowsFrom(block map[string]any) []npcDraft {
@@ -1075,53 +1276,6 @@ func npcRowsFrom(block map[string]any) []npcDraft {
 	return out
 }
 
-func walkNamed(entries any, parent string, depth int, add func(draft), npcs map[string]*npcDraft, split func(map[string]any) bool) {
-	for _, item := range asList(entries) {
-		m := asMap(item)
-		if m == nil {
-			continue
-		}
-		title := asString(m["name"])
-		typ := asString(m["type"])
-		if title == "" {
-			walkNamed(m["entries"], parent, depth+1, add, npcs, split)
-			continue
-		}
-		lower := strings.ToLower(title)
-		if lower == "credits" || strings.Contains(lower, "important npc") {
-			continue
-		}
-		if npc, ok := npcs[lower]; ok {
-			body := strings.TrimSpace(renderSkipping(m["entries"], split))
-			if len(body) > len(npc.Body) {
-				npc.Body = body
-			}
-			if npc.Group == "" {
-				npc.Group = parent
-			}
-			continue
-		}
-		numbered := numberedRoom.MatchString(title)
-		isSection := typ == "section"
-		keep := isSection || numbered
-		if keep {
-			group := ""
-			if numbered && parent != "" {
-				group = parent
-			}
-			body := truncate(renderSkipping(m["entries"], split), 6000)
-			add(draft{Type: domain.Location, Title: title, Body: body, Tags: []string{"adventure"}, Prefix: "location", Group: group})
-		}
-		nextParent := title
-		if numbered {
-			nextParent = parent
-		}
-		if isSection || numbered || depth < 2 {
-			walkNamed(m["entries"], nextParent, depth+1, add, npcs, split)
-		}
-	}
-}
-
 func applyLocationGroups(drafts []draft) {
 	hasKids := map[string]bool{}
 	for _, d := range drafts {
@@ -1134,6 +1288,18 @@ func applyLocationGroups(drafts []draft) {
 			drafts[i].Group = d.Title
 		}
 	}
+}
+
+func joinGroup(parent, title string) string {
+	parent = strings.Trim(parent, "/")
+	title = strings.TrimSpace(title)
+	if parent == "" {
+		return title
+	}
+	if title == "" {
+		return parent
+	}
+	return parent + "/" + title
 }
 
 func extractItemNames(v any) []string {

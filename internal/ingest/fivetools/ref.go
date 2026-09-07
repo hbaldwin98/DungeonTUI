@@ -7,7 +7,7 @@ import (
 
 // Ref is a 5e.tools source the owner chose to ingest.
 type Ref struct {
-	ID   string // canonical catalog id, e.g. LMoP, XMM
+	ID   string // canonical 5e.tools catalog id
 	Kind string // "adventure" or "book" when known from the URL
 	Raw  string
 }

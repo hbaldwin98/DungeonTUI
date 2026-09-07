@@ -10,10 +10,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/hbaldwin98/dungeon/internal/classify"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
+	"github.com/hbaldwin98/dungeon/internal/storage"
 )
 
 type importFile struct {
@@ -42,6 +44,7 @@ func (m Model) openImport() (tea.Model, tea.Cmd) {
 	m.importToolsCursor = 0
 	m.importToolsQuery = ""
 	m.importBusy = false
+	m.clearDestructiveConfirm("")
 	if m.importDir == "" {
 		m.importDir = defaultImportDir(m.workspace)
 	}
@@ -52,6 +55,7 @@ func (m Model) openImport() (tea.Model, tea.Cmd) {
 
 func (m *Model) closeImport() {
 	m.importing = false
+	m.clearDestructiveConfirm("")
 	if m.importFromPicker {
 		m.importFromPicker = false
 		m.openPicker()
@@ -66,6 +70,18 @@ func (m Model) updateImport(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		}
+		return m, nil
+	}
+	if m.deleteConfirm && m.confirmKind == "delete-source" {
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "y":
+			return m.confirmRemoveImportSource()
+		case "n", "esc":
+			m.clearDestructiveConfirm("Cancelled")
+			return m, nil
 		}
 		return m, nil
 	}
@@ -93,9 +109,17 @@ func (m Model) updateImport(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t":
 		m.cycleImportKind()
 		return m, nil
+	case "ctrl+h", "H", "shift+h":
+		m.cycleImportHarness()
+		return m, nil
 	case "t":
 		if m.importFocus != "tools" {
 			m.cycleImportKind()
+			return m, nil
+		}
+	case "h":
+		if m.importFocus != "tools" {
+			m.cycleImportHarness()
 			return m, nil
 		}
 	case "ctrl+r":
@@ -110,6 +134,10 @@ func (m Model) updateImport(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "e":
 		if m.importFocus == "sources" {
 			return m.toggleImportSource()
+		}
+	case "d":
+		if m.importFocus == "sources" {
+			return m.armRemoveImportSource()
 		}
 	case "enter":
 		return m.activateImport()
@@ -139,6 +167,41 @@ func (m *Model) cycleImportKind() {
 		m.importKind = ""
 	}
 	m.status = "Kind " + importKindLabel(m.importKind)
+}
+
+func (m Model) importHarness() classify.Harness {
+	h, _ := classify.ParseHarness(m.layout.ImportHarness)
+	return h
+}
+
+func (m *Model) cycleImportHarness() {
+	next := classify.NextHarness(m.importHarness())
+	m.layout.ImportHarness = string(next)
+	m.persistPreferences()
+	switch next {
+	case classify.HarnessDump:
+		m.status = "Harness dump · writes ingest-dump.json after ingest for agents"
+	case classify.HarnessApply:
+		m.status = "Harness apply · structural retype plus dump after ingest"
+	default:
+		m.status = "Harness off · ingest only"
+	}
+}
+
+func (m Model) ingestDumpPath() string {
+	js, ok := m.store.(storage.JSONStore)
+	if !ok || strings.TrimSpace(js.Path) == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(js.Path), "ingest-dump.json")
+}
+
+func (m Model) withImportHarness(opts ingest.Options) ingest.Options {
+	opts.Harness = m.importHarness()
+	if opts.Harness != classify.HarnessOff {
+		opts.DumpPath = m.ingestDumpPath()
+	}
+	return opts
 }
 
 func (m *Model) moveImportCursor(delta int) {
@@ -180,7 +243,43 @@ func (m Model) toggleImportSource() (tea.Model, tea.Cmd) {
 	}
 	m.persistWorkspace()
 	m.search = searchsvc.New(m.workspace.Records)
+	m.attachRules()
 	m.refreshResults()
+	return m, nil
+}
+
+func (m Model) armRemoveImportSource() (tea.Model, tea.Cmd) {
+	if m.importFocus != "sources" || m.importSourceCursor < 0 || m.importSourceCursor >= len(m.workspace.Sources) {
+		m.status = "Select a source to remove"
+		return m, nil
+	}
+	source := m.workspace.Sources[m.importSourceCursor]
+	m.deleteConfirm = true
+	m.confirmKind = "delete-source"
+	m.status = "Remove “" + source.Title + "” and its ingested records?  y confirm · n/Esc cancel"
+	return m, nil
+}
+
+func (m Model) confirmRemoveImportSource() (tea.Model, tea.Cmd) {
+	if m.importSourceCursor < 0 || m.importSourceCursor >= len(m.workspace.Sources) {
+		m.clearDestructiveConfirm("Nothing selected")
+		return m, nil
+	}
+	source := m.workspace.Sources[m.importSourceCursor]
+	m.clearDestructiveConfirm("")
+	if !m.workspace.RemoveSource(source.ID) {
+		m.status = "Could not remove " + source.Title
+		return m, nil
+	}
+	if m.importSourceCursor >= len(m.workspace.Sources) {
+		m.importSourceCursor = max(0, len(m.workspace.Sources)-1)
+	}
+	m.search = searchsvc.New(m.workspace.Records)
+	m.attachRules()
+	m.persistWorkspace()
+	m.ensureBrowserSelection()
+	m.refreshResults()
+	m.status = "Removed " + source.Title + " · ingest it again from 5e.tools or FILES"
 	return m, nil
 }
 
@@ -205,11 +304,11 @@ func (m Model) activateImport() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) runImportFile(path string) (tea.Model, tea.Cmd) {
-	ws, report, err := ingest.ApplyFile(m.workspace, path, ingest.Options{
+	ws, report, err := ingest.ApplyFile(m.workspace, path, m.withImportHarness(ingest.Options{
 		Kind:  m.importKind,
 		Scope: m.workspace.Scope,
 		Path:  path,
-	})
+	}))
 	if err != nil {
 		m.status = "Import failed: " + err.Error()
 		return m, nil
@@ -226,8 +325,8 @@ func (m Model) runImportFile(path string) (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links",
-		report.Title, report.Kind, report.Records, report.Planned, report.Linked)
+	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links%s",
+		report.Title, report.Kind, report.Records, report.Planned, report.Linked, harnessStatus(report))
 	return m, nil
 }
 
@@ -321,14 +420,15 @@ func importKindLabel(kind domain.SourceKind) string {
 func (m Model) renderImport() string {
 	width := max(1, m.width)
 	height := max(1, m.height)
+	kind := "kind " + importKindLabel(m.importKind)
+	harness := "harness " + m.importHarness().Label()
 	header := headerStyle.Width(width).Render(
 		titleStyle.Render("IMPORT") + "  " +
-			mutedStyle.Render("library sources · "+m.workspace.Scope.Label()),
+			mutedStyle.Render(harness+" · library sources · "+m.workspace.Scope.Label()),
 	)
-	kind := "kind " + importKindLabel(m.importKind)
 	bodyHeight := max(1, height-2)
 	body := m.renderImportBody(width, bodyHeight)
-	help := "j/k move  Tab pane  Enter ingest  type to filter 5e.tools  Ctrl+T kind (" + kind + ")  e enable  Esc back  q quit"
+	help := "j/k move  Tab pane  Enter ingest  d remove source  e enable  Ctrl+T kind (" + kind + ")  H " + harness + "  Esc back  q quit"
 	if m.importBusy {
 		help = "Importing…  q quit"
 	}
@@ -492,6 +592,17 @@ func truncateImportLine(s string, width int) string {
 	return s[:width-1] + "…"
 }
 
+func harnessStatus(report ingest.Report) string {
+	if report.Harness == "" {
+		return ""
+	}
+	extra := fmt.Sprintf(" · harness %s · %d findings", report.Harness, report.Findings)
+	if report.DumpPath != "" {
+		extra += " · " + report.DumpPath
+	}
+	return extra
+}
+
 type toolsCatalogMsg struct {
 	entries []fivetools.Entry
 	err     error
@@ -535,12 +646,12 @@ func (m Model) runImportTools() (tea.Model, tea.Cmd) {
 	entry := entries[m.importToolsCursor]
 	ref := entry.PageURL()
 	ws := m.workspace
-	opts := ingest.Options{
+	opts := m.withImportHarness(ingest.Options{
 		Kind:    m.importKind,
 		Scope:   ws.Scope,
 		Path:    ref,
 		Fetcher: m.toolsFetcher,
-	}
+	})
 	m.importBusy = true
 	m.status = "Ingesting " + entry.Name + " from 5e.tools…"
 	return m, func() tea.Msg {
@@ -560,6 +671,7 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 	}
 	m.workspace = msg.ws
 	m.search = searchsvc.New(m.workspace.Records)
+	m.attachRules()
 	m.persistWorkspace()
 	m.ensureBrowserSelection()
 	m.refreshResults()
@@ -570,7 +682,7 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links",
-		msg.report.Title, msg.report.Kind, msg.report.Records, msg.report.Planned, msg.report.Linked)
+	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links%s",
+		msg.report.Title, msg.report.Kind, msg.report.Records, msg.report.Planned, msg.report.Linked, harnessStatus(msg.report))
 	return m, nil
 }

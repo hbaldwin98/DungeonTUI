@@ -15,6 +15,7 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
+	"github.com/hbaldwin98/dungeon/internal/ruleset"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 	"github.com/hbaldwin98/dungeon/internal/storage"
 )
@@ -82,6 +83,7 @@ type Model struct {
 	peek               *domain.Record
 	peekScroll         int
 	historyCursor      int
+	detailView         *paneScroll
 	playingBack        bool
 	playbackCursor     int
 	collectionFilter   string
@@ -106,6 +108,7 @@ type Model struct {
 	importToolsQuery   string
 	importBusy         bool
 	toolsFetcher       fivetools.Fetcher
+	rules              *ruleset.Registry
 }
 
 func New() Model {
@@ -171,6 +174,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 		collectionName:   name,
 		collapsedFolders: map[string]bool{},
 		expandedFolders:  map[string]bool{},
+		detailView:       &paneScroll{},
 	}
 	model.sessionInput = textarea.New()
 	model.sessionInput.Prompt = "│ "
@@ -182,6 +186,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	model.layout = prefs.DefaultLayout()
 	model.rollRNG = dice.DefaultRNG()
 	model.workspace.EnsureLibrary()
+	model.attachRules()
 	model.refreshResults()
 	model.ensureBrowserSelection()
 	return model
@@ -279,7 +284,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if m.layout.Focus == prefs.PaneNav {
 				m.moveNavCursor(1)
 			} else if m.layout.Focus == prefs.PaneDetail {
-				m.moveDetailCursor(1)
+				m.moveDetailFocus(1)
 			} else {
 				m.moveBrowserCursor(1)
 			}
@@ -287,9 +292,25 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if m.layout.Focus == prefs.PaneNav {
 				m.moveNavCursor(-1)
 			} else if m.layout.Focus == prefs.PaneDetail {
-				m.moveDetailCursor(-1)
+				m.moveDetailFocus(-1)
 			} else {
 				m.moveBrowserCursor(-1)
+			}
+		case "pgdown":
+			if m.layout.Focus == prefs.PaneDetail {
+				m.scrollDetail(m.detailPageStep())
+			}
+		case "pgup":
+			if m.layout.Focus == prefs.PaneDetail {
+				m.scrollDetail(-m.detailPageStep())
+			}
+		case "home":
+			if m.layout.Focus == prefs.PaneDetail {
+				m.scrollDetailTo(0)
+			}
+		case "end":
+			if m.layout.Focus == prefs.PaneDetail {
+				m.scrollDetailTo(m.detailMaxScroll())
 			}
 		case "/":
 			return m.openSearch()
@@ -1503,7 +1524,13 @@ func (m Model) resolveReference(text string) *domain.Record {
 			bestScore = score
 		}
 	}
-	return best
+	if best != nil {
+		return best
+	}
+	if rec, ok := m.lookupRuleset(query); ok {
+		return &rec
+	}
+	return nil
 }
 
 func (m Model) resolveLinks(text string) []domain.EntityLink {
@@ -1535,6 +1562,10 @@ func (m Model) resolveLinks(text string) []domain.EntityLink {
 		}
 		if best != nil {
 			links = append(links, domain.EntityLink{Text: remaining[:bestLen], RecordID: best.ID})
+		} else if token := domain.ScanMentionName(remaining); token != "" {
+			if rec, ok := m.lookupRuleset(token); ok {
+				links = append(links, domain.EntityLink{Text: token, RecordID: rec.ID})
+			}
 		}
 		next := strings.Index(remaining, " @")
 		if next < 0 {
@@ -1573,10 +1604,12 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		if len(m.results) > 0 {
-			for _, record := range m.workspace.Records {
-				if record.ID == m.results[m.selected].Record.ID {
-					m.selectRecord(record)
-					break
+			id := m.results[m.selected].Record.ID
+			if rec, ok := m.lookupAny(id); ok {
+				if fivetools.IsPluginID(rec.ID) {
+					m.openPreview(detailHop{Kind: hopRuleset, Label: rec.Title, RecordID: rec.ID})
+				} else {
+					m.selectRecord(rec)
 				}
 			}
 		}
@@ -1878,13 +1911,14 @@ func (m Model) updateSearchClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		m.selected = start + index
 		selectedID := m.results[m.selected].Record.ID
-		for _, record := range m.workspace.Records {
-			if record.ID == selectedID {
-				m.selectRecord(record)
-				m.searching = false
-				m.searchInput.Blur()
-				break
+		if rec, ok := m.lookupAny(selectedID); ok {
+			if fivetools.IsPluginID(rec.ID) {
+				m.openPreview(detailHop{Kind: hopRuleset, Label: rec.Title, RecordID: rec.ID})
+			} else {
+				m.selectRecord(rec)
 			}
+			m.searching = false
+			m.searchInput.Blur()
 		}
 	}
 	return m, nil
@@ -1909,10 +1943,24 @@ func (m Model) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 	if m.searching {
 		m.selected = clamp(m.selected+delta, 0, max(0, len(m.results)-1))
+	} else if m.wheelHitsDetail(msg) || m.layout.Focus == prefs.PaneDetail {
+		m.scrollDetail(delta)
 	} else {
 		m.moveBrowserCursor(delta)
 	}
 	return m, nil
+}
+
+func (m Model) wheelHitsDetail(msg tea.MouseWheelMsg) bool {
+	for _, region := range m.browserRegions() {
+		if region.Pane != prefs.PaneDetail {
+			continue
+		}
+		if msg.X >= region.MinX && msg.X <= region.MaxX && msg.Y >= region.MinY && msg.Y <= region.MaxY {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) updateSessionMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
@@ -2016,6 +2064,20 @@ func (m *Model) refreshResults() {
 		EnabledSourceIDs: m.workspace.EnabledSourceIDs(m.workspace.Scope),
 		IncludeProposals: m.includeIdeas,
 	})
+	query := strings.TrimSpace(m.searchInput.Value())
+	if m.rules == nil || query == "" {
+		return
+	}
+	seen := map[string]bool{}
+	for _, result := range m.results {
+		seen[result.Record.ID] = true
+	}
+	for _, ent := range m.rules.Search(query, 8) {
+		if seen[ent.Record.ID] {
+			continue
+		}
+		m.results = append(m.results, searchsvc.Result{Record: ent.Record, Score: 1})
+	}
 }
 
 func (m Model) visibleRecords() []domain.Record {
@@ -2701,16 +2763,109 @@ func panelInnerHeight(panelHeight int) int {
 }
 
 func fitLines(content string, maxLines int) string {
-	if maxLines <= 0 {
-		return ""
-	}
-	lines := strings.Split(content, "\n")
-	if len(lines) <= maxLines {
-		return content
-	}
-	return strings.Join(lines[:maxLines], "\n")
+	visible, _ := windowLines(content, maxLines, 0)
+	return visible
 }
 
 func fitPanelBody(content string, innerWidth, maxLines int) string {
-	return fitLines(clampANSIWidth(content, innerWidth), maxLines)
+	return fitPanelBodyScroll(content, innerWidth, maxLines, 0)
+}
+
+type paneScroll struct {
+	key    string
+	offset int
+}
+
+func windowLines(content string, maxLines, scroll int) (string, int) {
+	if maxLines <= 0 {
+		return "", 0
+	}
+	lines := strings.Split(content, "\n")
+	maxScroll := max(0, len(lines)-maxLines)
+	scroll = clamp(scroll, 0, maxScroll)
+	if len(lines) <= maxLines {
+		return content, 0
+	}
+	return strings.Join(lines[scroll:scroll+maxLines], "\n"), scroll
+}
+
+func fitPanelBodyScroll(content string, innerWidth, maxLines, scroll int) string {
+	visible, _ := windowLines(clampANSIWidth(content, innerWidth), maxLines, scroll)
+	return visible
+}
+
+func (m Model) detailSelectionKey() string {
+	return m.selectedID + "\x1f" + m.selectedSessionID + "\x1f" + m.selectedPlanID + "\x1f" + m.selectedFolderPath
+}
+
+func (m *Model) ensureDetailView() *paneScroll {
+	if m.detailView == nil {
+		m.detailView = &paneScroll{}
+	}
+	key := m.detailSelectionKey()
+	if m.detailView.key != key {
+		m.detailView.key = key
+		m.detailView.offset = 0
+	}
+	return m.detailView
+}
+
+func (m Model) syncDetailView() *paneScroll {
+	if m.detailView == nil {
+		return &paneScroll{}
+	}
+	key := m.detailSelectionKey()
+	if m.detailView.key != key {
+		m.detailView.key = key
+		m.detailView.offset = 0
+	}
+	return m.detailView
+}
+
+func (m Model) detailPaneSize() (innerWidth, innerHeight int) {
+	for _, region := range m.browserRegions() {
+		if region.Pane != prefs.PaneDetail {
+			continue
+		}
+		w := region.MaxX - region.MinX + 1
+		h := region.MaxY - region.MinY + 1
+		return panelInnerWidth(w), panelInnerHeight(h)
+	}
+	return max(16, m.defaultMarkdownWidth()), max(1, panelInnerHeight(max(8, m.height-2)))
+}
+
+func (m Model) detailBodyContent(innerWidth int) string {
+	if m.usesCampaignTree() {
+		return m.renderTreeDetailWidth(innerWidth)
+	}
+	return m.renderDetailWidth(innerWidth)
+}
+
+func (m Model) detailMaxScroll() int {
+	innerWidth, innerHeight := m.detailPaneSize()
+	lines := strings.Split(clampANSIWidth(m.detailBodyContent(innerWidth), innerWidth), "\n")
+	return max(0, len(lines)-innerHeight)
+}
+
+func (m Model) detailPageStep() int {
+	_, innerHeight := m.detailPaneSize()
+	return max(1, innerHeight-1)
+}
+
+func (m *Model) scrollDetail(delta int) {
+	view := m.ensureDetailView()
+	view.offset = clamp(view.offset+delta, 0, m.detailMaxScroll())
+}
+
+func (m *Model) scrollDetailTo(offset int) {
+	view := m.ensureDetailView()
+	view.offset = clamp(offset, 0, m.detailMaxScroll())
+}
+
+func (m *Model) moveDetailFocus(delta int) {
+	if len(m.detailHops()) > 0 {
+		m.moveDetailCursor(delta)
+		return
+	}
+	m.scrollDetail(delta)
 }

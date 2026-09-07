@@ -111,5 +111,5 @@ func ResolveFetcher(fetcher Fetcher, dataDir string) Fetcher {
 	if strings.TrimSpace(dataDir) != "" {
 		return DirFetcher{Root: dataDir}
 	}
-	return DefaultFetcher()
+	return NewCacheFetcher(DefaultFetcher(), DefaultCacheDir())
 }

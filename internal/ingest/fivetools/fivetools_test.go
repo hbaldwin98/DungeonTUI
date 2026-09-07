@@ -13,12 +13,10 @@ func TestParseRefFromFiveEToolsURLs(t *testing.T) {
 		id   string
 		kind string
 	}{
-		{"https://5e.tools/adventure.html#lmop,-1", "lmop", "adventure"},
-		{"https://5e.tools/book.html#xdmg,-1", "xdmg", "book"},
-		{"https://5e.tools/book.html#xphb,-1", "xphb", "book"},
-		{"https://5e.tools/book.html#xmm,-1", "xmm", "book"},
-		{"5e:XMM", "XMM", ""},
-		{"LMoP", "LMoP", ""},
+		{"https://5e.tools/adventure.html#adv,-1", "adv", "adventure"},
+		{"https://5e.tools/book.html#bst,-1", "bst", "book"},
+		{"5e:BST", "BST", ""},
+		{"ADV", "ADV", ""},
 	}
 	for _, tc := range cases {
 		ref, ok := ParseRef(tc.in)
@@ -32,14 +30,14 @@ func TestParseRefFromFiveEToolsURLs(t *testing.T) {
 			t.Fatalf("ParseRef(%q).Kind=%q want %q", tc.in, ref.Kind, tc.kind)
 		}
 	}
-	if LooksLikeRef("Lost Mine of Phandelver.md") {
+	if LooksLikeRef("The Hollow Crown.md") {
 		t.Fatal("markdown path should not look like a 5e.tools ref")
 	}
 }
 
 func TestRenderTagsBecomeMentions(t *testing.T) {
-	got := renderTags(`hire {@creature Gundren Rockseeker|LMoP} and cast {@spell Acid Splash|XPHB}`)
-	if !strings.Contains(got, "@Gundren Rockseeker") || !strings.Contains(got, "@Acid Splash") {
+	got := renderTags(`hire {@creature Mira Holt|ADV} and cast {@spell Spark Bolt|TST}`)
+	if !strings.Contains(got, "@Mira Holt") || !strings.Contains(got, "@Spark Bolt") {
 		t.Fatalf("got %q", got)
 	}
 	atk := renderTags("{@atk mw} {@hit 3} to hit. {@h} {@damage 1d6 + 1}")
@@ -50,25 +48,25 @@ func TestRenderTagsBecomeMentions(t *testing.T) {
 
 func TestConvertMonsterKeepsPrintedStats(t *testing.T) {
 	item := map[string]any{
-		"name": "Goblin Warrior", "source": "XMM", "size": []any{"S"},
-		"type": map[string]any{"type": "fey", "tags": []any{"goblinoid"}},
-		"ac":   []any{float64(15)},
-		"hp":   map[string]any{"average": float64(10), "formula": "3d6"},
-		"str":  float64(8), "dex": float64(15), "con": float64(10),
-		"int": float64(10), "wis": float64(8), "cha": float64(8),
+		"name": "Cave Rascal", "source": "BST", "size": []any{"S"},
+		"type": map[string]any{"type": "humanoid", "tags": []any{"raider"}},
+		"ac":   []any{float64(12)},
+		"hp":   map[string]any{"average": float64(9), "formula": "2d6"},
+		"str":  float64(9), "dex": float64(13), "con": float64(11),
+		"int": float64(8), "wis": float64(10), "cha": float64(7),
 		"speed": map[string]any{"walk": float64(30)},
-		"cr":    "1/4",
+		"cr":    "1/8",
 		"action": []any{map[string]any{
-			"name":    "Scimitar",
-			"entries": []any{"{@atk mw} {@hit 4} to hit, reach 5 ft. {@h}{@damage 1d6 + 2} Slashing."},
+			"name":    "Shortblade",
+			"entries": []any{"{@atk mw} {@hit 3} to hit, reach 5 ft. {@h}{@damage 1d4 + 1} Piercing."},
 		}},
 	}
-	drafts := convertMonsters([]map[string]any{item}, nil, "XMM", nil, false)
+	drafts := convertMonsters([]map[string]any{item}, nil, "BST", nil, false)
 	if len(drafts) != 1 {
 		t.Fatalf("drafts=%d", len(drafts))
 	}
 	body := drafts[0].Body
-	for _, want := range []string{"**AC** 15", "**HP** 10 (3d6)", "**CR** 1/4", "Scimitar", "Melee Weapon Attack:"} {
+	for _, want := range []string{"**AC** 12", "**HP** 9 (2d6)", "**CR** 1/8", "Shortblade", "Melee Weapon Attack:"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in:\n%s", want, body)
 		}
@@ -76,8 +74,8 @@ func TestConvertMonsterKeepsPrintedStats(t *testing.T) {
 }
 
 func TestConvertMonsterDoesNotInventArmorClass(t *testing.T) {
-	item := map[string]any{"name": "Mystery Beast", "source": "XMM", "hp": map[string]any{"average": float64(4)}}
-	body := convertMonsters([]map[string]any{item}, nil, "XMM", nil, false)[0].Body
+	item := map[string]any{"name": "Mystery Beast", "source": "BST", "hp": map[string]any{"average": float64(4)}}
+	body := convertMonsters([]map[string]any{item}, nil, "BST", nil, false)[0].Body
 	if strings.Contains(body, "**AC**") {
 		t.Fatalf("invented AC:\n%s", body)
 	}
@@ -88,71 +86,83 @@ func TestConvertMonsterDoesNotInventArmorClass(t *testing.T) {
 
 func testFetcher() MapFetcher {
 	return MapFetcher{
-		"data/adventures.json":     []byte(`{"adventure":[{"id":"LMoP","name":"Lost Mine of Phandelver","group":"supplement","published":"2014-07-15"}]}`),
-		"data/books.json":          []byte(`{"book":[{"id":"XMM","name":"Monster Manual (2025)","group":"core","published":"2025-02-18"}]}`),
-		"data/bestiary/index.json": []byte(`{"LMoP":"bestiary-lmop.json","XMM":"bestiary-xmm.json"}`),
+		"data/adventures.json":     []byte(`{"adventure":[{"id":"ADV","name":"The Hollow Crown","group":"supplement","published":"2020-01-01"}]}`),
+		"data/books.json":          []byte(`{"book":[{"id":"BST","name":"Test Bestiary (2025)","group":"core","published":"2025-02-18"}]}`),
+		"data/bestiary/index.json": []byte(`{"ADV":"bestiary-adv.json","BST":"bestiary-bst.json"}`),
 		"data/spells/index.json":   []byte(`{}`),
-		"data/bestiary/bestiary-xmm.json": []byte(`{"monster":[{
-			"name":"Goblin Warrior","source":"XMM","size":["S"],
-			"type":{"type":"fey","tags":["goblinoid"]},
-			"ac":[15],"hp":{"average":10,"formula":"3d6"},
-			"str":8,"dex":15,"con":10,"int":10,"wis":8,"cha":8,
-			"speed":{"walk":30},"cr":"1/4",
-			"action":[{"name":"Scimitar","entries":["{@atk mw} {@hit 4} to hit. {@h}{@damage 1d6 + 2} Slashing."]}]
+		"data/bestiary/bestiary-bst.json": []byte(`{"monster":[{
+			"name":"Cave Rascal","source":"BST","size":["S"],
+			"type":{"type":"humanoid","tags":["raider"]},
+			"ac":[12],"hp":{"average":9,"formula":"2d6"},
+			"str":9,"dex":13,"con":11,"int":8,"wis":10,"cha":7,
+			"speed":{"walk":30},"cr":"1/8",
+			"action":[{"name":"Shortblade","entries":["{@atk mw} {@hit 3} to hit. {@h}{@damage 1d4 + 1} Piercing."]}]
 		}]}`),
-		"data/bestiary/bestiary-lmop.json": []byte(`{"monster":[{
-			"name":"Ash Zombie","source":"LMoP","size":["M"],"type":"undead",
-			"ac":[8],"hp":{"average":22,"formula":"3d8 + 9"},
-			"str":13,"dex":6,"con":16,"int":3,"wis":6,"cha":5,"cr":"1/4"
+		"data/bestiary/bestiary-adv.json": []byte(`{"monster":[{
+			"name":"Marsh Wight","source":"ADV","size":["M"],"type":"undead",
+			"ac":[11],"hp":{"average":13,"formula":"3d8"},
+			"str":12,"dex":8,"con":13,"int":6,"wis":9,"cha":6,"cr":"1/4"
 		}]}`),
-		"data/adventure/adventure-lmop.json": []byte(`{"data":[{
-			"type":"section","name":"Phandalin",
+		"data/adventure/adventure-adv.json": []byte(`{"data":[{
+			"type":"section","name":"Introduction",
+			"entries":[
+				"How to run this adventure.",
+				{"type":"section","name":"The Hollow Crown","entries":[
+					{"type":"entries","name":"Millhaven","entries":["A duplicate town copy."]},
+					{"type":"entries","name":"1. The Mill Inn","entries":["A duplicate inn copy."]}
+				]},
+				{"type":"entries","name":"Running the Adventure","entries":["Advice for the DM."]}
+			]
+		},{
+			"type":"section","name":"Millhaven",
 			"entries":[
 				"A frontier town.",
 				{"type":"entries","name":"Important NPCs","entries":[
 					{"type":"table","colLabels":["Name","Role"],"rows":[
-						["{@creature Toblen Stonehill|LMoP}","Innkeeper."],
-						["{@creature Sildar Hallwinter|LMoP}","Knight."]
+						["{@creature Mira Holt|ADV}","Innkeeper."],
+						["{@creature Captain Reed|ADV}","Town guard."]
 					]}
 				]},
-				{"type":"entries","name":"1. Stonehill Inn","entries":[
+				{"type":"entries","name":"1. The Mill Inn","entries":[
 					"A stout inn.",
-					{"type":"entries","name":"Toblen Stonehill","entries":["He greets guests at the bar."]}
+					{"type":"entries","name":"Mira Holt","entries":["She greets guests at the bar."]}
 				]},
-				{"type":"entries","name":"10. Shrine of Luck","entries":["A small shrine."]}
+				{"type":"entries","name":"10. Mill Shrine","entries":["A small shrine."]}
 			]
 		},{
-			"type":"section","name":"Goblin Arrows",
+			"type":"section","name":"The Ambush",
 			"entries":[
-				"The wagon is ambushed by {@creature goblin|MM|goblins}.",
-				{"type":"entries","name":"1. Cave Mouth","entries":["Two {@creature goblin|MM|goblins} watch the cave."]}
+				"The wagon is ambushed by {@creature cave rascal|BST|cave rascals}.",
+				{"type":"section","name":"The Hideout","entries":[
+					{"type":"entries","name":"1. Cave Mouth","entries":["Two {@creature cave rascal|BST|cave rascals} watch the cave."]}
+				]}
 			]
 		}]}`),
-		"data/book/book-xmm.json": []byte(`{"data":[{"type":"section","name":"How to Use a Monster","entries":["Read the stat block."]}]}`),
+		"data/book/book-bst.json": []byte(`{"data":[{"type":"section","name":"How to Use a Monster","entries":["Read the stat block."]}]}`),
 	}
 }
 
-func TestBuildXMMCreatesLibraryCreatureWithStats(t *testing.T) {
-	bundle, err := Build(testFetcher(), "https://5e.tools/book.html#xmm,-1")
+func TestBuildBSTCreatesLibraryCreatureWithStats(t *testing.T) {
+	bundle, err := Build(testFetcher(), "https://5e.tools/book.html#bst,-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bundle.Doc.ID != "src-5e-xmm" || bundle.Doc.Kind != domain.SourceBestiary {
+	if bundle.Doc.ID != "src-5e-bst" || bundle.Doc.Kind != domain.SourceBestiary {
 		t.Fatalf("doc=%#v", bundle.Doc)
 	}
 	found := false
 	for _, d := range bundle.Records {
-		if d.Title == "Goblin Warrior" && d.Type == domain.Creature && strings.Contains(d.Body, "**AC** 15") {
+		if d.Title == "Cave Rascal" && d.Type == domain.Creature && strings.Contains(d.Body, "**AC** 12") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("missing goblin warrior stats: %#v", titles(bundle))
+		t.Fatalf("missing cave rascal stats: %#v", titles(bundle))
 	}
 }
 
-func TestBuildLMoPCreatesAdventureMentionsAndPrep(t *testing.T) {
-	bundle, err := Build(testFetcher(), "https://5e.tools/adventure.html#lmop,-1")
+func TestBuildADVCreatesAdventureMentionsAndPrep(t *testing.T) {
+	bundle, err := Build(testFetcher(), "https://5e.tools/adventure.html#adv,-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +175,7 @@ func TestBuildLMoPCreatesAdventureMentionsAndPrep(t *testing.T) {
 			cave = d.Body
 		}
 	}
-	if !strings.Contains(cave, "@goblin") {
+	if !strings.Contains(cave, "@cave rascal") {
 		t.Fatalf("expected @ mention in room text: %q", cave)
 	}
 	if len(bundle.Plans) == 0 {
@@ -174,7 +184,7 @@ func TestBuildLMoPCreatesAdventureMentionsAndPrep(t *testing.T) {
 }
 
 func TestConvertAdventureNestsRoomsAndDedupsNPCs(t *testing.T) {
-	bundle, err := Build(testFetcher(), "https://5e.tools/adventure.html#lmop,-1")
+	bundle, err := Build(testFetcher(), "https://5e.tools/adventure.html#adv,-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,37 +206,121 @@ func TestConvertAdventureNestsRoomsAndDedupsNPCs(t *testing.T) {
 		item.body = d.Body
 		item.count++
 	}
-	if found["Phandalin"] == nil || found["Phandalin"].typ != domain.Location {
-		t.Fatalf("expected Phandalin location, got %#v", titles(bundle))
+	if found["Millhaven"] == nil || found["Millhaven"].typ != domain.Location {
+		t.Fatalf("expected Millhaven location, got %#v", titles(bundle))
 	}
-	if strings.Contains(found["Phandalin"].body, "A stout inn") {
-		t.Fatalf("parent should not copy child rooms: %q", found["Phandalin"].body)
+	if strings.Contains(found["Millhaven"].body, "A stout inn") {
+		t.Fatalf("parent should not copy child rooms: %q", found["Millhaven"].body)
 	}
-	if found["1. Stonehill Inn"] == nil || found["1. Stonehill Inn"].group != "Phandalin" {
-		t.Fatalf("room should nest under Phandalin, got %#v", found["1. Stonehill Inn"])
+	if found["1. The Mill Inn"] == nil || found["1. The Mill Inn"].group != "Millhaven" {
+		t.Fatalf("room should nest under Millhaven, got %#v", found["1. The Mill Inn"])
 	}
-	if found["10. Shrine of Luck"] == nil || found["10. Shrine of Luck"].group != "Phandalin" {
-		t.Fatalf("shrine should nest under Phandalin")
+	if found["10. Mill Shrine"] == nil || found["10. Mill Shrine"].group != "Millhaven" {
+		t.Fatalf("shrine should nest under Millhaven")
 	}
-	if found["Phandalin — 1. Stonehill Inn"] != nil || found["Phandalin - 1"] != nil {
+	if found["Millhaven — 1. The Mill Inn"] != nil || found["Millhaven - 1"] != nil {
 		t.Fatalf("prefixed sibling titles still present: %#v", titles(bundle))
 	}
-	toblen := found["Toblen Stonehill"]
-	if toblen == nil || toblen.typ != domain.NPC {
-		t.Fatalf("expected one Toblen NPC, got %#v", found["Toblen Stonehill"])
+	mira := found["Mira Holt"]
+	if mira == nil || mira.typ != domain.NPC {
+		t.Fatalf("expected one Mira NPC, got %#v", found["Mira Holt"])
 	}
-	if toblen.count != 1 {
-		t.Fatalf("Toblen duplicated %d times", toblen.count)
+	if mira.count != 1 {
+		t.Fatalf("Mira duplicated %d times", mira.count)
 	}
-	if strings.Contains(toblen.body, "Sildar Hallwinter") {
-		t.Fatalf("NPC should not copy the whole table: %q", toblen.body)
+	if strings.Contains(mira.body, "Captain Reed") {
+		t.Fatalf("NPC should not copy the whole table: %q", mira.body)
 	}
-	if !strings.Contains(toblen.body, "greets guests") && !strings.Contains(toblen.body, "Innkeeper") {
-		t.Fatalf("Toblen should keep his own text: %q", toblen.body)
+	if !strings.Contains(mira.body, "greets guests") && !strings.Contains(mira.body, "Innkeeper") {
+		t.Fatalf("Mira should keep her own text: %q", mira.body)
 	}
-	if found["1. Cave Mouth"] == nil || found["1. Cave Mouth"].group != "Goblin Arrows" {
+	if found["1. Cave Mouth"] == nil || found["1. Cave Mouth"].group != "The Ambush/The Hideout" {
 		t.Fatalf("cave group=%#v", found["1. Cave Mouth"])
 	}
+	intro := found["Introduction"]
+	if intro == nil || intro.typ != domain.Note {
+		t.Fatalf("introduction should be a note, got %#v", found["Introduction"])
+	}
+	if found["The Hollow Crown"] != nil {
+		t.Fatalf("intro should not clone the adventure as a location: %#v", titles(bundle))
+	}
+	if run := found["Running the Adventure"]; run != nil && run.typ == domain.Location {
+		t.Fatalf("intro advice should stay a note, got %#v", run)
+	}
+	if found["1. The Mill Inn"] != nil && found["1. The Mill Inn"].count != 1 {
+		t.Fatalf("The Mill Inn duplicated %d times", found["1. The Mill Inn"].count)
+	}
+}
+
+func TestConvertGenericAdventureUsesStructureNotTitleLists(t *testing.T) {
+	fetcher := MapFetcher{
+		"data/adventures.json":     []byte(`{"adventure":[{"id":"Gate","name":"The Gatehouse Run","published":"2020-01-01"}]}`),
+		"data/books.json":          []byte(`{"book":[]}`),
+		"data/bestiary/index.json": []byte(`{}`),
+		"data/spells/index.json":   []byte(`{}`),
+		"data/adventure/adventure-gate.json": []byte(`{"data":[{
+			"type":"section","name":"Introduction",
+			"entries":[
+				"How to run this.",
+				{"type":"section","name":"The Village","entries":["A reprint of the later village."]},
+				{"type":"entries","name":"Using This Adventure","entries":["Advice unique to the intro."]}
+			]
+		},{
+			"type":"section","name":"The Village",
+			"entries":[
+				{"type":"table","colLabels":["Name","Role"],"rows":[["Nilo Voss","Local guide."]]},
+				{"type":"entries","name":"1. The Inn","entries":["A taproom."]}
+			]
+		},{
+			"type":"section","name":"The Citadel",
+			"entries":[
+				{"type":"section","name":"The Gatehouse","entries":[
+					{"type":"entries","name":"1. Portcullis","entries":["Two guards."]}
+				]}
+			]
+		}]}`),
+	}
+	bundle, err := Build(fetcher, "5e:Gate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]domain.EntityType{}
+	group := map[string]string{}
+	for _, d := range bundle.Records {
+		got[d.Title] = d.Type
+		group[d.Title] = d.Group
+	}
+	if got["Introduction"] != domain.Note {
+		t.Fatalf("intro=%s titles=%v", got["Introduction"], got)
+	}
+	if got["The Village"] != domain.Location {
+		t.Fatalf("village=%s", got["The Village"])
+	}
+	if got["1. The Inn"] != domain.Location || group["1. The Inn"] != "The Village" {
+		t.Fatalf("inn type=%s group=%s", got["1. The Inn"], group["1. The Inn"])
+	}
+	if got["Nilo Voss"] != domain.NPC {
+		t.Fatalf("npc table should yield Nilo Voss, got %v", got)
+	}
+	if got["1. Portcullis"] != domain.Location || group["1. Portcullis"] != "The Citadel/The Gatehouse" {
+		t.Fatalf("portcullis type=%s group=%s", got["1. Portcullis"], group["1. Portcullis"])
+	}
+	if got["The Village"] == domain.Location && bundleHasDuplicateLocation(bundle, "The Village") {
+		t.Fatal("intro reprint of The Village should not be a second location")
+	}
+	if got["Using This Adventure"] == domain.Location {
+		t.Fatal("intro-only advice must not become a location")
+	}
+}
+
+func bundleHasDuplicateLocation(b Bundle, title string) bool {
+	n := 0
+	for _, d := range b.Records {
+		if d.Title == title && d.Type == domain.Location {
+			n++
+		}
+	}
+	return n > 1
 }
 
 func titles(b Bundle) []string {
@@ -237,15 +331,15 @@ func titles(b Bundle) []string {
 	return out
 }
 
-func TestBuildXMMSkipsUnrelatedSharedFiles(t *testing.T) {
+func TestBuildBSTSkipsUnrelatedSharedFiles(t *testing.T) {
 	inner := testFetcher()
 	rec := &recordingFetcher{inner: inner}
-	if _, err := Build(rec, "https://5e.tools/book.html#xmm,-1"); err != nil {
+	if _, err := Build(rec, "https://5e.tools/book.html#bst,-1"); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range rec.paths {
 		if path == "data/items.json" || strings.HasPrefix(path, "data/class/") {
-			t.Fatalf("XMM ingest should not fetch %s; got %v", path, rec.paths)
+			t.Fatalf("BST ingest should not fetch %s; got %v", path, rec.paths)
 		}
 	}
 }
@@ -265,7 +359,7 @@ func TestLoadCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(FilterCatalog(entries, "phandelver")) != 1 {
+	if len(FilterCatalog(entries, "hollow")) != 1 {
 		t.Fatalf("filter=%#v", entries)
 	}
 }

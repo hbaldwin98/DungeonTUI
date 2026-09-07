@@ -236,6 +236,10 @@ func parseKey(name string) tea.KeyPressMsg {
 		return tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp})
 	case "pgdown", "pagedown":
 		return tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown})
+	case "home":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyHome})
+	case "end":
+		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnd})
 	case "ctrl+c":
 		return tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl})
 	case "ctrl+e":

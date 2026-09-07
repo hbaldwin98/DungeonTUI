@@ -66,7 +66,9 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Library source corpus: ingest markdown or 5e.tools books into
   `SourceDocument`s, campaign enablement, and `@` association (Argus #47–#54;
   D-021–D-023). Dedicated Import screen with a 5e.tools catalog (`I`)
-  (Argus #51; D-022). SQLite FTS5 / vectors later (Argus #55; D-024).
+  (Argus #51; D-022). `d` then `y` on SOURCES removes a book so it can be
+  ingested again (Argus #61). SQLite FTS5 / vectors later over wiki records
+  and the 5e plugin (Argus #55; D-024, D-032).
   Imported records file under source/type folders, collapsed by default
   (Argus #56–#57; D-025).
 - Wiki/prep detail, link previews, and `@` peeks render markdown with
@@ -75,11 +77,25 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   borders (Argus #60).
 - Adventure ingest nests related rooms, keeps one NPC record per person, and
   pads tables so following lines stay out of the grid (Argus #59; D-027).
+  Introduction stays a note; markdown that starts with that heading uses the
+  filename as the book title (Argus #62).
+- D&D 5e ruleset plugin: adventures stay wiki records; MM/items/templates
+  compose in `internal/ruleset/dnd5e` and display on `@` peek (Argus #63;
+  D-028, D-029). The plugin is pulled and persisted locally (JSON cache now),
+  not an in-memory-only catalog; SQLite FTS5 later (Argus #55, D-032).
+  Re-ingest an adventure to prime the local 5e.tools cache.
+- Headless `dungeon dump` / `dungeon classify` for agent harnesses; ingest
+  classifies from structure instead of per-book title lists (Argus #64;
+  D-030).
+- Detail pane scrolls when the document exceeds inner height (`PgUp`/`PgDn`,
+  Home/End, mouse wheel); `j`/`k` still move hop rows (Argus #65; D-031).
+- Import `H` selects the agentic harness (`off` / `dump` / `apply`) so a
+  sanity dump (and optional structural apply) runs after ingest (Argus #66;
+  D-033).
 
 ## In progress
 
 ## Next
-
 ### Later
 
 - Deepen reconciliation: factual diffs, superseded history, and draft provenance.
@@ -91,6 +107,7 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Deferred
 
-- SQLite operational store and FTS5 migration.
+- SQLite operational store and FTS5 migration over wiki records and the 5e
+  plugin corpus (Argus #55; D-024, D-032).
 - Context-aware AI generators.
 - Web/API client over the shared domain services.

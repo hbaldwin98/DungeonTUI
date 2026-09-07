@@ -10,8 +10,6 @@ import (
 	"charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
-
-	"github.com/hbaldwin98/dungeon/internal/domain"
 )
 
 var (
@@ -309,7 +307,7 @@ func (m Model) renderMarkdown(text string, width int) string {
 }
 
 func (m Model) protectMentions(text string) (string, func(string) string) {
-	mentions := domain.MentionsIn(text, m.workspace.Records)
+	mentions := m.resolveMentions(text)
 	if len(mentions) == 0 {
 		return text, func(s string) string { return s }
 	}

@@ -59,21 +59,21 @@ func TestProposalsAreExcludedUnlessRequested(t *testing.T) {
 }
 
 func TestCampaignSearchIncludesEnabledSourceRecords(t *testing.T) {
-	goblin := domain.Record{
-		ID: "src-mm-goblins", Type: domain.Creature, Title: "Goblins",
-		Authority: domain.Canon, SourceID: "src-mm",
+	rascal := domain.Record{
+		ID: "src-bst-rascals", Type: domain.Creature, Title: "Cave Rascals",
+		Authority: domain.Canon, SourceID: "src-bst",
 	}
-	service := New([]domain.Record{goblin})
+	service := New([]domain.Record{rascal})
 	hidden := service.Find(Filter{Scope: CurrentCampaign, WorldID: testScope.WorldID, CampaignID: testScope.CampaignID})
 	if len(hidden) != 0 {
 		t.Fatalf("disabled source should be hidden, got %#v", hidden)
 	}
 	found := service.Find(Filter{
 		Scope: CurrentCampaign, WorldID: testScope.WorldID, CampaignID: testScope.CampaignID,
-		EnabledSourceIDs: []string{"src-mm"},
+		EnabledSourceIDs: []string{"src-bst"},
 	})
-	if len(found) != 1 || found[0].Record.ID != "src-mm-goblins" {
-		t.Fatalf("expected enabled goblin, got %#v", found)
+	if len(found) != 1 || found[0].Record.ID != "src-bst-rascals" {
+		t.Fatalf("expected enabled cave rascals, got %#v", found)
 	}
 }
 

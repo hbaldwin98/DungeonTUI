@@ -1,24 +1,27 @@
 package ingest
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
 
+	"github.com/hbaldwin98/dungeon/internal/classify"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 )
 
 var (
-	headingLine   = regexp.MustCompile(`^(#{1,6})\s+(.+?)\s*$`)
-	rdName        = regexp.MustCompile(`data-rd-name="([^"]+)"`)
-	loadingLine   = regexp.MustCompile(`(?i)Loading\s+".*?"\s*\.\.\.`)
-	numberedRoom  = regexp.MustCompile(`^(\d+)\.\s+(.+)$`)
-	italicItem    = regexp.MustCompile(`^\s*[-*]\s+\*(.+?)\*\s*$`)
-	editionParens = regexp.MustCompile(`\((\d{4})\)`)
-	tableRow      = regexp.MustCompile(`^\|([^|]+)\|([^|]+)\|\s*$`)
-	tableDivider  = regexp.MustCompile(`^\|[\s:|-]+\|[\s:|-]+\|\s*$`)
-	boldName      = regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	letterIndexH2 = regexp.MustCompile(`(?i)^monsters\s+\([a-z]\)$`)
+	headingLine       = regexp.MustCompile(`^(#{1,6})\s+(.+?)\s*$`)
+	rdName            = regexp.MustCompile(`data-rd-name="([^"]+)"`)
+	loadingLine       = regexp.MustCompile(`(?i)Loading\s+".*?"\s*\.\.\.`)
+	numberedRoom      = regexp.MustCompile(`^(\d+)\.\s+(.+)$`)
+	italicItem        = regexp.MustCompile(`^\s*[-*]\s+\*(.+?)\*\s*$`)
+	editionParens     = regexp.MustCompile(`\((\d{4})\)`)
+	tableRow          = regexp.MustCompile(`^\|([^|]+)\|([^|]+)\|\s*$`)
+	tableDivider      = regexp.MustCompile(`^\|[\s:|-]+\|[\s:|-]+\|\s*$`)
+	boldName          = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	letterIndexH2     = regexp.MustCompile(`(?i)^monsters\s+\([a-z]\)$`)
+	duplicateCopyName = regexp.MustCompile(`\s+\(\d+\)$`)
 )
 
 // ParsedBook is the deterministic extract of a 5etools-style markdown export.
@@ -64,7 +67,7 @@ func Parse(markdown string, kind domain.SourceKind) ParsedBook {
 func detectKind(title, raw string) domain.SourceKind {
 	lower := strings.ToLower(title + "\n" + raw[:min(len(raw), 2000)])
 	switch {
-	case strings.Contains(lower, "monster manual") || strings.Count(raw, "data-statblock-hash=") > 80:
+	case strings.Contains(lower, "monster manual") || strings.Contains(lower, "bestiary") || strings.Count(raw, "data-statblock-hash=") > 80:
 		return domain.SourceBestiary
 	case strings.Contains(lower, "player's handbook") || strings.Contains(lower, "players handbook"):
 		return domain.SourceRules
@@ -240,8 +243,21 @@ func isSkippedBestiary(title string) bool {
 }
 
 func isSkippedAdventure(title string) bool {
-	lower := strings.ToLower(title)
-	return lower == "credits" || strings.HasPrefix(lower, "appendix")
+	return classify.FrontMatter(title)
+}
+
+func genericSourceTitle(title string) bool {
+	return classify.FrontMatter(title)
+}
+
+func titleFromPath(path string) string {
+	base := filepath.Base(strings.TrimSpace(path))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	base = duplicateCopyName.ReplaceAllString(base, "")
+	return strings.TrimSpace(base)
 }
 
 func parseNPCTable(body string) [][2]string {

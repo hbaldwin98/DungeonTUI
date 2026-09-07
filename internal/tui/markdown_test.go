@@ -11,22 +11,22 @@ import (
 
 func complexCreatureMarkdown() string {
 	return strings.TrimSpace(`
-*Medium fiend, chaotic evil*
+*Medium beast, unaligned*
 
-**Armor Class** 19 (natural armor)
-**Hit Points** 187 (15d10 + 105)
+**Armor Class** 14 (hide)
+**Hit Points** 45 (6d8 + 18)
 
 | STR | DEX | CON | INT | WIS | CHA |
 | --- | --- | --- | --- | --- | --- |
-| 20 (+5) | 15 (+2) | 21 (+5) | 19 (+4) | 17 (+3) | 22 (+6) |
+| 14 (+2) | 12 (+1) | 16 (+3) | 8 (-1) | 11 (+0) | 9 (-1) |
 
-**Saving Throws** Dex +9, Con +12, Wis +10, Cha +13
-**Skills** Deception +13, Insight +10, Perception +10
-**Damage Resistances** cold, fire, lightning; bludgeoning, piercing, and slashing from nonmagical attacks
+**Saving Throws** Dex +3, Con +5, Wis +2
+**Skills** Perception +2, Stealth +3
+**Damage Resistances** mud, hail
 
 ### Legendary Actions
 
-- **Teleport.** The creature magically teleports, along with any equipment it is wearing or carrying, up to 120 feet to an unoccupied space it can see.
+- **Slip.** The creature steps through a nearby shadow to an unoccupied space it can see.
 
 > A block quote that mentions @Captain Vale and @Sister Maren of the Ashen Crown who were last seen near the ruined chapel.
 `)
@@ -37,14 +37,14 @@ func TestDetailRendersMarkdownMarkup(t *testing.T) {
 	model.width = 120
 	model.height = 36
 	record := domain.Record{
-		ID:        "creature-goblin",
+		ID:        "creature-rascal",
 		Type:      domain.Creature,
-		Title:     "Goblin Warrior",
-		Summary:   "*Small humanoid, neutral evil*",
-		Body:      "# Goblin Warrior\n\n**AC** 15\n**HP** 10 (3d6)\n\n## Actions\n\nScimitar. Melee Weapon Attack.\n\nWary of @Captain Vale.\n",
+		Title:     "Cave Rascal",
+		Summary:   "*Small humanoid, chaotic neutral*",
+		Body:      "# Cave Rascal\n\n**AC** 12\n**HP** 9 (2d6)\n\n## Actions\n\nShortblade. Melee Weapon Attack.\n\nWary of @Captain Vale.\n",
 		Authority: domain.Canon,
 		Scope:     model.workspace.Scope,
-		Source:    "Monster Manual (2025)",
+		Source:    "Test Bestiary (2025)",
 	}
 	model.workspace.Records = append(model.workspace.Records, record)
 	model.selectRecord(record)
@@ -54,7 +54,7 @@ func TestDetailRendersMarkdownMarkup(t *testing.T) {
 	if strings.Contains(stripped, "**AC**") || strings.Contains(stripped, "**HP**") {
 		t.Fatalf("detail should render emphasis, not source markup: %q", stripped)
 	}
-	if !strings.Contains(stripped, "AC") || !strings.Contains(stripped, "15") {
+	if !strings.Contains(stripped, "AC") || !strings.Contains(stripped, "12") {
 		t.Fatalf("expected rendered AC line: %q", stripped)
 	}
 	if strings.Contains(stripped, "## Actions") {
@@ -76,7 +76,7 @@ func TestDetailRendersMarkdownMarkup(t *testing.T) {
 
 func TestMarkdownTablesDoNotSwallowFollowingLines(t *testing.T) {
 	model := New()
-	body := "| STR | DEX |\n| --- | --- |\n| 8 (-1) | 15 (+2) |\n**Saves** Dex +4\n**Skills** Stealth +6\n"
+	body := "| STR | DEX |\n| --- | --- |\n| 9 (-1) | 13 (+1) |\n**Saves** Dex +3\n**Skills** Stealth +3\n"
 	got := testANSI.ReplaceAllString(model.renderMarkdown(body, 48), "")
 	if strings.Contains(got, "**Saves**") {
 		t.Fatalf("saves should render, not stay markup: %q", got)
@@ -100,7 +100,7 @@ func TestMarkdownFitsPaneWidth(t *testing.T) {
 	if strings.Contains(stripped, "┼") || strings.Contains(stripped, "│ DEX") {
 		t.Fatalf("wide ability table should flatten instead of wrapping a grid: %q", stripped)
 	}
-	for _, token := range []string{"STR", "DEX", "CON", "INT", "WIS", "CHA", "20 (+5)", "22 (+6)", "@Captain Vale"} {
+	for _, token := range []string{"STR", "DEX", "CON", "INT", "WIS", "CHA", "14 (+2)", "12 (+1)", "@Captain Vale"} {
 		if !strings.Contains(stripped, token) {
 			t.Fatalf("expected %q in flattened markdown: %q", token, stripped)
 		}
@@ -119,21 +119,21 @@ func TestComplexEntityViewKeepsAlignedPanes(t *testing.T) {
 	record := domain.Record{
 		ID:        "creature-complex",
 		Type:      domain.Creature,
-		Title:     "Complex Fiend",
-		Summary:   "*Medium fiend, chaotic evil*",
+		Title:     "Marsh Beast",
+		Summary:   "*Medium beast, unaligned*",
 		Body:      complexCreatureMarkdown(),
 		Authority: domain.Canon,
 		Scope:     model.workspace.Scope,
-		Source:    "Monster Manual (2025)",
+		Source:    "Test Bestiary (2025)",
 	}
 	model.workspace.Records = append(model.workspace.Records, record)
 	model.selectRecord(record)
 	h := &Harness{Model: model}
 	frame := h.Frame()
-	if !frame.Contains("Complex Fiend") {
+	if !frame.Contains("Marsh Beast") {
 		t.Fatalf("expected selected creature in view:\n%s", frame.Plain)
 	}
-	if !frame.Contains("CHA") || !frame.Contains("22 (+6)") {
+	if !frame.Contains("CHA") || !frame.Contains("14 (+2)") {
 		t.Fatalf("expected all ability scores in view:\n%s", frame.Plain)
 	}
 	if strings.Contains(frame.Plain, "┼") {

@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
 )
 
@@ -57,8 +58,14 @@ func (m Model) followDetailHop() (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	if hop.Kind == hopWiki {
-		if _, ok := recordByID(m.workspace.Records, hop.RecordID); !ok {
+		if _, ok := m.lookupAny(hop.RecordID); !ok {
 			m.status = "Missing @" + hop.Label + " · e to edit and fix"
+			return m, nil, true
+		}
+	}
+	if hop.Kind == hopRuleset {
+		if _, ok := m.lookupAny(hop.RecordID); !ok {
+			m.status = "Missing 5e entry · ingest the source again to refresh the plugin cache"
 			return m, nil, true
 		}
 	}
@@ -72,14 +79,21 @@ func (m Model) jumpToHop(hop detailHop) (tea.Model, tea.Cmd) {
 		m.status = "Missing @" + hop.Label + " · e to edit and fix"
 		return m, nil
 	case hopWiki:
-		target, ok := recordByID(m.workspace.Records, hop.RecordID)
+		target, ok := m.lookupAny(hop.RecordID)
 		if !ok {
 			m.status = "Missing @" + hop.Label + " · e to edit and fix"
+			return m, nil
+		}
+		if fivetools.IsPluginID(target.ID) {
+			m.status = "5e plugin entry · preview only"
 			return m, nil
 		}
 		m.selectRecord(target)
 		m.layout.Focus = prefs.PaneDetail
 		m.status = "Opened " + target.Title
+		return m, nil
+	case hopRuleset:
+		m.status = "5e plugin entry · preview only"
 		return m, nil
 	case hopPrep:
 		m.focusPrep(hop.PlanID)
@@ -157,7 +171,7 @@ func (m Model) previewBody(width int) string {
 	}
 	hop := m.preview.Hop
 	switch hop.Kind {
-	case hopWiki:
+	case hopWiki, hopRuleset:
 		return m.previewWikiBody(hop, width)
 	case hopPrep:
 		return m.previewPrepBody(hop, width)
@@ -169,7 +183,7 @@ func (m Model) previewBody(width int) string {
 }
 
 func (m Model) previewWikiBody(hop detailHop, width int) string {
-	record, ok := recordByID(m.workspace.Records, hop.RecordID)
+	record, ok := m.lookupAny(hop.RecordID)
 	if !ok {
 		return surface(mutedStyle).Render("Missing wiki record")
 	}

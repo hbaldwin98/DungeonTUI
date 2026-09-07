@@ -16,6 +16,7 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
+	"github.com/hbaldwin98/dungeon/internal/storage"
 )
 
 func TestLibraryPickerSelectsCampaign(t *testing.T) {
@@ -449,6 +450,9 @@ func TestHelpOverlayListsBrowserCommands(t *testing.T) {
 	content := model.View().Content
 	if !strings.Contains(content, "COMMANDS") || !strings.Contains(content, "Browser") {
 		t.Fatalf("expected help content, got %q", content)
+	}
+	if !strings.Contains(content, "PgUp/PgDn") {
+		t.Fatalf("expected detail scroll keys in help: %q", content)
 	}
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	model = updated.(Model)
@@ -1273,8 +1277,8 @@ func leadingPad(view, needle string) int {
 
 func TestImportOpensDedicatedScreenAndLoadsMarkdown(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "mm.md")
-	markdown := "# Monster Manual (2025)\n\n## Goblins\n\nRaiders in packs.\n\n## Bugbears\n\nNight hunters.\n"
+	path := filepath.Join(dir, "bst.md")
+	markdown := "# Test Bestiary (2025)\n\n## Cave Rascals\n\nRaiders in packs.\n\n## Night Hunters\n\nHairy hunters who hunt at night.\n"
 	if err := os.WriteFile(path, []byte(markdown), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1305,14 +1309,14 @@ func TestImportOpensDedicatedScreenAndLoadsMarkdown(t *testing.T) {
 	model.importFocus = "files"
 	foundFile := false
 	for index, entry := range model.importFiles {
-		if entry.Name == "mm.md" {
+		if entry.Name == "bst.md" {
 			model.importFileCursor = index
 			foundFile = true
 			break
 		}
 	}
 	if !foundFile {
-		t.Fatalf("expected mm.md in file list: %#v", model.importFiles)
+		t.Fatalf("expected bst.md in file list: %#v", model.importFiles)
 	}
 
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
@@ -1325,15 +1329,15 @@ func TestImportOpensDedicatedScreenAndLoadsMarkdown(t *testing.T) {
 	}
 	found := false
 	for _, record := range model.workspace.Records {
-		if record.Title == "Goblins" && record.Type == domain.Creature {
+		if record.Title == "Cave Rascals" && record.Type == domain.Creature {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected imported Goblins; status=%s records=%d", model.status, len(model.workspace.Records))
+		t.Fatalf("expected imported Cave Rascals; status=%s records=%d", model.status, len(model.workspace.Records))
 	}
-	if !strings.Contains(model.View().Content, "Monster Manual") {
+	if !strings.Contains(model.View().Content, "Test Bestiary") {
 		t.Fatalf("expected imported source listed: %q", model.View().Content)
 	}
 
@@ -1344,6 +1348,129 @@ func TestImportOpensDedicatedScreenAndLoadsMarkdown(t *testing.T) {
 	}
 	if strings.Contains(model.View().Content, "Captain Vale") == false {
 		t.Fatalf("expected to return to campaign wiki: %q", model.View().Content)
+	}
+}
+
+func TestImportRemoveSourceAllowsReingest(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bst.md")
+	markdown := "# Test Bestiary (2025)\n\n## Cave Rascals\n\nRaiders in packs.\n"
+	if err := os.WriteFile(path, []byte(markdown), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := New()
+	model.width = 100
+	model.height = 32
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'I', Text: "I"}))
+	model = updated.(Model)
+	model.importDir = dir
+	model.reloadImportFiles()
+	model.importFocus = "files"
+	for index, entry := range model.importFiles {
+		if entry.Name == "bst.md" {
+			model.importFileCursor = index
+			break
+		}
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if len(model.workspace.Sources) != 1 {
+		t.Fatalf("expected one source after ingest, got %d status=%s", len(model.workspace.Sources), model.status)
+	}
+	sourceID := model.workspace.Sources[0].ID
+	model.importFocus = "sources"
+	model.importSourceCursor = 0
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	model = updated.(Model)
+	if !model.deleteConfirm || model.confirmKind != "delete-source" {
+		t.Fatalf("expected remove confirm, got confirm=%v kind=%q", model.deleteConfirm, model.confirmKind)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+	model = updated.(Model)
+	if model.deleteConfirm {
+		t.Fatal("confirm should clear after remove")
+	}
+	if len(model.workspace.Sources) != 0 {
+		t.Fatalf("source document should be gone: %#v", model.workspace.Sources)
+	}
+	for _, record := range model.workspace.Records {
+		if record.SourceID == sourceID {
+			t.Fatalf("ingested record still present: %#v", record)
+		}
+	}
+	if !strings.Contains(model.status, "Removed") {
+		t.Fatalf("status=%s", model.status)
+	}
+
+	model.importFocus = "files"
+	for index, entry := range model.importFiles {
+		if entry.Name == "bst.md" {
+			model.importFileCursor = index
+			break
+		}
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if len(model.workspace.Sources) != 1 {
+		t.Fatalf("re-ingest should restore the source, got %d status=%s", len(model.workspace.Sources), model.status)
+	}
+	found := false
+	for _, record := range model.workspace.Records {
+		if record.Title == "Cave Rascals" && record.SourceID == model.workspace.Sources[0].ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("re-ingest should restore Cave Rascals")
+	}
+}
+
+func TestImportHarnessCyclesAndWritesDump(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bst.md")
+	if err := os.WriteFile(path, []byte("# Test Bestiary (2025)\n\n## Cave Rascals\n\nRaiders in packs.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := New()
+	model.width = 100
+	model.height = 32
+	model.store = storage.NewJSON(filepath.Join(dir, "workspace.json"))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'I', Text: "I"}))
+	model = updated.(Model)
+	if !strings.Contains(model.View().Content, "harness off") {
+		t.Fatalf("expected harness off by default: %q", model.View().Content)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'H', Text: "H"}))
+	model = updated.(Model)
+	if model.importHarness() != "dump" {
+		t.Fatalf("H should select dump, got %q status=%s", model.importHarness(), model.status)
+	}
+	if !strings.Contains(model.View().Content, "harness dump") {
+		t.Fatalf("expected harness dump in header: %q", model.View().Content)
+	}
+
+	model.importDir = dir
+	model.reloadImportFiles()
+	model.importFocus = "files"
+	for index, entry := range model.importFiles {
+		if entry.Name == "bst.md" {
+			model.importFileCursor = index
+			break
+		}
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	dump := filepath.Join(dir, "ingest-dump.json")
+	raw, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatalf("expected ingest dump: %v status=%s", err, model.status)
+	}
+	if !strings.Contains(string(raw), "Cave Rascals") {
+		t.Fatalf("dump missing ingested record: %s", raw)
+	}
+	if !strings.Contains(model.status, "harness dump") {
+		t.Fatalf("status should mention harness: %s", model.status)
 	}
 }
 
@@ -1373,10 +1500,10 @@ func TestImportFiveEToolsCatalogIngestsSelectedBook(t *testing.T) {
 	model.height = 32
 	model.toolsFetcher = fivetools.MapFetcher{
 		"data/adventures.json":            []byte(`{"adventure":[]}`),
-		"data/books.json":                 []byte(`{"book":[{"id":"XMM","name":"Monster Manual (2025)","group":"core","published":"2025-02-18"}]}`),
-		"data/bestiary/index.json":        []byte(`{"XMM":"bestiary-xmm.json"}`),
+		"data/books.json":                 []byte(`{"book":[{"id":"BST","name":"Test Bestiary (2025)","group":"core","published":"2025-02-18"}]}`),
+		"data/bestiary/index.json":        []byte(`{"BST":"bestiary-bst.json"}`),
 		"data/spells/index.json":          []byte(`{}`),
-		"data/bestiary/bestiary-xmm.json": []byte(`{"monster":[{"name":"Goblin Warrior","source":"XMM","ac":[15],"hp":{"average":10,"formula":"3d6"},"str":8,"dex":15,"con":10,"int":10,"wis":8,"cha":8}]}`),
+		"data/bestiary/bestiary-bst.json": []byte(`{"monster":[{"name":"Cave Rascal","source":"BST","ac":[12],"hp":{"average":9,"formula":"2d6"},"str":9,"dex":13,"con":11,"int":8,"wis":10,"cha":7}]}`),
 	}
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'I', Text: "I"}))
 	model = updated.(Model)
@@ -1386,20 +1513,20 @@ func TestImportFiveEToolsCatalogIngestsSelectedBook(t *testing.T) {
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
 	view := model.View().Content
-	if !strings.Contains(view, "Monster Manual (2025)") || !strings.Contains(view, "5E.TOOLS") {
+	if !strings.Contains(view, "Test Bestiary (2025)") || !strings.Contains(view, "5E.TOOLS") {
 		t.Fatalf("expected 5e.tools catalog: %q", view)
 	}
 	model.importFocus = "tools"
 	found := false
 	for index, entry := range model.filteredTools() {
-		if entry.ID == "XMM" {
+		if entry.ID == "BST" {
 			model.importToolsCursor = index
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("expected XMM in catalog")
+		t.Fatal("expected BST in catalog")
 	}
 	updated, cmd = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
@@ -1410,13 +1537,13 @@ func TestImportFiveEToolsCatalogIngestsSelectedBook(t *testing.T) {
 	model = updated.(Model)
 	got := false
 	for _, record := range model.workspace.Records {
-		if record.Title == "Goblin Warrior" && strings.Contains(record.Body, "**AC** 15") {
+		if record.Title == "Cave Rascal" && strings.Contains(record.Body, "**AC** 12") {
 			got = true
 			break
 		}
 	}
 	if !got {
-		t.Fatalf("expected ingested Goblin Warrior stats; status=%s records=%d", model.status, len(model.workspace.Records))
+		t.Fatalf("expected ingested Cave Rascal stats; status=%s records=%d", model.status, len(model.workspace.Records))
 	}
 }
 
@@ -1425,24 +1552,24 @@ func TestImportedSourceRecordsCollapseIntoFolders(t *testing.T) {
 	model.width = 120
 	model.height = 32
 	model.workspace.Sources = append(model.workspace.Sources, domain.SourceDocument{
-		ID: "src-5e-xmm", Title: "Monster Manual (2025)", Kind: domain.SourceBestiary,
+		ID: "src-5e-bst", Title: "Test Bestiary (2025)", Kind: domain.SourceBestiary,
 	})
-	model.workspace.EnableSource(model.workspace.Scope.WorldID, model.workspace.Scope.CampaignID, "src-5e-xmm")
+	model.workspace.EnableSource(model.workspace.Scope.WorldID, model.workspace.Scope.CampaignID, "src-5e-bst")
 	for i := 0; i < 40; i++ {
 		title := fmt.Sprintf("Monster %02d", i)
 		model.workspace.Records = append(model.workspace.Records, domain.Record{
-			ID:        fmt.Sprintf("src-5e-xmm-creature-%d", i),
+			ID:        fmt.Sprintf("src-5e-bst-creature-%d", i),
 			Type:      domain.Creature,
 			Title:     title,
-			SourceID:  "src-5e-xmm",
-			Source:    "Monster Manual (2025)",
-			Folder:    "Monster Manual (2025)/Creatures",
+			SourceID:  "src-5e-bst",
+			Source:    "Test Bestiary (2025)",
+			Folder:    "Test Bestiary (2025)/Creatures",
 			Authority: domain.Canon,
 		})
 	}
 	model.setNavCursor(7) // Creatures
 	view := model.View().Content
-	if !strings.Contains(view, "Monster Manual (2025)") || !strings.Contains(view, "· 40") {
+	if !strings.Contains(view, "Test Bestiary (2025)") || !strings.Contains(view, "· 40") {
 		t.Fatalf("expected collapsed source folder, got %q", view)
 	}
 	if strings.Contains(view, "Monster 00") {
@@ -1455,23 +1582,23 @@ func TestRecordTreeCursorMovesToNextCreature(t *testing.T) {
 	model.width = 120
 	model.height = 32
 	model.workspace.Sources = append(model.workspace.Sources, domain.SourceDocument{
-		ID: "src-5e-xmm", Title: "Monster Manual (2025)", Kind: domain.SourceBestiary,
+		ID: "src-5e-bst", Title: "Test Bestiary (2025)", Kind: domain.SourceBestiary,
 	})
-	model.workspace.EnableSource(model.workspace.Scope.WorldID, model.workspace.Scope.CampaignID, "src-5e-xmm")
+	model.workspace.EnableSource(model.workspace.Scope.WorldID, model.workspace.Scope.CampaignID, "src-5e-bst")
 	for i := 0; i < 5; i++ {
 		title := fmt.Sprintf("Monster %02d", i)
 		model.workspace.Records = append(model.workspace.Records, domain.Record{
-			ID:        fmt.Sprintf("src-5e-xmm-creature-%d", i),
+			ID:        fmt.Sprintf("src-5e-bst-creature-%d", i),
 			Type:      domain.Creature,
 			Title:     title,
-			SourceID:  "src-5e-xmm",
-			Source:    "Monster Manual (2025)",
-			Folder:    "Monster Manual (2025)/Creatures",
+			SourceID:  "src-5e-bst",
+			Source:    "Test Bestiary (2025)",
+			Folder:    "Test Bestiary (2025)/Creatures",
 			Authority: domain.Canon,
 		})
 	}
 	model.setNavCursor(7) // Creatures
-	model.expandRecordFolderPath("Monster Manual (2025)/Creatures")
+	model.expandRecordFolderPath("Test Bestiary (2025)/Creatures")
 	model.setBrowserFocus(prefs.PaneList)
 
 	rows := model.recordTreeRows()
@@ -1509,5 +1636,145 @@ func TestRecordTreeCursorMovesToNextCreature(t *testing.T) {
 	model = updated.(Model)
 	if model.cursor != first || model.selectedID != rows[first].Record.ID {
 		t.Fatalf("k should return to row %d (%q), got cursor=%d selected=%q", first, rows[first].Record.ID, model.cursor, model.selectedID)
+	}
+}
+
+func TestWindowLinesScrollsInsteadOfClippingFromTop(t *testing.T) {
+	got, used := windowLines("a\nb\nc\nd", 2, 1)
+	if got != "b\nc" || used != 1 {
+		t.Fatalf("got %q used=%d", got, used)
+	}
+	got, used = windowLines("a\nb", 5, 9)
+	if got != "a\nb" || used != 0 {
+		t.Fatalf("short content should ignore scroll: %q used=%d", got, used)
+	}
+	got, used = windowLines("a\nb\nc\nd", 2, 99)
+	if got != "c\nd" || used != 2 {
+		t.Fatalf("scroll should clamp to last window: %q used=%d", got, used)
+	}
+}
+
+func longOverflowBody() string {
+	var body strings.Builder
+	body.WriteString("DETAIL_HEAD_MARKER\n\n")
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&body, "overflow line %d\n\n", i)
+	}
+	body.WriteString("DETAIL_TAIL_MARKER\n")
+	return body.String()
+}
+
+func TestDetailPaneScrollsWhenContentOverflows(t *testing.T) {
+	model := New()
+	model.width = 80
+	model.height = 16
+	record := domain.Record{
+		ID:        "note-overflow",
+		Type:      domain.Note,
+		Title:     "Overflow Note",
+		Body:      longOverflowBody(),
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+		Source:    "test",
+	}
+	model.workspace.Records = append(model.workspace.Records, record)
+	model.selectRecord(record)
+	model.layout.Focus = prefs.PaneDetail
+
+	h := &Harness{Model: model}
+	frame := h.Frame()
+	if !frame.Contains("DETAIL_HEAD_MARKER") {
+		t.Fatalf("expected head in detail pane:\n%s", frame.Plain)
+	}
+	if frame.Contains("DETAIL_TAIL_MARKER") {
+		t.Fatalf("tail should be below the pane until scroll:\n%s", frame.Plain)
+	}
+	if errs := frame.FillErrors(); len(errs) > 0 {
+		t.Fatalf("layout fill failed: %s\n%s", strings.Join(errs, "; "), frame.Plain)
+	}
+
+	var scrolled Frame
+	found := false
+	for i := 0; i < 24; i++ {
+		scrolled = h.Key("pgdown")
+		if scrolled.Contains("DETAIL_TAIL_MARKER") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected tail after PgDn:\n%s", scrolled.Plain)
+	}
+	if scrolled.Contains("DETAIL_HEAD_MARKER") {
+		t.Fatalf("head should scroll away:\n%s", scrolled.Plain)
+	}
+	if errs := scrolled.FillErrors(); len(errs) > 0 {
+		t.Fatalf("scrolled layout fill failed: %s\n%s", strings.Join(errs, "; "), scrolled.Plain)
+	}
+
+	top := h.Key("home")
+	if !top.Contains("DETAIL_HEAD_MARKER") || top.Contains("DETAIL_TAIL_MARKER") {
+		t.Fatalf("Home should return to the top:\n%s", top.Plain)
+	}
+
+	h.Key("end")
+	if h.Model.selectedRecord() == nil {
+		t.Fatal("expected selected overflow note")
+	}
+	other := model.workspace.Records[0]
+	h.Model.selectRecord(other)
+	reset := h.Frame()
+	if reset.Contains("DETAIL_TAIL_MARKER") {
+		t.Fatalf("changing record should reset detail scroll:\n%s", reset.Plain)
+	}
+}
+
+func TestDetailPaneWheelScrollsWhenFocused(t *testing.T) {
+	model := New()
+	model.width = 80
+	model.height = 16
+	record := domain.Record{
+		ID:        "note-overflow-wheel",
+		Type:      domain.Note,
+		Title:     "Overflow Wheel",
+		Body:      longOverflowBody(),
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+		Source:    "test",
+	}
+	model.workspace.Records = append(model.workspace.Records, record)
+	model.selectRecord(record)
+	model.layout.Focus = prefs.PaneDetail
+	h := &Harness{Model: model}
+	h.Frame()
+	before := h.Model.detailView.offset
+	updated, _ := h.Model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	h.Model = updated.(Model)
+	if h.Model.detailView.offset <= before {
+		t.Fatalf("wheel should scroll detail when focused, offset %d -> %d", before, h.Model.detailView.offset)
+	}
+}
+
+func TestDetailPgDnDoesNotMoveHopCursor(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	if rec := model.selectedRecord(); rec == nil {
+		t.Fatal("expected demo record")
+	}
+	model.layout.Focus = prefs.PaneDetail
+	if len(model.detailHops()) == 0 {
+		t.Fatal("expected hops on demo record")
+	}
+	model.historyCursor = 0
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+	model = updated.(Model)
+	if model.historyCursor != 0 {
+		t.Fatalf("PgDn should scroll the body, not hops, got cursor %d", model.historyCursor)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	model = updated.(Model)
+	if model.historyCursor != 1 {
+		t.Fatalf("j should still move hop cursor, got %d", model.historyCursor)
 	}
 }

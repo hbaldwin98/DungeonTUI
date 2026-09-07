@@ -186,6 +186,18 @@ func (m Model) entitySuggestions(query string) []Suggestion {
 			break
 		}
 	}
+	if len(out) < 5 {
+		seen := map[string]bool{}
+		for _, item := range out {
+			seen[strings.ToLower(item.Insert)] = true
+		}
+		for _, item := range m.pluginSuggestions(query, 5-len(out)) {
+			if seen[strings.ToLower(item.Insert)] {
+				continue
+			}
+			out = append(out, item)
+		}
+	}
 	return out
 }
 

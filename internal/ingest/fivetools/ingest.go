@@ -9,8 +9,8 @@ import (
 )
 
 // Bundle is one chosen 5e.tools book converted into domain records.
-// A later SQLite FTS5 / vector index should consume these records rather
-// than re-fetching 5e.tools JSON.
+// A later SQLite FTS5 / vector index should consume these wiki records and
+// the persisted plugin corpus rather than re-fetching 5e.tools JSON.
 type Bundle struct {
 	Entry   Entry
 	Doc     domain.SourceDocument
@@ -18,44 +18,68 @@ type Bundle struct {
 	Plans   []planDraft
 }
 
-type session struct {
+// Catalog reads a local 5e.tools corpus. The durable copy is JSON pulled at
+// ingest onto the owner's machine (CacheFetcher); parsed maps are a process
+// cache rebuilt from that disk store. Ingest converts a chosen book into wiki
+// records; the dnd5e plugin uses the same files to display creatures and items
+// without copying them into Workspace.Records. Later SQLite FTS5 indexes both.
+type Catalog struct {
 	fetcher       Fetcher
 	cache         map[string][]byte
 	bestiaryIndex map[string]string
 	spellIndex    map[string]string
-	monsters      map[string]map[string]any // "name|source" → monster
+	monsters      map[string]map[string]any
+	templates     map[string]map[string]any
+	legendary     map[string]map[string]any
+	items         map[string]map[string]any
+	variants      map[string]map[string]any
+	fluff         map[string]string
+	preferred     []string
 }
 
-func (s *session) get(path string) ([]byte, bool, error) {
-	if data, ok := s.cache[path]; ok {
+func NewCatalog(fetcher Fetcher) *Catalog {
+	return &Catalog{
+		fetcher:   fetcher,
+		cache:     map[string][]byte{},
+		monsters:  map[string]map[string]any{},
+		templates: map[string]map[string]any{},
+		legendary: map[string]map[string]any{},
+		items:     map[string]map[string]any{},
+		variants:  map[string]map[string]any{},
+		fluff:     map[string]string{},
+	}
+}
+
+func (c *Catalog) get(path string) ([]byte, bool, error) {
+	if data, ok := c.cache[path]; ok {
 		return data, true, nil
 	}
-	data, ok, err := getOptional(s.fetcher, path)
+	data, ok, err := getOptional(c.fetcher, path)
 	if err != nil || !ok {
 		return nil, ok, err
 	}
-	s.cache[path] = data
+	c.cache[path] = data
 	return data, true, nil
 }
 
-func (s *session) loadIndexes() error {
-	if data, ok, err := s.get("data/bestiary/index.json"); err != nil {
+func (c *Catalog) loadIndexes() error {
+	if data, ok, err := c.get("data/bestiary/index.json"); err != nil {
 		return err
 	} else if ok {
 		idx, err := jsonIndex(data)
 		if err != nil {
 			return fmt.Errorf("bestiary index: %w", err)
 		}
-		s.bestiaryIndex = idx
+		c.bestiaryIndex = idx
 	}
-	if data, ok, err := s.get("data/spells/index.json"); err != nil {
+	if data, ok, err := c.get("data/spells/index.json"); err != nil {
 		return err
 	} else if ok {
 		idx, err := jsonIndex(data)
 		if err != nil {
 			return fmt.Errorf("spell index: %w", err)
 		}
-		s.spellIndex = idx
+		c.spellIndex = idx
 	}
 	return nil
 }
@@ -94,14 +118,11 @@ func Build(fetcher Fetcher, raw string) (Bundle, error) {
 			entry.Kind = "book"
 		}
 	}
-	s := &session{
-		fetcher:  fetcher,
-		cache:    map[string][]byte{},
-		monsters: map[string]map[string]any{},
-	}
+	s := NewCatalog(fetcher)
 	if err := s.loadIndexes(); err != nil {
 		return Bundle{}, err
 	}
+	_ = s.LoadCompose()
 	records := make([]draft, 0)
 	plans := make([]planDraft, 0)
 
@@ -297,8 +318,8 @@ var sharedFiles = []sharedSpec{
 	{path: "data/psionics.json", keys: []string{"psionic"}, kind: "rule", tag: "psionic", prefix: "psionic", skipAdventure: true, title: identityTitle},
 }
 
-func (s *session) convertBestiaryFile(file, code string, adventure bool) ([]draft, error) {
-	data, ok, err := s.get("data/bestiary/" + file)
+func (c *Catalog) convertBestiaryFile(file, code string, adventure bool) ([]draft, error) {
+	data, ok, err := c.get("data/bestiary/" + file)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -306,22 +327,13 @@ func (s *session) convertBestiaryFile(file, code string, adventure bool) ([]draf
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", file, err)
 	}
-	s.rememberMonsters(items)
-	fluff := map[string]string{}
-	fluffName := "fluff-" + strings.TrimSuffix(file, ".json") + ".json"
-	if raw, found, err := s.get("data/bestiary/" + fluffName); err != nil {
-		return nil, err
-	} else if found {
-		fluff = fluffIndex(raw, "monsterFluff")
-		if len(fluff) == 0 {
-			fluff = fluffIndex(raw, "monster")
-		}
-	}
-	return convertMonsters(items, fluff, code, s.resolveMonster, adventure), nil
+	c.rememberMonsters(items)
+	fluff := c.loadBestiaryFluff(file)
+	return convertMonsters(items, fluff, code, c.resolveMonster, adventure), nil
 }
 
-func (s *session) convertSpellFile(file, code string) ([]draft, error) {
-	data, ok, err := s.get("data/spells/" + file)
+func (c *Catalog) convertSpellFile(file, code string) ([]draft, error) {
+	data, ok, err := c.get("data/spells/" + file)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -331,7 +343,7 @@ func (s *session) convertSpellFile(file, code string) ([]draft, error) {
 	}
 	fluff := map[string]string{}
 	fluffName := "fluff-" + strings.TrimSuffix(file, ".json") + ".json"
-	if raw, found, err := s.get("data/spells/" + fluffName); err != nil {
+	if raw, found, err := c.get("data/spells/" + fluffName); err != nil {
 		return nil, err
 	} else if found {
 		fluff = fluffIndex(raw, "spellFluff")
@@ -340,62 +352,6 @@ func (s *session) convertSpellFile(file, code string) ([]draft, error) {
 		}
 	}
 	return convertSpells(filterSource(items, code), fluff, code), nil
-}
-
-func (s *session) rememberMonsters(items []map[string]any) {
-	for _, item := range items {
-		name := asString(item["name"])
-		src := itemSource(item)
-		if name == "" {
-			continue
-		}
-		s.monsters[strings.ToLower(name+"|"+src)] = item
-	}
-}
-
-func (s *session) resolveMonster(item map[string]any) map[string]any {
-	return s.resolveMonsterDepth(item, 0)
-}
-
-func (s *session) resolveMonsterDepth(item map[string]any, depth int) map[string]any {
-	copy := asMap(item["_copy"])
-	if copy == nil || depth > 4 {
-		return item
-	}
-	parentName := asString(copy["name"])
-	parentSrc := asString(copy["source"])
-	parent, err := s.lookupMonster(parentName, parentSrc)
-	if err != nil || parent == nil {
-		item = cloneMap(item)
-		item["_unresolvedCopy"] = strings.TrimSpace(parentName + " (" + parentSrc + ")")
-		return item
-	}
-	parent = s.resolveMonsterDepth(parent, depth+1)
-	return mergeMaps(parent, item)
-}
-
-func (s *session) lookupMonster(name, code string) (map[string]any, error) {
-	if name == "" || code == "" {
-		return nil, nil
-	}
-	key := strings.ToLower(name + "|" + code)
-	if item, ok := s.monsters[key]; ok {
-		return item, nil
-	}
-	file := indexLookup(s.bestiaryIndex, code)
-	if file == "" {
-		return nil, nil
-	}
-	data, ok, err := s.get("data/bestiary/" + file)
-	if err != nil || !ok {
-		return nil, err
-	}
-	items, err := jsonObjects(data, "monster")
-	if err != nil {
-		return nil, err
-	}
-	s.rememberMonsters(items)
-	return s.monsters[key], nil
 }
 
 func Materialize(bundle Bundle, scope domain.Scope, now time.Time) ([]domain.Record, []domain.PlannedNotes) {
@@ -450,6 +406,9 @@ func Materialize(bundle Bundle, scope domain.Scope, now time.Time) ([]domain.Rec
 				UpdatedAt: now,
 			})
 		}
+	}
+	if kind == domain.SourceAdventure {
+		domain.NestOverviewFolders(records)
 	}
 	return records, plans
 }

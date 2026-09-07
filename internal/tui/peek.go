@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
 )
 
@@ -150,7 +151,17 @@ func (m Model) resolveReferenceAtCursor(line string, col int) *domain.Record {
 			}
 		}
 	}
-	return best
+	if best != nil {
+		return best
+	}
+	token := domain.ScanMentionName(remaining)
+	if token == "" {
+		return nil
+	}
+	if rec, ok := m.lookupRuleset(token); ok {
+		return &rec
+	}
+	return nil
 }
 
 func (m Model) renderPeekPanel(maxLines int) string {
@@ -165,6 +176,14 @@ func (m Model) renderPeekPanel(maxLines int) string {
 	lines = append(lines, detailTitleStyle.Render(record.Title))
 	if record.Summary != "" {
 		lines = append(lines, strings.Split(m.renderMarkdown(record.Summary, max(24, m.width-16)), "\n")...)
+	}
+	if fivetools.IsPluginID(record.ID) {
+		if record.Source != "" {
+			lines = append(lines, mutedStyle.Render("5e · "+record.Source))
+		}
+		if strings.TrimSpace(record.Body) != "" {
+			lines = append(lines, strings.Split(m.renderMarkdown(record.Body, max(24, m.width-16)), "\n")...)
+		}
 	}
 	if len(record.Tags) > 0 {
 		lines = append(lines, mutedStyle.Render("#"+strings.Join(record.Tags, "  #")))

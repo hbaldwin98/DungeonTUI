@@ -2,74 +2,76 @@ package ingest
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/hbaldwin98/dungeon/internal/classify"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 )
 
-const fakeBestiary = `# Monster Manual (2025)
+const fakeBestiary = `# Test Bestiary (2025)
 
 ## Stat Block Overview
 
 How blocks work.
 
-## Goblins
+## Cave Rascals
 
-<div data-rd-name="Goblin Warrior" data-statblock-hash="goblin%20warrior_xmm">
-<i>Loading "Goblin Warrior"...</i>
+<div data-rd-name="Cave Rascal" data-statblock-hash="cave%20rascal_bst">
+<i>Loading "Cave Rascal"...</i>
 </div>
 
 Mischievous raiders who travel in packs.
 
-## Bugbears
+## Night Hunters
 
-Hairy goblinoids who hunt at night.
+Hairy hunters who hunt at night.
 `
 
-const fakeAdventure = `# Lost Test of Phandelver
+const fakeAdventure = `# The Hollow Crown
 
 ### Important NPCs
 
 | Name | Role |
 |------|------|
-| Toblen Stonehill | Innkeeper. |
-| **Sildar Hallwinter** | Knights of Neverwinter. |
+| Mira Holt | Innkeeper. |
+| **Captain Reed** | Town guard. |
 
-# Goblin Arrows
+# The Ambush
 
-The party is ambushed by **goblins** on the trail.
+The party is ambushed by **cave rascals** on the trail.
 
-## Cragmaw Hideout
+## The Hideout
 
 A cave hideout.
 
 ### 1. Cave Mouth
 
-A stream flows from the cave. Two **goblins** watch from the thicket.
+A stream flows from the cave. Two **cave rascals** watch from the thicket.
 
-### 2. Goblin Blind
+### 2. Watch Post
 
-More **goblins** here.
+More **cave rascals** here.
 
 # Appendix B: Monsters
 
-## Goblin
+## Cave Rascal
 
-Adventure goblin stats live here.
+Adventure creature stats live here.
 `
 
 func testWorkspace(t *testing.T) domain.Workspace {
 	t.Helper()
-	scope := domain.Scope{WorldID: "fr", WorldName: "Forgotten Realms", CampaignID: "lmop", Campaign: "Lost Mine"}
+	scope := domain.Scope{WorldID: "test-world", WorldName: "Test World", CampaignID: "test-campaign", Campaign: "Test Campaign"}
 	ws, err := domain.NewWorkspace(scope, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ws.Library = []domain.WorldRef{{
-		ID: "fr", Name: "Forgotten Realms",
-		Campaigns: []domain.CampaignRef{{ID: "lmop", Name: "Lost Mine"}},
+		ID: "test-world", Name: "Test World",
+		Campaigns: []domain.CampaignRef{{ID: "test-campaign", Name: "Test Campaign"}},
 	}}
 	return ws
 }
@@ -85,17 +87,17 @@ func TestParseDetectsBestiaryAndStripsWidgets(t *testing.T) {
 	if strings.Contains(strings.Join(bodies(book), "\n"), "Loading") {
 		t.Fatal("expected HTML loader text to be stripped")
 	}
-	var goblins ParsedEntry
+	var rascals ParsedEntry
 	for _, e := range book.Entries {
-		if e.Title == "Goblins" {
-			goblins = e
+		if e.Title == "Cave Rascals" {
+			rascals = e
 		}
 	}
-	if goblins.Title == "" {
-		t.Fatal("missing Goblins entry")
+	if rascals.Title == "" {
+		t.Fatal("missing Cave Rascals entry")
 	}
-	if !containsAlias(book.Aliases["Goblins"], "Goblin Warrior") {
-		t.Fatalf("aliases=%#v", book.Aliases["Goblins"])
+	if !containsAlias(book.Aliases["Cave Rascals"], "Cave Rascal") {
+		t.Fatalf("aliases=%#v", book.Aliases["Cave Rascals"])
 	}
 }
 
@@ -108,26 +110,26 @@ func TestApplyBestiaryCreatesLibraryCreatures(t *testing.T) {
 	if report.Kind != domain.SourceBestiary || report.Records < 2 {
 		t.Fatalf("report=%#v", report)
 	}
-	var goblins domain.Record
+	var rascals domain.Record
 	for _, r := range ws.Records {
-		if r.Title == "Goblins" {
-			goblins = r
+		if r.Title == "Cave Rascals" {
+			rascals = r
 		}
 	}
-	if goblins.ID == "" || goblins.Type != domain.Creature {
-		t.Fatalf("goblins=%#v", goblins)
+	if rascals.ID == "" || rascals.Type != domain.Creature {
+		t.Fatalf("rascals=%#v", rascals)
 	}
-	if goblins.Scope.CampaignID != "" || goblins.SourceID != report.SourceID {
-		t.Fatalf("library scope=%#v source=%s", goblins.Scope, goblins.SourceID)
+	if rascals.Scope.CampaignID != "" || rascals.SourceID != report.SourceID {
+		t.Fatalf("library scope=%#v source=%s", rascals.Scope, rascals.SourceID)
 	}
-	if goblins.Folder != "Monster Manual (2025)/Creatures" {
-		t.Fatalf("folder=%q", goblins.Folder)
+	if rascals.Folder != "Test Bestiary (2025)/Creatures" {
+		t.Fatalf("folder=%q", rascals.Folder)
 	}
 	enabled := ws.EnabledSourceIDs(ws.Scope)
 	if len(enabled) != 1 || enabled[0] != report.SourceID {
 		t.Fatalf("enabled=%#v", enabled)
 	}
-	if !domain.RecordVisibleIn(goblins, ws.Scope, enabled) {
+	if !domain.RecordVisibleIn(rascals, ws.Scope, enabled) {
 		t.Fatal("enabled bestiary creature should be campaign-visible")
 	}
 }
@@ -151,15 +153,15 @@ func TestApplyAdventureExtractsRoomsNPCsAndPrep(t *testing.T) {
 			titles[r.Title] = r.Type
 		}
 	}
-	for _, want := range []string{"Toblen Stonehill", "Sildar Hallwinter", "Cragmaw Hideout", "1. Cave Mouth", "Goblin"} {
+	for _, want := range []string{"Mira Holt", "Captain Reed", "The Hideout", "1. Cave Mouth", "Cave Rascal"} {
 		if _, ok := titles[want]; !ok {
 			t.Fatalf("missing %q in %#v", want, titles)
 		}
 	}
-	if titles["Toblen Stonehill"] != domain.NPC {
-		t.Fatalf("Toblen type=%s", titles["Toblen Stonehill"])
+	if titles["Mira Holt"] != domain.NPC {
+		t.Fatalf("Mira type=%s", titles["Mira Holt"])
 	}
-	if _, dup := titles["Cragmaw Hideout — 1. Cave Mouth"]; dup {
+	if _, dup := titles["The Hideout — 1. Cave Mouth"]; dup {
 		t.Fatal("rooms should not be duplicated as prefixed sibling titles")
 	}
 	if len(ws.PlannedNotes) == 0 {
@@ -171,10 +173,13 @@ func TestApplyAdventureExtractsRoomsNPCsAndPrep(t *testing.T) {
 			cave = r
 		}
 	}
-	if !strings.Contains(cave.Folder, "Cragmaw Hideout") {
-		t.Fatalf("cave should nest under Cragmaw Hideout, folder=%q", cave.Folder)
+	if !strings.Contains(cave.Folder, "The Hideout") {
+		t.Fatalf("cave should nest under The Hideout, folder=%q", cave.Folder)
 	}
-	if !strings.Contains(cave.Body, "@Goblins") && !strings.Contains(cave.Body, "@Goblin") {
+	if !strings.Contains(cave.Folder, "The Ambush") {
+		t.Fatalf("cave should nest under The Ambush, folder=%q", cave.Folder)
+	}
+	if !strings.Contains(cave.Body, "@Cave Rascals") && !strings.Contains(cave.Body, "@Cave Rascal") {
 		t.Fatalf("expected creature association in body: %q", cave.Body)
 	}
 }
@@ -195,70 +200,119 @@ func TestReimportReplacesSourceRecords(t *testing.T) {
 	}
 }
 
-func TestApplyDownloadsIfPresent(t *testing.T) {
-	mm := "/mnt/c/Users/hunte/Downloads/Monster Manual (2025).md"
-	lmop := "/mnt/c/Users/hunte/Downloads/Lost Mine of Phandelver.md"
-	if _, err := os.Stat(mm); err != nil {
-		t.Skip("Monster Manual markdown not on disk")
-	}
-	if _, err := os.Stat(lmop); err != nil {
-		t.Skip("LMoP markdown not on disk")
+func TestApplyAdventureMarkdownDoesNotFileUnderIntroduction(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "The Hollow Crown.md")
+	markdown := `# Introduction
+
+Welcome.
+
+### Running the Adventure
+
+How to run the game.
+
+### Background
+
+Miners found a hollow.
+
+# The Ambush
+
+The wagon is ambushed.
+
+## The Hideout
+
+A cave hideout.
+
+### 1. Cave Mouth
+
+Two cave rascals watch the cave.
+
+# Millhaven
+
+A frontier town.
+
+### The Mill Inn
+
+A stout inn.
+
+# Appendix B: Monsters
+
+## Cave Rascal
+
+Adventure creature stats live here.
+`
+	if err := os.WriteFile(path, []byte(markdown), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	ws := testWorkspace(t)
-	ws, mmReport, err := ApplyFile(ws, mm, Options{Scope: ws.Scope, Kind: domain.SourceBestiary})
+	ws, report, err := ApplyFile(ws, path, Options{Scope: ws.Scope, Kind: domain.SourceAdventure})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mmReport.Records < 50 {
-		t.Fatalf("expected dozens of MM creatures, got %d", mmReport.Records)
+	if report.Title != "The Hollow Crown" {
+		t.Fatalf("title=%q", report.Title)
 	}
-	ws, advReport, err := ApplyFile(ws, lmop, Options{Scope: ws.Scope, Kind: domain.SourceAdventure})
-	if err != nil {
-		t.Fatal(err)
+	if strings.EqualFold(report.Title, "Introduction") {
+		t.Fatal("source should not be named Introduction")
 	}
-	if advReport.Records < 20 || advReport.Planned < 3 {
-		t.Fatalf("adventure report=%#v", advReport)
-	}
-	enabled := ws.EnabledSourceIDs(ws.Scope)
-	var goblins domain.Record
+	titles := map[string]domain.Record{}
 	for _, record := range ws.Records {
-		if record.Title == "Goblins" && record.SourceID == mmReport.SourceID {
-			goblins = record
+		if record.SourceID == report.SourceID {
+			titles[record.Title] = record
 		}
 	}
-	if goblins.ID == "" || !domain.RecordVisibleIn(goblins, ws.Scope, enabled) {
-		t.Fatalf("MM Goblins not campaign-visible; enabled=%v", enabled)
+	if rec, ok := titles["Introduction"]; !ok || rec.Type != domain.Note {
+		t.Fatalf("introduction should be a note: %#v", titles["Introduction"])
 	}
-	t.Logf("MM %d creatures; LMoP %d records %d prep %d links", mmReport.Records, advReport.Records, advReport.Planned, advReport.Linked)
+	if rec, ok := titles["Running the Adventure"]; ok && rec.Type == domain.Location {
+		t.Fatal("intro sections should not become locations")
+	}
+	if rec, ok := titles["Background"]; ok && rec.Type == domain.Location {
+		t.Fatal("intro background should not become a location")
+	}
+	inn, ok := titles["The Mill Inn"]
+	if !ok || inn.Type != domain.Location {
+		t.Fatalf("expected The Mill Inn, got %#v", titles)
+	}
+	if !strings.Contains(inn.Folder, "Millhaven") {
+		t.Fatalf("inn should nest under Millhaven, folder=%q", inn.Folder)
+	}
+	if strings.Contains(inn.Folder, "Introduction") {
+		t.Fatalf("inn should not file under Introduction: %q", inn.Folder)
+	}
+	cave := titles["1. Cave Mouth"]
+	if cave.ID == "" || !strings.Contains(cave.Folder, "The Hideout") || strings.Contains(cave.Folder, "Introduction") {
+		t.Fatalf("cave folder=%q", cave.Folder)
+	}
 }
 
 func TestApplyFiveEIngestsChosenBook(t *testing.T) {
 	ws := testWorkspace(t)
 	fetcher := fivetools.MapFetcher{
 		"data/adventures.json":            []byte(`{"adventure":[]}`),
-		"data/books.json":                 []byte(`{"book":[{"id":"XMM","name":"Monster Manual (2025)","group":"core","published":"2025-02-18"}]}`),
-		"data/bestiary/index.json":        []byte(`{"XMM":"bestiary-xmm.json"}`),
+		"data/books.json":                 []byte(`{"book":[{"id":"BST","name":"Test Bestiary (2025)","group":"core","published":"2025-02-18"}]}`),
+		"data/bestiary/index.json":        []byte(`{"BST":"bestiary-bst.json"}`),
 		"data/spells/index.json":          []byte(`{}`),
-		"data/bestiary/bestiary-xmm.json": []byte(`{"monster":[{"name":"Goblin Warrior","source":"XMM","ac":[15],"hp":{"average":10,"formula":"3d6"},"str":8,"dex":15,"con":10,"int":10,"wis":8,"cha":8}]}`),
+		"data/bestiary/bestiary-bst.json": []byte(`{"monster":[{"name":"Cave Rascal","source":"BST","ac":[12],"hp":{"average":9,"formula":"2d6"},"str":9,"dex":13,"con":11,"int":8,"wis":10,"cha":7}]}`),
 	}
-	ws, report, err := ApplyFiveE(ws, "5e:XMM", Options{Scope: ws.Scope, Fetcher: fetcher})
+	ws, report, err := ApplyFiveE(ws, "5e:BST", Options{Scope: ws.Scope, Fetcher: fetcher})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.SourceID != "src-5e-xmm" || report.Records != 1 {
+	if report.SourceID != "src-5e-bst" || report.Records != 1 {
 		t.Fatalf("report=%#v", report)
 	}
-	var goblin domain.Record
+	var rascal domain.Record
 	for _, record := range ws.Records {
-		if record.Title == "Goblin Warrior" {
-			goblin = record
+		if record.Title == "Cave Rascal" {
+			rascal = record
 		}
 	}
-	if goblin.Type != domain.Creature || goblin.Scope.CampaignID != "" {
-		t.Fatalf("library creature=%#v", goblin)
+	if rascal.Type != domain.Creature || rascal.Scope.CampaignID != "" {
+		t.Fatalf("library creature=%#v", rascal)
 	}
-	if !strings.Contains(goblin.Body, "**AC** 15") {
-		t.Fatalf("body=%q", goblin.Body)
+	if !strings.Contains(rascal.Body, "**AC** 12") {
+		t.Fatalf("body=%q", rascal.Body)
 	}
 	if !ws.SourceEnabled(ws.Scope, report.SourceID) {
 		t.Fatal("imported book should be enabled for the campaign")
@@ -280,4 +334,58 @@ func containsAlias(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestApplyHarnessDumpsAndAppliesStructuralClassify(t *testing.T) {
+	dir := t.TempDir()
+	dump := filepath.Join(dir, "ingest-dump.json")
+	ws := testWorkspace(t)
+	ws, report, err := Apply(ws, fakeAdventure, Options{
+		Kind:     domain.SourceAdventure,
+		Scope:    ws.Scope,
+		Harness:  classify.HarnessDump,
+		DumpPath: dump,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Harness != "dump" {
+		t.Fatalf("harness=%q", report.Harness)
+	}
+	raw, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), report.SourceID) {
+		t.Fatalf("dump missing source: %s", raw)
+	}
+
+	for i, rec := range ws.Records {
+		if classify.FrontMatter(rec.Title) {
+			rec.Type = domain.Location
+			ws.Records[i] = rec
+		}
+	}
+	ws, report, err = applyHarness(ws, Report{SourceID: report.SourceID}, Options{
+		Harness:  classify.HarnessApply,
+		DumpPath: dump,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Harness != "apply" {
+		t.Fatalf("harness=%q", report.Harness)
+	}
+	found := false
+	for _, rec := range ws.Records {
+		if classify.FrontMatter(rec.Title) {
+			found = true
+			if rec.Type != domain.Note {
+				t.Fatalf("%s should be a note after apply, got %s", rec.Title, rec.Type)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected a front-matter heading to retype")
+	}
 }

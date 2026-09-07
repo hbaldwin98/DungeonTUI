@@ -166,11 +166,15 @@ is fetched at import time and never vendored in git (D-023).
 Import sits beside the world/campaign picker: `I` from the picker or campaign
 browser leaves the wiki and opens SOURCES | 5E.TOOLS | FILES. Esc returns to
 wherever the owner came from. Enabling a source is a campaign action on that
-screen (`e`).
+screen (`e`). `H` cycles the post-ingest agentic harness (`off`, `dump`,
+`apply`): dump writes `ingest-dump.json` for Claude / OpenCode / Codex / Cursor
+Agent; apply also retypes from structural rules (D-033). `d` then `y` removes an ingested source from the library so it
+can be ingested again; session CAST links keep their record IDs because those
+IDs are stable per book and title.
 
 ## D-023 — 5e.tools adapter fetches by book id
 
-The owner chooses which 5e.tools books to ingest (XMM, XPHB, XDMG, LMoP, …).
+The owner chooses which 5e.tools books to ingest by catalog id.
 One `SourceDocument` per source id pulls every collection that book publishes
 (bestiary, spells, items, classes, races, feats, adventure/book text, …).
 `{@creature}` / `{@spell}` tags become `@` mentions. Raw JSON stays out of the
@@ -179,15 +183,16 @@ repository; a local 5e.tools checkout can be passed with `-data`.
 ## D-024 — SQLite FTS5 and vectors are a later search backend
 
 Ingest writes `domain.Record` values (title, summary, body, tags, source).
-Those records are the indexable unit. A later SQLite store can add FTS5 and
-optional embeddings for AI retrieval without changing ingest or requiring
-vectors to reconstruct canon. JSON workspace remains the inspectable slice
-until that storage move (design: Storage strategy).
+Those wiki records, and the composed 5e plugin entries (D-032), are the
+indexable units. A later SQLite store can add FTS5 and optional embeddings for
+AI retrieval without changing ingest or requiring vectors to reconstruct canon.
+JSON workspace remains the inspectable campaign slice until that storage move
+(design: Storage strategy).
 
 ## D-025 — Imported wiki records file under source folders
 
 Enabled sourcebooks do not flatten into campaign type lists. Records carry a
-slash `Folder` (`Monster Manual (2025)/Creatures`). The typed list shows
+slash `Folder` (`Test Bestiary (2025)/Creatures`). The typed list shows
 campaign records loose at the top and source folders collapsed until Enter
 expands them. List rendering only paints the visible window so large books
 do not stall the TUI.
@@ -203,11 +208,73 @@ pairs so ability scores and similar blocks stay readable without blowing layout.
 
 ## D-027 — Adventure sites nest; characters are one record
 
-Imported adventures file numbered rooms under the parent site (`LMoP/Locations/Phandalin`)
-with short titles (`1. Stonehill Inn`), sorted with the overview first then numeric
+Imported adventures file numbered rooms and named sites under the parent chapter
+(`The Hollow Crown/Locations/Millhaven`, `.../The Ambush/The Hideout`)
+with short titles (`1. The Mill Inn`, `The Mill Inn`), sorted with the overview first then numeric
 order. Named characters become a single NPC (table role plus their own writeup) instead
-of repeating as `Phandalin - 1` locations, stub NPCs, and copies inside the parent body.
+of repeating as `Millhaven - 1` locations, stub NPCs, and copies inside the parent body.
 Markdown tables get a blank line after them so following stats are not parsed as table rows.
+An opening **Introduction** chapter stays a note; it does not become the source title or a
+second copy of the adventure tree. Markdown exports that start with `# Introduction` take
+the book name from the filename.
+
+## D-030 — Outline ingest plus structural classify, not per-book skip lists
+
+Adventure ingest dumps a faithful outline. Types come from structure that is
+the same across 5e books: front matter (introduction, preface, appendix),
+numbered room headings, 5e.tools `section` nodes, and Name/Role tables.
+Front-matter subtrees that reprint later chapters are omitted. Advice boxes
+stay notes. Per-adventure title deny lists are not used. A headless `dungeon dump` JSON snapshot lets Claude,
+OpenCode, Codex, and Cursor Agent read ingested wiki/plugin data and run
+`dungeon classify` as a sanity pass. AI still must not silently rewrite canon
+(D-002); `-apply` only retypes from those structural rules.
+
+## D-028 — 5e mechanical data is a lookup plugin
+
+Adventures cite shared 5e.tools files (MM bestiary, `template.json`,
+`legendarygroups.json`, `items.json`, `items-base.json`, `magicvariants.json`,
+fluff). Those are a **ruleset plugin** (`internal/ruleset`, first pack
+`dnd5e`), not wiki folders. The campaign wiki stays narrative (sites, NPCs,
+prep). `@` peek, mention hops, suggestions, and search display composed
+markdown from the plugin when no wiki record matches. Enabling an adventure loads
+the core bestiary for lookups without ingesting that bestiary as a wiki tree. The plugin corpus is
+pulled onto the local machine and persisted there (D-032); it is not an
+in-memory-only catalog. Raw JSON is never vendored (D-023).
+
+## D-029 — First ruleset pack is D&D 5e / Next (2014)
+
+The first plugin targets D&D Next / 5e (2014) core tables. 2024 book codes are
+additional ids in the same plugin when those sources are enabled, not a second
+system. Later games get their own plugin behind the same lookup interface.
+
+## D-031 — Detail pane windows overflow instead of clipping the tail
+
+Pane bodies still fit inner height so borders never clip (Argus #27). When the
+detail document is taller than that height, the pane windows a scroll offset
+rather than dropping the unread tail (Argus #60). `PgUp`/`PgDn`, Home/End, and
+the mouse wheel over the pane (or while it is focused) move the body. `j`/`k`
+keep hop-row movement when REFERENCES/LINKED/CAST exist (Argus #61, D-020).
+
+## D-032 — 5e plugin is local durable data, then SQLite FTS5
+
+The D&D 5e plugin is fetched (5e.tools JSON at ingest) and stored on the owner’s
+machine. Process maps are a working cache rebuilt from that disk copy, not the
+system of record. Plugin entries still must not land on `Workspace.Records`
+(D-028). The same later SQLite FTS5 store that indexes wiki ingest (D-024,
+Argus #55) will index plugin creatures/items too; embeddings stay optional and
+are not required to reconstruct canon.
+
+## D-033 — Import can run the agentic harness after ingest
+
+The Import screen and `dungeon import` can select a post-ingest harness
+(`off`, `dump`, `apply`). `dump` writes `ingest-dump.json` beside the workspace
+for Claude, OpenCode, Codex, and Cursor Agent, and reports structural findings.
+`apply` also retypes from those structural rules, then dumps. AI still must not
+silently rewrite canon (D-002). Default is off so ingest stays a fetch-and-store
+step. The choice persists in preferences (`import_harness`).
+
+
+
 
 
 

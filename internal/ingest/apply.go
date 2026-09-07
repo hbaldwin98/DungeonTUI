@@ -5,17 +5,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hbaldwin98/dungeon/internal/classify"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 )
 
 // Options control where ingested content lands.
 type Options struct {
-	Kind    domain.SourceKind
-	Scope   domain.Scope
-	Path    string
-	Fetcher fivetools.Fetcher // tests; live import uses HTTP or DataDir
-	DataDir string            // optional local 5e.tools checkout (contains data/)
+	Kind     domain.SourceKind
+	Scope    domain.Scope
+	Path     string
+	Fetcher  fivetools.Fetcher // tests; live import uses HTTP or DataDir
+	DataDir  string            // optional local 5e.tools checkout (contains data/)
+	Harness  classify.Harness  // optional post-ingest dump / structural apply
+	DumpPath string            // ingest-dump.json path when Harness is dump or apply
 }
 
 // Report is a short digest of what Apply wrote.
@@ -26,11 +29,17 @@ type Report struct {
 	Records  int
 	Planned  int
 	Linked   int
+	Harness  string
+	Findings int
+	DumpPath string
 }
 
 // Apply parses markdown and upserts a source document plus records into ws.
 func Apply(ws domain.Workspace, markdown string, opts Options) (domain.Workspace, Report, error) {
 	book := Parse(markdown, opts.Kind)
+	if title := titleFromPath(opts.Path); genericSourceTitle(book.Title) && title != "" {
+		book.Title = title
+	}
 	if book.Title == "" {
 		return ws, Report{}, fmt.Errorf("markdown has no title heading")
 	}
@@ -88,14 +97,14 @@ func Apply(ws domain.Workspace, markdown string, opts Options) (domain.Workspace
 		ws.EnableSource(campaignScope.WorldID, campaignScope.CampaignID, doc.ID)
 	}
 
-	return ws, Report{
+	return applyHarness(ws, Report{
 		SourceID: doc.ID,
 		Kind:     book.Kind,
 		Title:    doc.Title,
 		Records:  len(records),
 		Planned:  len(plans),
 		Linked:   linked,
-	}, nil
+	}, opts)
 }
 
 func bestiaryRecords(book ParsedBook, doc domain.SourceDocument, scope domain.Scope) []domain.Record {
@@ -176,86 +185,82 @@ func adventureRecords(book ParsedBook, doc domain.SourceDocument, scope domain.S
 		seen[rec.ID] = true
 		records = append(records, rec)
 	}
+	later := markdownChapterTitles(book.Entries)
 
-	inAppendixB := false
-	inAppendixA := false
 	for _, entry := range book.Entries {
 		titleLower := strings.ToLower(entry.Title)
-		if entry.Level == 1 && strings.HasPrefix(titleLower, "appendix b") {
-			inAppendixB = true
-			inAppendixA = false
-			continue
-		}
-		if entry.Level == 1 && strings.HasPrefix(titleLower, "appendix a") {
-			inAppendixA = true
-			inAppendixB = false
-			for _, name := range parseItemList(entry.Body) {
-				add(itemRecord(doc, scope, name, "Magic item from "+doc.Title+"."))
-			}
-			continue
-		}
-		if entry.Level == 1 && (titleLower == "credits" || strings.HasPrefix(titleLower, "appendix")) {
-			inAppendixA = strings.HasPrefix(titleLower, "appendix a")
-			inAppendixB = strings.HasPrefix(titleLower, "appendix b")
-			if titleLower == "credits" {
-				inAppendixA, inAppendixB = false, false
-			}
-			continue
-		}
-
-		if inAppendixA && entry.Level == 2 && !strings.EqualFold(entry.Title, "Item Descriptions") &&
-			!strings.EqualFold(entry.Title, "Using a Magic Item") {
-			add(itemRecord(doc, scope, entry.Title, summaryOf(entry.Body)))
-			continue
-		}
-		if inAppendixB && entry.Level == 2 {
-			add(creatureRecord(doc, scope, entry, book.Aliases[entry.Title]))
-			continue
-		}
-
-		if entry.Level == 1 {
-			if titleLower == "introduction" {
-				add(noteRecord(doc, scope, entry))
-				continue
-			}
-			add(locationRecord(doc, scope, entry.Title, entry.Body, "", []string{slug(entry.Title), "adventure"}))
-			plans = append(plans, plannedFromPart(doc, scope, entry, now))
-			continue
-		}
-
-		if strings.Contains(titleLower, "important npc") {
+		if classify.NPCRosterTitle(entry.Title) {
 			for _, row := range parseNPCTable(entry.Body) {
 				site := firstNumberedParent(entry.Path)
 				add(npcRecord(doc, scope, row[0], row[1], site))
 			}
-		}
-
-		if entry.Level == 2 && !isSkippedAdventure(entry.Title) {
-			add(locationRecord(doc, scope, entry.Title, entry.Body, "", tagsForPath(entry.Path)))
 			continue
 		}
-		if entry.Level >= 3 && numberedRoom.MatchString(entry.Title) {
-			site := firstNumberedParent(entry.Path)
-			add(locationRecord(doc, scope, entry.Title, entry.Body, site, append(tagsForPath(entry.Path), "room")))
+		for _, name := range parseItemList(entry.Body) {
+			add(itemRecord(doc, scope, name, "Magic item from "+doc.Title+"."))
+		}
+		if underFrontMatterPath(entry.Path) {
+			if later[titleLower] {
+				continue
+			}
+			add(noteRecord(doc, scope, entry))
 			continue
 		}
-		if entry.Level == 3 && looksLikePlace(entry.Title) {
-			add(locationRecord(doc, scope, entry.Title, entry.Body, "", tagsForPath(entry.Path)))
+		group := locationGroup(entry.Path)
+		tags := tagsForPath(entry.Path)
+		if entry.Level >= 2 && !classify.FrontMatter(entry.Title) {
+			tags = append(tags, "5e-section")
+		}
+		if classify.NumberedRoom(entry.Title) {
+			tags = append(tags, "room")
+		}
+		switch classify.Assign(entry.Title, group, tags) {
+		case domain.Location:
+			add(locationRecord(doc, scope, entry.Title, entry.Body, group, tags))
+			if entry.Level == 1 {
+				plans = append(plans, plannedFromPart(doc, scope, entry, now))
+			}
+		default:
+			add(noteRecord(doc, scope, entry))
 		}
 	}
 	domain.NestOverviewFolders(records)
 	return records, plans
 }
 
-func looksLikePlace(title string) bool {
-	lower := strings.ToLower(title)
-	if strings.HasPrefix(lower, "awarding") || strings.HasPrefix(lower, "what's next") {
+func markdownChapterTitles(entries []ParsedEntry) map[string]bool {
+	out := map[string]bool{}
+	for _, entry := range entries {
+		if underFrontMatterPath(entry.Path) {
+			continue
+		}
+		if classify.FrontMatter(entry.Title) && entry.Level == 1 {
+			continue
+		}
+		out[strings.ToLower(entry.Title)] = true
+	}
+	return out
+}
+
+func underFrontMatterPath(path []string) bool {
+	if len(path) < 2 {
 		return false
 	}
-	if strings.Contains(lower, "encounter") || strings.Contains(lower, "roleplaying") {
-		return false
+	return classify.FrontMatter(path[0])
+}
+
+func locationGroup(path []string) string {
+	if len(path) < 2 {
+		return ""
 	}
-	return true
+	parts := make([]string, 0, len(path)-1)
+	for _, part := range path[:len(path)-1] {
+		if classify.FrontMatter(part) {
+			continue
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "/")
 }
 
 func stampSourceFolder(doc domain.SourceDocument, rec domain.Record) domain.Record {
@@ -522,4 +527,25 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func applyHarness(ws domain.Workspace, report Report, opts Options) (domain.Workspace, Report, error) {
+	mode := opts.Harness
+	if mode == classify.HarnessOff {
+		return ws, report, nil
+	}
+	if mode == classify.HarnessApply {
+		classify.OrganizeRecords(ws.Records)
+		report.Harness = classify.HarnessApply.Label()
+	} else {
+		report.Harness = classify.HarnessDump.Label()
+	}
+	report.Findings = len(classify.Diagnose(ws.Records, report.SourceID))
+	if strings.TrimSpace(opts.DumpPath) != "" {
+		if err := classify.WriteDump(opts.DumpPath, ws, report.SourceID, true); err != nil {
+			return ws, report, err
+		}
+		report.DumpPath = opts.DumpPath
+	}
+	return ws, report, nil
 }

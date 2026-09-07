@@ -261,7 +261,7 @@ func recordTreeLabel(node *recordFolderNode, record Record) string {
 	return record.Title
 }
 
-// SplitRelatedTitle pulls "Phandalin — 1. Stonehill Inn" into a parent group
+// SplitRelatedTitle pulls "Millhaven — 1. The Mill Inn" into a parent group
 // and a short leaf so already-imported adventures nest without a re-ingest.
 func SplitRelatedTitle(title string) (group, leaf string, ok bool) {
 	title = strings.TrimSpace(title)

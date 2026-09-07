@@ -22,27 +22,48 @@ go run ./cmd/dungeon
 
 Choose books in the app. Markdown files still work; **5e.tools** is the
 structured catalog (stat blocks, spells, items, classes, adventures). The
-adapter fetches JSON at import time into your local workspace. That JSON is
-never stored in this git repository.
+adapter fetches JSON at import time onto your machine. Adventure and
+rulebook **prose** become wiki records. Shared mechanical tables (bestiary,
+items, templates, legendary groups) land in a **D&D 5e plugin** persisted
+beside the workspace so `@` peeks can show composed stats without dumping that
+bestiary into the campaign tree. That corpus is local durable data (pulled JSON
+now; SQLite FTS5 later), not an in-memory-only index, and never stored in this
+git repository. Re-ingest an adventure after this change so lookups are primed.
 
 ```sh
-go run ./cmd/dungeon import https://5e.tools/book.html#xmm,-1
-go run ./cmd/dungeon import 5e:XPHB
-go run ./cmd/dungeon import -data /path/to/5etools https://5e.tools/adventure.html#lmop,-1
-go run ./cmd/dungeon import -kind bestiary "/mnt/c/Users/hunte/Downloads/Monster Manual (2025).md"
+go run ./cmd/dungeon import https://5e.tools/book.html#BOOKID,-1
+go run ./cmd/dungeon import 5e:BOOKID
+go run ./cmd/dungeon import -data /path/to/5etools https://5e.tools/adventure.html#BOOKID,-1
+go run ./cmd/dungeon import -kind bestiary ./bestiary.md
+go run ./cmd/dungeon import -remove src-5e-bookid
+go run ./cmd/dungeon import -harness dump 5e:BOOKID
+go run ./cmd/dungeon import -harness apply ./adventure.md
+
+# Headless inspect for agents (Claude, OpenCode, Codex, Cursor Agent)
+go run ./cmd/dungeon dump
+go run ./cmd/dungeon dump -source src-5e-bookid
+go run ./cmd/dungeon classify
+go run ./cmd/dungeon classify -apply
 ```
 
 Inside a campaign or the library picker, `I` opens **Import**: SOURCES |
 5E.TOOLS | FILES. Type to filter the live catalog, Enter to ingest the
-selected book, `e` to enable it for the campaign. Re-importing the same id
-replaces its previous records. `Esc` returns to the picker or campaign.
+selected book, `H` to cycle the agentic harness (`off` / `dump` / `apply`)
+so a sanity dump (and optional structural classify) runs after ingest, `e` to
+enable it for the campaign, `d` then `y` to remove an ingested source (and its
+records) so you can ingest it again. Re-importing the same id also replaces its
+previous records. `Esc` returns to the picker or campaign. `dump` writes
+`ingest-dump.json` beside the workspace for agents.
 
-`@Goblin Warrior` and other mentions resolve against campaign + world-shared +
-**enabled** sources. Empty markdown widgets stay empty; 5e.tools ingest is
+`@Captain Vale` and other mentions resolve against campaign + world-shared +
+**enabled** sources, then the 5e plugin. Adventure sites are classified from
+structure (front matter, numbered rooms, 5e.tools sections), not a skip list of
+one book's headings. Empty markdown widgets stay empty; 5e.tools ingest is
 what fills AC/HP/spell text from the published JSON.
 
-SQLite FTS5 and embeddings are a later search backend over these same records
-(see D-024). The workspace JSON is still the inspectable store.
+SQLite FTS5 and embeddings are a later search backend over wiki records and
+the 5e plugin (see D-024, D-032). The workspace JSON is still the inspectable
+campaign store; plugin JSON lives in the local 5e.tools cache.
 
 
 ## Validate / screencap
@@ -66,8 +87,8 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `←` / `→` / `Tab` / `Shift+Tab` / `t` | Cycle focus across nav · list · detail |
 | `n` | Create a new draft entity (markdown) |
 | `e` | Edit the selected entity or prep notes (full-screen markdown; `@` suggests) |
-| `I` | Open the Import screen (library sources, 5e.tools catalog, markdown files) |
-| `d` | Delete selected entity or session (`y` confirm / `n` cancel) |
+| `I` | Open the Import screen (library sources, 5e.tools catalog, markdown files; `H` cycles post-ingest harness) |
+| `d` | Delete selected entity or session; on Import SOURCES, remove the ingested book (`y` confirm / `n` cancel) |
 | `x` | Supersede selected entity (`y` confirm / `n` cancel) |
 | `?` | Show context-sensitive command help |
 | `f` | Cycle tag filter on the current section list |

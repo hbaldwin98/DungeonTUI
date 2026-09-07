@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
 )
 
@@ -14,6 +15,7 @@ type hopKind string
 
 const (
 	hopWiki    hopKind = "wiki"
+	hopRuleset hopKind = "ruleset"
 	hopBroken  hopKind = "broken"
 	hopPrep    hopKind = "prep"
 	hopSession hopKind = "session"
@@ -48,12 +50,28 @@ func (m Model) wikiDetailHops() []detailHop {
 	}
 	hops := make([]detailHop, 0)
 	resolved, broken := domain.EntityOutgoingRefs(*record, m.workspace.Records)
+	broken = m.bindRulesetMentions(broken)
+	stillBroken := make([]domain.Mention, 0, len(broken))
+	for _, mention := range broken {
+		if mention.RecordID == "" {
+			stillBroken = append(stillBroken, mention)
+			continue
+		}
+		resolved = append(resolved, mention)
+	}
+	broken = stillBroken
 	for _, mention := range resolved {
 		title := mention.Text
-		if target, ok := recordByID(m.workspace.Records, mention.RecordID); ok {
-			title = target.Title
+		kind := hopWiki
+		prefix := "wiki · "
+		if rec, ok := m.lookupAny(mention.RecordID); ok {
+			title = rec.Title
+			if fivetools.IsPluginID(rec.ID) {
+				kind = hopRuleset
+				prefix = "5e · "
+			}
 		}
-		hops = append(hops, detailHop{Kind: hopWiki, Section: "ref", Prefix: "wiki · ", Label: title, RecordID: mention.RecordID})
+		hops = append(hops, detailHop{Kind: kind, Section: "ref", Prefix: prefix, Label: title, RecordID: mention.RecordID})
 	}
 	for _, mention := range broken {
 		hops = append(hops, detailHop{Kind: hopBroken, Section: "ref", Prefix: "missing · @", Label: mention.Text})

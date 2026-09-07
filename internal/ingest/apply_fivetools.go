@@ -42,6 +42,7 @@ func ApplyFiveE(ws domain.Workspace, ref string, opts Options) (domain.Workspace
 	if err := bundle.Doc.Validate(); err != nil {
 		return ws, Report{}, err
 	}
+	_ = fivetools.Prime(fetcher, bundle.Entry)
 
 	ws.EnsureLibrary()
 	ws.StripSourceContent(bundle.Doc.ID)
@@ -69,14 +70,14 @@ func ApplyFiveE(ws domain.Workspace, ref string, opts Options) (domain.Workspace
 	if scope.CampaignID != "" {
 		ws.EnableSource(scope.WorldID, scope.CampaignID, bundle.Doc.ID)
 	}
-	return ws, Report{
+	return applyHarness(ws, Report{
 		SourceID: bundle.Doc.ID,
 		Kind:     bundle.Doc.Kind,
 		Title:    bundle.Doc.Title,
 		Records:  len(records),
 		Planned:  len(plans),
 		Linked:   linked,
-	}, nil
+	}, opts)
 }
 
 func fileExists(path string) bool {

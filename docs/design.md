@@ -390,7 +390,9 @@ section, `Space` opens contextual actions, and `Tab` moves focus between list
 and detail panes. The detail pane renders the record's markdown (headings, emphasis,
 lists). Tables that cannot fit the pane flatten to labeled pairs, and rendered
 lines are clamped to the inner width so Glamour output cannot stagger workstation
-borders. Type-specific information such
+borders. Content taller than the pane windows with a scroll offset: with detail
+focused, `PgUp`/`PgDn` (and the mouse wheel) move the body, while `j`/`k` still
+move hop rows when REFERENCES/LINKED/CAST exist. Type-specific information such
 as relations, current location, knowledge, goals, recent events, and source
 provenance still appears without collapsing the record into a generic document view.
 
@@ -416,7 +418,8 @@ as a missing ref to fix). Entity detail lists **REFERENCES** (outgoing),
 **LINKED** (incoming wiki/prep/session), and **HISTORY**. With detail focused,
 `j`/`k` moves those rows and **Enter previews** a floating buffer — Enter
 again (or `[open]`) jumps to the wiki/session/prep record, Esc or click
-outside dismisses without losing place.
+outside dismisses without losing place. `PgUp`/`PgDn` and the mouse wheel scroll
+the detail body when it exceeds the pane height.
 
 ## TUI interaction model
 
@@ -675,7 +678,8 @@ These tokens should complement interactive filters rather than replace them.
 ### Search implementation direction
 
 Use a common search service returning typed results regardless of UI. Start with
-SQLite FTS5 and structured metadata filters. Add embeddings only for queries
+SQLite FTS5 and structured metadata filters over wiki records and the persisted
+5e plugin. Add embeddings only for queries
 where semantic recall materially improves the result. Exact rules lookup and
 mechanical searches should prefer structured and full-text retrieval.
 
@@ -720,7 +724,11 @@ SQLite is a pragmatic eventual system of record: transactional, local,
 portable, easy to back up, and capable of structured queries plus FTS5.
 The first persisted vertical slice uses a documented JSON workspace because it
 keeps the data inspectable while the entity model is still changing. Ingested
-5e.tools books land as the same `Record` documents. The storage boundary must
+adventure and rulebook prose land as the same `Record` documents. Shared
+mechanical 5e.tools tables (bestiary, items, templates) are a ruleset plugin:
+pulled onto the local machine, persisted beside the workspace (JSON cache now,
+SQLite FTS5 later), never an in-memory-only corpus, and never copied into
+every campaign wiki. The storage boundary must
 allow that implementation to move to SQLite with FTS5 (and optional embeddings
 for AI retrieval) without changing domain or TUI code. Cached embeddings are
 derived operational data and are not required to reconstruct canon. Portability does not require every internal record
@@ -835,6 +843,9 @@ The workflow should be solid manually before AI automates extraction.
 - Distinguish rules, interpretations, and house-rule overrides.
 - Enable campaign-specific ruleset and source selection.
 - Add structured records for common mechanical concepts where useful.
+- A ruleset plugin looks up composed source data (5e.tools bestiary, items,
+  templates) from local durable storage for display without dumping those
+  books into the campaign wiki. SQLite FTS5 indexes that plugin corpus later.
 
 This validates the sourcebook architecture without making commercial PDF parsing
 a prerequisite for the core campaign tool.

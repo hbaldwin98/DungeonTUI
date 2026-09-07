@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // SourceKind classifies an imported library document.
 type SourceKind string
@@ -137,6 +140,60 @@ func (w *Workspace) UpsertSource(doc SourceDocument) {
 		}
 	}
 	w.Sources = append(w.Sources, doc)
+}
+
+// FindSource returns a library document by ID, or by unique title match.
+func (w Workspace) FindSource(idOrTitle string) (SourceDocument, bool) {
+	q := strings.TrimSpace(idOrTitle)
+	if q == "" {
+		return SourceDocument{}, false
+	}
+	for _, doc := range w.Sources {
+		if doc.ID == q {
+			return doc, true
+		}
+	}
+	var match SourceDocument
+	n := 0
+	for _, doc := range w.Sources {
+		if strings.EqualFold(doc.Title, q) {
+			match = doc
+			n++
+		}
+	}
+	if n == 1 {
+		return match, true
+	}
+	return SourceDocument{}, false
+}
+
+// RemoveSource deletes a library document and the records/prep ingested from
+// it, and disables it in every campaign. Session Links keep their record IDs
+// so a later ingest of the same book can restore CAST.
+func (w *Workspace) RemoveSource(sourceID string) bool {
+	if sourceID == "" {
+		return false
+	}
+	kept := make([]SourceDocument, 0, len(w.Sources))
+	found := false
+	for _, doc := range w.Sources {
+		if doc.ID == sourceID {
+			found = true
+			continue
+		}
+		kept = append(kept, doc)
+	}
+	if !found {
+		return false
+	}
+	w.Sources = kept
+	w.StripSourceContent(sourceID)
+	for i := range w.Library {
+		for j := range w.Library[i].Campaigns {
+			w.DisableSource(w.Library[i].ID, w.Library[i].Campaigns[j].ID, sourceID)
+		}
+	}
+	return true
 }
 
 // StripSourceContent removes records and planned notes previously ingested

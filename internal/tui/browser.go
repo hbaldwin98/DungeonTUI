@@ -389,10 +389,21 @@ func (m Model) renderBrowserLeaf(pane prefs.Pane, width, height, originX, origin
 	var body string
 	switch pane {
 	case prefs.PaneDetail:
+		scroll := 0
+		if view := m.syncDetailView(); view != nil {
+			scroll = view.offset
+		}
+		var content string
 		if m.usesCampaignTree() {
-			body = fitPanelBody(m.renderTreeDetailWidth(innerWidth), innerWidth, innerHeight)
+			content = m.renderTreeDetailWidth(innerWidth)
 		} else {
-			body = fitPanelBody(m.renderDetailWidth(innerWidth), innerWidth, innerHeight)
+			content = m.renderDetailWidth(innerWidth)
+		}
+		clamped := clampANSIWidth(content, innerWidth)
+		var used int
+		body, used = windowLines(clamped, innerHeight, scroll)
+		if m.detailView != nil && m.detailView.key == m.detailSelectionKey() {
+			m.detailView.offset = used
 		}
 		if regions != nil {
 			*regions = append(*regions, browserRegion{

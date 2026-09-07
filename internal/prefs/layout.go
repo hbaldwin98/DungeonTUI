@@ -79,6 +79,9 @@ type Layout struct {
 	// Last-opened campaign context for vault-style relaunch.
 	ActiveWorldID    string `json:"active_world_id,omitempty"`
 	ActiveCampaignID string `json:"active_campaign_id,omitempty"`
+
+	// ImportHarness is the post-ingest agent pass: off, dump, or apply.
+	ImportHarness string `json:"import_harness,omitempty"`
 }
 
 // SplitTree is a rooted pane graph for one workspace mode.
@@ -186,6 +189,16 @@ func (l Layout) Normalize() Layout {
 	out.Session.Root = normalizeNode(out.Session.Root)
 	if out.Focus == "" {
 		out.Focus = PaneInput
+	}
+	switch strings.ToLower(strings.TrimSpace(out.ImportHarness)) {
+	case "", "off", "none":
+		out.ImportHarness = ""
+	case "dump", "diagnose", "on":
+		out.ImportHarness = "dump"
+	case "apply":
+		out.ImportHarness = "apply"
+	default:
+		out.ImportHarness = ""
 	}
 	return out
 }
