@@ -34,6 +34,7 @@ type Filter struct {
 	Scope            Scope
 	WorldID          string
 	CampaignID       string
+	EnabledSourceIDs []string
 	Types            map[domain.EntityType]bool
 	Tags             []string // optional; all must match (AND)
 	IncludeProposals bool
@@ -84,8 +85,10 @@ func (s Service) Find(filter Filter) []Result {
 func inScope(record domain.Record, filter Filter) bool {
 	switch filter.Scope {
 	case CurrentCampaign:
-		return record.Scope.CampaignID == filter.CampaignID ||
-			(record.Scope.CampaignID == "" && record.Scope.WorldID == filter.WorldID)
+		return domain.RecordVisibleIn(record, domain.Scope{
+			WorldID:    filter.WorldID,
+			CampaignID: filter.CampaignID,
+		}, filter.EnabledSourceIDs)
 	case CurrentWorld:
 		return record.Scope.WorldID == filter.WorldID
 	case EntireLibrary:

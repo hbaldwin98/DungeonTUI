@@ -25,6 +25,7 @@ func (m *Model) openPicker() {
 	m.namingCollection = false
 	m.namingFolder = false
 	m.preview = nil
+	m.importing = false
 	m.clearDestructiveConfirm("")
 	if m.layout.ActiveWorldID != "" {
 		for index, world := range m.workspace.Library {
@@ -85,6 +86,8 @@ func (m Model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.activatePickerItem()
+	case "I", "i":
+		return m.openImport()
 	case "n":
 		return m.createPickerItem()
 	}
@@ -219,7 +222,7 @@ func (m Model) renderPicker() string {
 		}
 	}
 	builder.WriteString("\n")
-	help := "j/k move  Enter open  n new  Esc back  q quit"
+	help := "j/k move  Enter open  n new  I import  Esc back  q quit"
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}

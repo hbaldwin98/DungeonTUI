@@ -37,6 +37,7 @@ func campaignTreeEntries() []navEntry {
 		{Kind: NavType, Type: domain.Creature, Label: "Creatures"},
 		{Kind: NavType, Type: domain.Thread, Label: "Threads"},
 		{Kind: NavType, Type: domain.Event, Label: "Timeline"},
+		{Kind: NavType, Type: domain.Rule, Label: "Rules"},
 		{Kind: NavType, Type: domain.Note, Label: "Knowledge"},
 	}
 }
@@ -70,9 +71,9 @@ func (m *Model) setNavCursor(index int) {
 	switch entry.Kind {
 	case NavType:
 		m.typeFilter = entry.Type
-		records := m.listRecords()
-		if len(records) > 0 {
-			m.selectRecord(records[0])
+		rows := m.recordTreeRows()
+		if len(rows) > 0 {
+			m.applyRecordTreeCursor(0)
 		}
 	case NavSessions:
 		m.typeFilter = ""
@@ -160,7 +161,7 @@ func (m Model) renderNavTree() string {
 	return builder.String()
 }
 
-func (m Model) renderListPane() string {
+func (m Model) renderListPane(maxRows int) string {
 	entry := m.currentNav()
 	title := strings.ToUpper(entry.Label)
 	var builder strings.Builder
@@ -235,20 +236,35 @@ func (m Model) renderListPane() string {
 			builder.WriteRune('\n')
 		}
 	default:
-		records := m.listRecords()
-		if len(records) == 0 {
+		rows := m.recordTreeRows()
+		if len(rows) == 0 {
 			builder.WriteString(mutedStyle.Render("  —"))
 			return builder.String()
 		}
-		for index, record := range records {
+		visible := max(1, maxRows-2)
+		start, end := visibleWindow(len(rows), m.cursor, visible)
+		for index := start; index < end; index++ {
+			row := rows[index]
 			cursor := "  "
 			style := normalItemStyle
-			if record.ID == m.selectedID || (m.layout.Focus == prefs.PaneList && index == m.cursor) {
+			selected := (m.layout.Focus == prefs.PaneList && index == m.cursor) ||
+				(row.Kind == domain.RecordTreeRecord && row.Record.ID == m.selectedID) ||
+				(row.Kind == domain.RecordTreeFolder && m.selectedID == "" && row.Path == m.selectedFolderPath)
+			if selected {
 				cursor = "▸ "
 				style = selectedItemStyle
 			}
-			line := fmt.Sprintf("%s%s %s", cursor, record.Authority.Marker(), record.Title)
-			builder.WriteString(style.Render(line))
+			var rest string
+			if row.Kind == domain.RecordTreeFolder {
+				glyph := "▾"
+				if m.recordFolderCollapsed(row.Path) {
+					glyph = "▸"
+				}
+				rest = fmt.Sprintf("%s %s · %d", glyph, row.Label, row.Count)
+			} else {
+				rest = fmt.Sprintf("%s %s", row.Record.Authority.Marker(), row.Label)
+			}
+			builder.WriteString(style.PaddingLeft(row.Depth * 2).Render(cursor + rest))
 			builder.WriteRune('\n')
 		}
 	}
@@ -256,6 +272,10 @@ func (m Model) renderListPane() string {
 }
 
 func (m Model) renderTreeDetail() string {
+	return m.renderTreeDetailWidth(m.defaultMarkdownWidth())
+}
+
+func (m Model) renderTreeDetailWidth(width int) string {
 	entry := m.currentNav()
 	switch entry.Kind {
 	case NavSessions:
@@ -319,7 +339,7 @@ func (m Model) renderTreeDetail() string {
 			if body == "" {
 				builder.WriteString(mutedStyle.Render("(empty)"))
 			} else {
-				builder.WriteString(m.renderProseWithMentions(body))
+				builder.WriteString(m.renderMarkdown(body, width))
 			}
 			builder.WriteString("\n\n")
 			builder.WriteString(mutedStyle.Render("List Enter/e edits · detail Enter previews · s starts another live sit"))
@@ -327,6 +347,9 @@ func (m Model) renderTreeDetail() string {
 		}
 		return mutedStyle.Render("Select prep notes · p to draft")
 	default:
-		return m.renderDetail()
+		if m.selectedID == "" && m.selectedFolderPath != "" {
+			return m.renderWikiFolderDetail(m.selectedFolderPath)
+		}
+		return m.renderDetailWidth(width)
 	}
 }

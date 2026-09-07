@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -10,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 )
@@ -190,14 +194,25 @@ func TestMouseClickSelectsRecord(t *testing.T) {
 	var x, y int
 	found := false
 	for _, region := range model.browserRegions() {
-		if region.Pane != prefs.PaneList || len(region.Rows) < 2 {
+		if region.Pane != prefs.PaneList || len(region.RecordTree) < 2 {
 			continue
 		}
-		target = region.Rows[1]
-		x = region.MinX + 2
-		y = region.Offset + 1
-		found = true
-		break
+		idx := -1
+		for i, row := range region.RecordTree {
+			if row.Kind == domain.RecordTreeRecord {
+				if idx >= 0 {
+					target = row.Record
+					x = region.MinX + 2
+					y = region.Offset + (i - region.WindowStart)
+					found = true
+					break
+				}
+				idx = i
+			}
+		}
+		if found {
+			break
+		}
 	}
 	if !found {
 		t.Fatal("expected list pane hit region with records")
@@ -1030,7 +1045,7 @@ func TestSessionFoldersGroupCollapseAndFile(t *testing.T) {
 	}
 	model.setNavCursor(0)
 	model.setBrowserFocus(prefs.PaneList)
-	list := model.renderListPane()
+	list := model.renderListPane(40)
 	if !strings.Contains(list, "Greywatch") || !strings.Contains(list, "Crypt") || !strings.Contains(list, "Crypt night 2") {
 		t.Fatalf("expected nested folders: %q", list)
 	}
@@ -1047,7 +1062,7 @@ func TestSessionFoldersGroupCollapseAndFile(t *testing.T) {
 	model.applySessionTreeCursor(0)
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
-	list = model.renderListPane()
+	list = model.renderListPane(40)
 	if strings.Contains(list, "Crypt night 2") {
 		t.Fatalf("enter on folder should collapse sits: %q", list)
 	}
@@ -1085,7 +1100,7 @@ func TestSessionFoldersGroupCollapseAndFile(t *testing.T) {
 	if !found {
 		t.Fatal("loose sit should be filed under Greywatch/Crypt")
 	}
-	if strings.Contains(model.renderListPane(), "2026-03") {
+	if strings.Contains(model.renderListPane(40), "2026-03") {
 		t.Fatal("month bucket should disappear once its sits are filed")
 	}
 
@@ -1254,4 +1269,245 @@ func leadingPad(view, needle string) int {
 		return len(line) - len(strings.TrimLeft(line, " "))
 	}
 	return -1
+}
+
+func TestImportOpensDedicatedScreenAndLoadsMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mm.md")
+	markdown := "# Monster Manual (2025)\n\n## Goblins\n\nRaiders in packs.\n\n## Bugbears\n\nNight hunters.\n"
+	if err := os.WriteFile(path, []byte(markdown), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := New()
+	model.width = 100
+	model.height = 32
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'I', Text: "I"}))
+	model = updated.(Model)
+	if !model.importing {
+		t.Fatal("expected dedicated import screen")
+	}
+	if model.picking {
+		t.Fatal("import should leave the library picker")
+	}
+	view := model.View().Content
+	if !strings.Contains(view, "IMPORT") || !strings.Contains(view, "FILES") || !strings.Contains(view, "SOURCES") {
+		t.Fatalf("expected import screen, got %q", view)
+	}
+	if !strings.Contains(view, "5E.TOOLS") {
+		t.Fatalf("expected 5e.tools catalog pane: %q", view)
+	}
+	if strings.Contains(view, "Captain Vale") {
+		t.Fatal("import should not render the campaign wiki")
+	}
+
+	model.importDir = dir
+	model.reloadImportFiles()
+	model.importFocus = "files"
+	foundFile := false
+	for index, entry := range model.importFiles {
+		if entry.Name == "mm.md" {
+			model.importFileCursor = index
+			foundFile = true
+			break
+		}
+	}
+	if !foundFile {
+		t.Fatalf("expected mm.md in file list: %#v", model.importFiles)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if !model.importing {
+		t.Fatal("import screen should stay open after a successful import")
+	}
+	if len(model.workspace.Sources) == 0 {
+		t.Fatalf("expected a source document; status=%s", model.status)
+	}
+	found := false
+	for _, record := range model.workspace.Records {
+		if record.Title == "Goblins" && record.Type == domain.Creature {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected imported Goblins; status=%s records=%d", model.status, len(model.workspace.Records))
+	}
+	if !strings.Contains(model.View().Content, "Monster Manual") {
+		t.Fatalf("expected imported source listed: %q", model.View().Content)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	model = updated.(Model)
+	if model.importing {
+		t.Fatal("esc should leave the import screen")
+	}
+	if strings.Contains(model.View().Content, "Captain Vale") == false {
+		t.Fatalf("expected to return to campaign wiki: %q", model.View().Content)
+	}
+}
+
+func TestImportFromLibraryPickerReturnsToPicker(t *testing.T) {
+	model := newModel(demoWorkspace(), nil, nil)
+	model.width = 80
+	model.height = 24
+	model.openPicker()
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'I', Text: "I"}))
+	model = updated.(Model)
+	if !model.importing || model.picking {
+		t.Fatalf("importing=%v picking=%v", model.importing, model.picking)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	model = updated.(Model)
+	if model.importing || !model.picking {
+		t.Fatalf("esc should return to picker; importing=%v picking=%v", model.importing, model.picking)
+	}
+	if !strings.Contains(model.View().Content, "WORLDS") {
+		t.Fatalf("expected library picker: %q", model.View().Content)
+	}
+}
+
+func TestImportFiveEToolsCatalogIngestsSelectedBook(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 32
+	model.toolsFetcher = fivetools.MapFetcher{
+		"data/adventures.json":            []byte(`{"adventure":[]}`),
+		"data/books.json":                 []byte(`{"book":[{"id":"XMM","name":"Monster Manual (2025)","group":"core","published":"2025-02-18"}]}`),
+		"data/bestiary/index.json":        []byte(`{"XMM":"bestiary-xmm.json"}`),
+		"data/spells/index.json":          []byte(`{}`),
+		"data/bestiary/bestiary-xmm.json": []byte(`{"monster":[{"name":"Goblin Warrior","source":"XMM","ac":[15],"hp":{"average":10,"formula":"3d6"},"str":8,"dex":15,"con":10,"int":10,"wis":8,"cha":8}]}`),
+	}
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'I', Text: "I"}))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected catalog load command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	view := model.View().Content
+	if !strings.Contains(view, "Monster Manual (2025)") || !strings.Contains(view, "5E.TOOLS") {
+		t.Fatalf("expected 5e.tools catalog: %q", view)
+	}
+	model.importFocus = "tools"
+	found := false
+	for index, entry := range model.filteredTools() {
+		if entry.ID == "XMM" {
+			model.importToolsCursor = index
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected XMM in catalog")
+	}
+	updated, cmd = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected ingest command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	got := false
+	for _, record := range model.workspace.Records {
+		if record.Title == "Goblin Warrior" && strings.Contains(record.Body, "**AC** 15") {
+			got = true
+			break
+		}
+	}
+	if !got {
+		t.Fatalf("expected ingested Goblin Warrior stats; status=%s records=%d", model.status, len(model.workspace.Records))
+	}
+}
+
+func TestImportedSourceRecordsCollapseIntoFolders(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 32
+	model.workspace.Sources = append(model.workspace.Sources, domain.SourceDocument{
+		ID: "src-5e-xmm", Title: "Monster Manual (2025)", Kind: domain.SourceBestiary,
+	})
+	model.workspace.EnableSource(model.workspace.Scope.WorldID, model.workspace.Scope.CampaignID, "src-5e-xmm")
+	for i := 0; i < 40; i++ {
+		title := fmt.Sprintf("Monster %02d", i)
+		model.workspace.Records = append(model.workspace.Records, domain.Record{
+			ID:        fmt.Sprintf("src-5e-xmm-creature-%d", i),
+			Type:      domain.Creature,
+			Title:     title,
+			SourceID:  "src-5e-xmm",
+			Source:    "Monster Manual (2025)",
+			Folder:    "Monster Manual (2025)/Creatures",
+			Authority: domain.Canon,
+		})
+	}
+	model.setNavCursor(7) // Creatures
+	view := model.View().Content
+	if !strings.Contains(view, "Monster Manual (2025)") || !strings.Contains(view, "· 40") {
+		t.Fatalf("expected collapsed source folder, got %q", view)
+	}
+	if strings.Contains(view, "Monster 00") {
+		t.Fatal("collapsed source folder should not dump creature rows into the campaign list")
+	}
+}
+
+func TestRecordTreeCursorMovesToNextCreature(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 32
+	model.workspace.Sources = append(model.workspace.Sources, domain.SourceDocument{
+		ID: "src-5e-xmm", Title: "Monster Manual (2025)", Kind: domain.SourceBestiary,
+	})
+	model.workspace.EnableSource(model.workspace.Scope.WorldID, model.workspace.Scope.CampaignID, "src-5e-xmm")
+	for i := 0; i < 5; i++ {
+		title := fmt.Sprintf("Monster %02d", i)
+		model.workspace.Records = append(model.workspace.Records, domain.Record{
+			ID:        fmt.Sprintf("src-5e-xmm-creature-%d", i),
+			Type:      domain.Creature,
+			Title:     title,
+			SourceID:  "src-5e-xmm",
+			Source:    "Monster Manual (2025)",
+			Folder:    "Monster Manual (2025)/Creatures",
+			Authority: domain.Canon,
+		})
+	}
+	model.setNavCursor(7) // Creatures
+	model.expandRecordFolderPath("Monster Manual (2025)/Creatures")
+	model.setBrowserFocus(prefs.PaneList)
+
+	rows := model.recordTreeRows()
+	first := -1
+	second := -1
+	for index := 0; index+1 < len(rows); index++ {
+		if rows[index].Kind == domain.RecordTreeRecord && rows[index+1].Kind == domain.RecordTreeRecord {
+			first = index
+			second = index + 1
+			break
+		}
+	}
+	if first < 0 || second < 0 {
+		t.Fatalf("expected two creature rows after expanding folders, got %#v", rows)
+	}
+
+	model.applyRecordTreeCursor(first)
+	if model.selectedID != rows[first].Record.ID {
+		t.Fatalf("expected first creature %q, got %q", rows[first].Record.ID, model.selectedID)
+	}
+	if model.cursor != first {
+		t.Fatalf("cursor should stay on tree row %d, got %d", first, model.cursor)
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	model = updated.(Model)
+	if model.cursor != second {
+		t.Fatalf("j should move to the next creature row %d, got %d (selected %q)", second, model.cursor, model.selectedID)
+	}
+	if model.selectedID != rows[second].Record.ID {
+		t.Fatalf("j selected %q, want %q", model.selectedID, rows[second].Record.ID)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'k', Text: "k"}))
+	model = updated.(Model)
+	if model.cursor != first || model.selectedID != rows[first].Record.ID {
+		t.Fatalf("k should return to row %d (%q), got cursor=%d selected=%q", first, rows[first].Record.ID, model.cursor, model.selectedID)
+	}
 }

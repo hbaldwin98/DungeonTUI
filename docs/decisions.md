@@ -149,3 +149,67 @@ scroll and read, then Enter or click `[open]` to jump, or Esc / click outside
 / `[close]` to dismiss and keep their place. Broken mentions still only warn.
 List Enter (playback, folder collapse, wiki edit) is unchanged.
 
+## D-021 — Library sources, campaign enablement, ingest outside the TUI
+
+Imported books are `SourceDocument`s on the workspace. Creature and rule
+records from a bestiary or PHB are library-scoped and cited by `SourceID`.
+Each campaign enables the sources it uses. `@` and campaign lists resolve
+against campaign + world-shared + enabled sources, not the entire library.
+Ingest is a domain module (`internal/ingest`) with a CLI adapter. The TUI
+opens a dedicated Import screen (library sources, 5e.tools catalog, file
+browser), not a path overlay on the campaign wiki. Parser output is canon with
+provenance; empty stat-block exports stay unknown (no AI fill). 5e.tools JSON
+is fetched at import time and never vendored in git (D-023).
+
+## D-022 — Import is a full-screen library view
+
+Import sits beside the world/campaign picker: `I` from the picker or campaign
+browser leaves the wiki and opens SOURCES | 5E.TOOLS | FILES. Esc returns to
+wherever the owner came from. Enabling a source is a campaign action on that
+screen (`e`).
+
+## D-023 — 5e.tools adapter fetches by book id
+
+The owner chooses which 5e.tools books to ingest (XMM, XPHB, XDMG, LMoP, …).
+One `SourceDocument` per source id pulls every collection that book publishes
+(bestiary, spells, items, classes, races, feats, adventure/book text, …).
+`{@creature}` / `{@spell}` tags become `@` mentions. Raw JSON stays out of the
+repository; a local 5e.tools checkout can be passed with `-data`.
+
+## D-024 — SQLite FTS5 and vectors are a later search backend
+
+Ingest writes `domain.Record` values (title, summary, body, tags, source).
+Those records are the indexable unit. A later SQLite store can add FTS5 and
+optional embeddings for AI retrieval without changing ingest or requiring
+vectors to reconstruct canon. JSON workspace remains the inspectable slice
+until that storage move (design: Storage strategy).
+
+## D-025 — Imported wiki records file under source folders
+
+Enabled sourcebooks do not flatten into campaign type lists. Records carry a
+slash `Folder` (`Monster Manual (2025)/Creatures`). The typed list shows
+campaign records loose at the top and source folders collapsed until Enter
+expands them. List rendering only paints the visible window so large books
+do not stall the TUI.
+
+## D-026 — Wiki and prep panes render markdown
+
+Entity detail, prep notes, link previews, and `@` peeks display Glamour-rendered
+markdown (Tokyo Night, matching the TUI). Editors stay source so the DM can
+still type `**`, headings, and `@` mentions. Rendering lives in the TUI; stored
+records remain plain markdown strings. Rendered output is clamped to the pane
+inner width. Tables that would wrap into a staggered grid flatten to labeled
+pairs so ability scores and similar blocks stay readable without blowing layout.
+
+## D-027 — Adventure sites nest; characters are one record
+
+Imported adventures file numbered rooms under the parent site (`LMoP/Locations/Phandalin`)
+with short titles (`1. Stonehill Inn`), sorted with the overview first then numeric
+order. Named characters become a single NPC (table role plus their own writeup) instead
+of repeating as `Phandalin - 1` locations, stub NPCs, and copies inside the parent body.
+Markdown tables get a blank line after them so following stats are not parsed as table rows.
+
+
+
+
+

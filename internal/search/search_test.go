@@ -58,6 +58,25 @@ func TestProposalsAreExcludedUnlessRequested(t *testing.T) {
 	}
 }
 
+func TestCampaignSearchIncludesEnabledSourceRecords(t *testing.T) {
+	goblin := domain.Record{
+		ID: "src-mm-goblins", Type: domain.Creature, Title: "Goblins",
+		Authority: domain.Canon, SourceID: "src-mm",
+	}
+	service := New([]domain.Record{goblin})
+	hidden := service.Find(Filter{Scope: CurrentCampaign, WorldID: testScope.WorldID, CampaignID: testScope.CampaignID})
+	if len(hidden) != 0 {
+		t.Fatalf("disabled source should be hidden, got %#v", hidden)
+	}
+	found := service.Find(Filter{
+		Scope: CurrentCampaign, WorldID: testScope.WorldID, CampaignID: testScope.CampaignID,
+		EnabledSourceIDs: []string{"src-mm"},
+	})
+	if len(found) != 1 || found[0].Record.ID != "src-mm-goblins" {
+		t.Fatalf("expected enabled goblin, got %#v", found)
+	}
+}
+
 func TestTagFilterRequiresAllTags(t *testing.T) {
 	service := New([]domain.Record{
 		{ID: "a", Type: domain.NPC, Title: "Vale", Authority: domain.Canon, Scope: testScope, Tags: []string{"greywatch", "guard"}},

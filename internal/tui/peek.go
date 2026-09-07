@@ -164,7 +164,7 @@ func (m Model) renderPeekPanel(maxLines int) string {
 		authorityStyle(record.Authority).Render(record.Authority.Marker()+" "+record.Authority.Label()))
 	lines = append(lines, detailTitleStyle.Render(record.Title))
 	if record.Summary != "" {
-		lines = append(lines, record.Summary)
+		lines = append(lines, strings.Split(m.renderMarkdown(record.Summary, max(24, m.width-16)), "\n")...)
 	}
 	if len(record.Tags) > 0 {
 		lines = append(lines, mutedStyle.Render("#"+strings.Join(record.Tags, "  #")))

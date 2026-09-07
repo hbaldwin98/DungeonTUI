@@ -18,6 +18,33 @@ go mod tidy
 go run ./cmd/dungeon
 ```
 
+## Import a sourcebook or adventure
+
+Choose books in the app. Markdown files still work; **5e.tools** is the
+structured catalog (stat blocks, spells, items, classes, adventures). The
+adapter fetches JSON at import time into your local workspace. That JSON is
+never stored in this git repository.
+
+```sh
+go run ./cmd/dungeon import https://5e.tools/book.html#xmm,-1
+go run ./cmd/dungeon import 5e:XPHB
+go run ./cmd/dungeon import -data /path/to/5etools https://5e.tools/adventure.html#lmop,-1
+go run ./cmd/dungeon import -kind bestiary "/mnt/c/Users/hunte/Downloads/Monster Manual (2025).md"
+```
+
+Inside a campaign or the library picker, `I` opens **Import**: SOURCES |
+5E.TOOLS | FILES. Type to filter the live catalog, Enter to ingest the
+selected book, `e` to enable it for the campaign. Re-importing the same id
+replaces its previous records. `Esc` returns to the picker or campaign.
+
+`@Goblin Warrior` and other mentions resolve against campaign + world-shared +
+**enabled** sources. Empty markdown widgets stay empty; 5e.tools ingest is
+what fills AC/HP/spell text from the published JSON.
+
+SQLite FTS5 and embeddings are a later search backend over these same records
+(see D-024). The workspace JSON is still the inspectable store.
+
+
 ## Validate / screencap
 
 Agents and local checks can drive the TUI without a real tty:
@@ -39,6 +66,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `←` / `→` / `Tab` / `Shift+Tab` / `t` | Cycle focus across nav · list · detail |
 | `n` | Create a new draft entity (markdown) |
 | `e` | Edit the selected entity or prep notes (full-screen markdown; `@` suggests) |
+| `I` | Open the Import screen (library sources, 5e.tools catalog, markdown files) |
 | `d` | Delete selected entity or session (`y` confirm / `n` cancel) |
 | `x` | Supersede selected entity (`y` confirm / `n` cancel) |
 | `?` | Show context-sensitive command help |
@@ -72,8 +100,9 @@ JSON storage boundary. The type filter keeps NPCs, locations, items, sessions,
 and other entity kinds visibly separate while preserving one shared domain model
 for future clients. Inside a campaign, the browser is an IDE-style tree:
 **nav | list | detail**. The left branch lists Sessions, Prep, and typed wiki
-sections; the center list and right detail follow the selected branch. Sessions
-nest under collapsible folders (`m` files a sit; unfiled nights bucket by
+sections; the center list and right detail follow the selected branch. Detail,
+prep notes, peeks, and link previews render markdown; `e` still edits source.
+Sessions nest under collapsible folders (`m` files a sit; unfiled nights bucket by
 month). Detail hops (`@` mentions, backlinks, CAST) open a preview buffer
 first; Enter or `[open]` jumps, Esc or click outside dismisses. Older
 dense typed-pane and classic `list|detail` preferences upgrade automatically.

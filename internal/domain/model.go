@@ -80,8 +80,9 @@ type Scope struct {
 
 // CampaignRef names one campaign under a world in the library catalog.
 type CampaignRef struct {
-	ID   string
-	Name string
+	ID               string
+	Name             string
+	EnabledSourceIDs []string // library source documents visible in this campaign
 }
 
 // WorldRef is a world entry in the library catalog (Obsidian-vault style).
@@ -110,6 +111,8 @@ type Record struct {
 	Authority   Authority
 	Scope       Scope
 	Source      string
+	SourceID    string // library SourceDocument ID when imported; empty if DM-authored
+	Folder      string // optional slash path; imported books use Source/Type
 	Aliases     []string
 	Tags        []string
 	IsAIContent bool
@@ -174,6 +177,7 @@ func (r Record) Validate() error {
 type Workspace struct {
 	Scope           Scope
 	Library         []WorldRef
+	Sources         []SourceDocument
 	Records         []Record
 	Sessions        []SessionRecord
 	Reconciliations []ReconciliationRecord

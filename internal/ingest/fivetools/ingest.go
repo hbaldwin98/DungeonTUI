@@ -1,0 +1,464 @@
+package fivetools
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/hbaldwin98/dungeon/internal/domain"
+)
+
+// Bundle is one chosen 5e.tools book converted into domain records.
+// A later SQLite FTS5 / vector index should consume these records rather
+// than re-fetching 5e.tools JSON.
+type Bundle struct {
+	Entry   Entry
+	Doc     domain.SourceDocument
+	Records []draft
+	Plans   []planDraft
+}
+
+type session struct {
+	fetcher       Fetcher
+	cache         map[string][]byte
+	bestiaryIndex map[string]string
+	spellIndex    map[string]string
+	monsters      map[string]map[string]any // "name|source" → monster
+}
+
+func (s *session) get(path string) ([]byte, bool, error) {
+	if data, ok := s.cache[path]; ok {
+		return data, true, nil
+	}
+	data, ok, err := getOptional(s.fetcher, path)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	s.cache[path] = data
+	return data, true, nil
+}
+
+func (s *session) loadIndexes() error {
+	if data, ok, err := s.get("data/bestiary/index.json"); err != nil {
+		return err
+	} else if ok {
+		idx, err := jsonIndex(data)
+		if err != nil {
+			return fmt.Errorf("bestiary index: %w", err)
+		}
+		s.bestiaryIndex = idx
+	}
+	if data, ok, err := s.get("data/spells/index.json"); err != nil {
+		return err
+	} else if ok {
+		idx, err := jsonIndex(data)
+		if err != nil {
+			return fmt.Errorf("spell index: %w", err)
+		}
+		s.spellIndex = idx
+	}
+	return nil
+}
+
+func indexLookup(index map[string]string, code string) string {
+	if file, ok := index[code]; ok {
+		return file
+	}
+	want := strings.ToLower(code)
+	for key, file := range index {
+		if strings.ToLower(key) == want {
+			return file
+		}
+	}
+	return ""
+}
+
+// Build fetches every 5e.tools collection that publishes the chosen source id
+// and converts matching entities into drafts. It does not write files.
+func Build(fetcher Fetcher, raw string) (Bundle, error) {
+	ref, ok := ParseRef(raw)
+	if !ok {
+		return Bundle{}, fmt.Errorf("not a 5e.tools book or adventure: %q", raw)
+	}
+	if fetcher == nil {
+		return Bundle{}, fmt.Errorf("5e.tools fetcher is required")
+	}
+	catalog, err := LoadCatalog(fetcher)
+	if err != nil {
+		return Bundle{}, err
+	}
+	entry, ok := ResolveEntry(catalog, ref)
+	if !ok {
+		entry = Entry{ID: ref.ID, Name: ref.ID, Kind: ref.Kind}
+		if entry.Kind == "" {
+			entry.Kind = "book"
+		}
+	}
+	s := &session{
+		fetcher:  fetcher,
+		cache:    map[string][]byte{},
+		monsters: map[string]map[string]any{},
+	}
+	if err := s.loadIndexes(); err != nil {
+		return Bundle{}, err
+	}
+	records := make([]draft, 0)
+	plans := make([]planDraft, 0)
+
+	code := entry.ID
+	lower := strings.ToLower(code)
+
+	if file := indexLookup(s.bestiaryIndex, code); file != "" {
+		if drafts, err := s.convertBestiaryFile(file, code, entry.Kind == "adventure"); err != nil {
+			return Bundle{}, err
+		} else {
+			records = append(records, drafts...)
+		}
+	}
+
+	if file := indexLookup(s.spellIndex, code); file != "" {
+		if drafts, err := s.convertSpellFile(file, code); err != nil {
+			return Bundle{}, err
+		} else {
+			records = append(records, drafts...)
+		}
+	}
+
+	if entry.Kind == "adventure" {
+		path := "data/adventure/adventure-" + lower + ".json"
+		if data, ok, err := s.get(path); err != nil {
+			return Bundle{}, err
+		} else if ok {
+			d, p := convertAdventure(data)
+			records = append(records, d...)
+			plans = append(plans, p...)
+		}
+	} else {
+		path := "data/book/book-" + lower + ".json"
+		if data, ok, err := s.get(path); err != nil {
+			return Bundle{}, err
+		} else if ok {
+			records = append(records, convertBook(data)...)
+		}
+	}
+
+	if wantsClasses(entry) {
+		if data, ok, err := s.get("data/class/index.json"); err != nil {
+			return Bundle{}, err
+		} else if ok {
+			idx, err := jsonIndex(data)
+			if err != nil {
+				return Bundle{}, fmt.Errorf("class index: %w", err)
+			}
+			for _, file := range idx {
+				raw, found, err := s.get("data/class/" + file)
+				if err != nil {
+					return Bundle{}, err
+				}
+				if found {
+					records = append(records, convertClasses(raw, code)...)
+				}
+			}
+		}
+	}
+
+	for _, spec := range sharedFiles {
+		if !wantsShared(entry, spec) {
+			continue
+		}
+		data, ok, err := s.get(spec.path)
+		if err != nil {
+			return Bundle{}, err
+		}
+		if !ok {
+			continue
+		}
+		for _, key := range spec.keys {
+			items, err := jsonObjects(data, key)
+			if err != nil || len(items) == 0 {
+				continue
+			}
+			switch spec.kind {
+			case "item":
+				records = append(records, convertItems(items, code)...)
+			default:
+				records = append(records, convertNamedRules(items, code, spec.tag, spec.prefix, spec.title)...)
+			}
+		}
+	}
+
+	if len(records) == 0 && len(plans) == 0 {
+		return Bundle{}, fmt.Errorf("no 5e.tools content published as %s", code)
+	}
+
+	kind := entry.SourceKind()
+	doc := domain.SourceDocument{
+		ID:      SourceID(code),
+		Title:   firstNonEmpty(entry.Name, code),
+		Edition: entry.Edition(),
+		Kind:    kind,
+		Path:    firstNonEmpty(ref.Raw, entry.PageURL()),
+	}
+	return Bundle{Entry: entry, Doc: doc, Records: records, Plans: plans}, nil
+}
+
+func wantsClasses(entry Entry) bool {
+	if entry.Kind == "adventure" || entry.SourceKind() == domain.SourceBestiary {
+		return false
+	}
+	return looksLikeCharacterRules(entry)
+}
+
+func wantsShared(entry Entry, spec sharedSpec) bool {
+	if spec.skipAdventure && entry.Kind == "adventure" {
+		return false
+	}
+	if entry.SourceKind() == domain.SourceBestiary {
+		return false
+	}
+	if entry.Kind == "adventure" {
+		return false
+	}
+	if looksLikeCharacterRules(entry) {
+		return true
+	}
+	if looksLikeTreasureRules(entry) {
+		return spec.kind == "item" || spec.tag == "item" || spec.tag == "deck" || spec.tag == "hazard" || spec.tag == "object" || spec.tag == "vehicle" || spec.tag == "bastion"
+	}
+	return false
+}
+
+func looksLikeCharacterRules(entry Entry) bool {
+	id := strings.ToUpper(entry.ID)
+	name := strings.ToLower(entry.Name)
+	switch id {
+	case "PHB", "XPHB", "TCE", "XGE", "SCAG", "AAG", "FTD", "BMT", "GGR", "EGW", "AI":
+		return true
+	}
+	if strings.Contains(name, "player") {
+		return true
+	}
+	return strings.Contains(name, "handbook") && !strings.Contains(name, "dungeon master") && !strings.Contains(name, "monster")
+}
+
+func looksLikeTreasureRules(entry Entry) bool {
+	id := strings.ToUpper(entry.ID)
+	name := strings.ToLower(entry.Name)
+	switch id {
+	case "DMG", "XDMG", "TCE", "XGE":
+		return true
+	}
+	return strings.Contains(name, "dungeon master") || strings.Contains(name, "treasure")
+}
+
+type sharedSpec struct {
+	path          string
+	keys          []string
+	kind          string
+	tag           string
+	prefix        string
+	skipAdventure bool
+	title         func(map[string]any) string
+}
+
+func identityTitle(item map[string]any) string { return asString(item["name"]) }
+
+func raceTitle(item map[string]any) string {
+	name := asString(item["name"])
+	race := asString(item["raceName"])
+	if race != "" && name != "" {
+		return race + " (" + name + ")"
+	}
+	return name
+}
+
+var sharedFiles = []sharedSpec{
+	{path: "data/items.json", keys: []string{"item", "itemGroup"}, kind: "item", tag: "item", prefix: "item"},
+	{path: "data/items-base.json", keys: []string{"baseitem", "item"}, kind: "item", tag: "item", prefix: "item"},
+	{path: "data/magicvariants.json", keys: []string{"magicvariant"}, kind: "item", tag: "item", prefix: "item"},
+	{path: "data/races.json", keys: []string{"race", "subrace"}, kind: "rule", tag: "species", prefix: "species", skipAdventure: true, title: raceTitle},
+	{path: "data/feats.json", keys: []string{"feat"}, kind: "rule", tag: "feat", prefix: "feat", skipAdventure: true, title: identityTitle},
+	{path: "data/backgrounds.json", keys: []string{"background"}, kind: "rule", tag: "background", prefix: "background", skipAdventure: true, title: identityTitle},
+	{path: "data/conditionsdiseases.json", keys: []string{"condition", "disease", "status"}, kind: "rule", tag: "condition", prefix: "condition", skipAdventure: true, title: identityTitle},
+	{path: "data/optionalfeatures.json", keys: []string{"optionalfeature"}, kind: "rule", tag: "option", prefix: "option", skipAdventure: true, title: identityTitle},
+	{path: "data/rewards.json", keys: []string{"reward"}, kind: "rule", tag: "reward", prefix: "reward", skipAdventure: true, title: identityTitle},
+	{path: "data/objects.json", keys: []string{"object"}, kind: "rule", tag: "object", prefix: "object", skipAdventure: true, title: identityTitle},
+	{path: "data/vehicles.json", keys: []string{"vehicle"}, kind: "rule", tag: "vehicle", prefix: "vehicle", skipAdventure: true, title: identityTitle},
+	{path: "data/deities.json", keys: []string{"deity"}, kind: "rule", tag: "deity", prefix: "deity", skipAdventure: true, title: identityTitle},
+	{path: "data/trapshazards.json", keys: []string{"trap", "hazard"}, kind: "rule", tag: "hazard", prefix: "hazard", skipAdventure: true, title: identityTitle},
+	{path: "data/variantrules.json", keys: []string{"variantrule"}, kind: "rule", tag: "variantrule", prefix: "rule", skipAdventure: true, title: identityTitle},
+	{path: "data/actions.json", keys: []string{"action"}, kind: "rule", tag: "action", prefix: "action", skipAdventure: true, title: identityTitle},
+	{path: "data/languages.json", keys: []string{"language"}, kind: "rule", tag: "language", prefix: "language", skipAdventure: true, title: identityTitle},
+	{path: "data/charcreationoptions.json", keys: []string{"charoption"}, kind: "rule", tag: "option", prefix: "option", skipAdventure: true, title: identityTitle},
+	{path: "data/bastions.json", keys: []string{"bastion", "facility"}, kind: "rule", tag: "bastion", prefix: "bastion", skipAdventure: true, title: identityTitle},
+	{path: "data/recipes.json", keys: []string{"recipe"}, kind: "rule", tag: "recipe", prefix: "recipe", skipAdventure: true, title: identityTitle},
+	{path: "data/decks.json", keys: []string{"deck", "card"}, kind: "item", tag: "deck", prefix: "deck", skipAdventure: true},
+	{path: "data/cultsboons.json", keys: []string{"cult", "boon"}, kind: "rule", tag: "cult", prefix: "cult", skipAdventure: true, title: identityTitle},
+	{path: "data/psionics.json", keys: []string{"psionic"}, kind: "rule", tag: "psionic", prefix: "psionic", skipAdventure: true, title: identityTitle},
+}
+
+func (s *session) convertBestiaryFile(file, code string, adventure bool) ([]draft, error) {
+	data, ok, err := s.get("data/bestiary/" + file)
+	if err != nil || !ok {
+		return nil, err
+	}
+	items, err := jsonObjects(data, "monster")
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", file, err)
+	}
+	s.rememberMonsters(items)
+	fluff := map[string]string{}
+	fluffName := "fluff-" + strings.TrimSuffix(file, ".json") + ".json"
+	if raw, found, err := s.get("data/bestiary/" + fluffName); err != nil {
+		return nil, err
+	} else if found {
+		fluff = fluffIndex(raw, "monsterFluff")
+		if len(fluff) == 0 {
+			fluff = fluffIndex(raw, "monster")
+		}
+	}
+	return convertMonsters(items, fluff, code, s.resolveMonster, adventure), nil
+}
+
+func (s *session) convertSpellFile(file, code string) ([]draft, error) {
+	data, ok, err := s.get("data/spells/" + file)
+	if err != nil || !ok {
+		return nil, err
+	}
+	items, err := jsonObjects(data, "spell")
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", file, err)
+	}
+	fluff := map[string]string{}
+	fluffName := "fluff-" + strings.TrimSuffix(file, ".json") + ".json"
+	if raw, found, err := s.get("data/spells/" + fluffName); err != nil {
+		return nil, err
+	} else if found {
+		fluff = fluffIndex(raw, "spellFluff")
+		if len(fluff) == 0 {
+			fluff = fluffIndex(raw, "spell")
+		}
+	}
+	return convertSpells(filterSource(items, code), fluff, code), nil
+}
+
+func (s *session) rememberMonsters(items []map[string]any) {
+	for _, item := range items {
+		name := asString(item["name"])
+		src := itemSource(item)
+		if name == "" {
+			continue
+		}
+		s.monsters[strings.ToLower(name+"|"+src)] = item
+	}
+}
+
+func (s *session) resolveMonster(item map[string]any) map[string]any {
+	return s.resolveMonsterDepth(item, 0)
+}
+
+func (s *session) resolveMonsterDepth(item map[string]any, depth int) map[string]any {
+	copy := asMap(item["_copy"])
+	if copy == nil || depth > 4 {
+		return item
+	}
+	parentName := asString(copy["name"])
+	parentSrc := asString(copy["source"])
+	parent, err := s.lookupMonster(parentName, parentSrc)
+	if err != nil || parent == nil {
+		item = cloneMap(item)
+		item["_unresolvedCopy"] = strings.TrimSpace(parentName + " (" + parentSrc + ")")
+		return item
+	}
+	parent = s.resolveMonsterDepth(parent, depth+1)
+	return mergeMaps(parent, item)
+}
+
+func (s *session) lookupMonster(name, code string) (map[string]any, error) {
+	if name == "" || code == "" {
+		return nil, nil
+	}
+	key := strings.ToLower(name + "|" + code)
+	if item, ok := s.monsters[key]; ok {
+		return item, nil
+	}
+	file := indexLookup(s.bestiaryIndex, code)
+	if file == "" {
+		return nil, nil
+	}
+	data, ok, err := s.get("data/bestiary/" + file)
+	if err != nil || !ok {
+		return nil, err
+	}
+	items, err := jsonObjects(data, "monster")
+	if err != nil {
+		return nil, err
+	}
+	s.rememberMonsters(items)
+	return s.monsters[key], nil
+}
+
+func Materialize(bundle Bundle, scope domain.Scope, now time.Time) ([]domain.Record, []domain.PlannedNotes) {
+	library := domain.Scope{}
+	campaign := scope
+	kind := bundle.Doc.Kind
+	records := make([]domain.Record, 0, len(bundle.Records))
+	seen := map[string]bool{}
+	for _, d := range bundle.Records {
+		recScope := library
+		if kind == domain.SourceAdventure {
+			switch d.Type {
+			case domain.Creature:
+				if hasTag(d.Tags, "bestiary") && !hasTag(d.Tags, "adventure") {
+					recScope = library
+				} else {
+					recScope = campaign
+				}
+			case domain.Rule:
+				recScope = library
+			default:
+				recScope = campaign
+			}
+			if d.Type == domain.NPC || d.Type == domain.Location || d.Type == domain.Note || d.Type == domain.Item {
+				recScope = campaign
+			}
+			if d.Type == domain.Creature && hasTag(d.Tags, "adventure") {
+				recScope = campaign
+			}
+		}
+		rec := d.record(bundle.Doc, recScope)
+		if seen[rec.ID] {
+			continue
+		}
+		seen[rec.ID] = true
+		records = append(records, rec)
+	}
+	plans := make([]domain.PlannedNotes, 0, len(bundle.Plans))
+	if kind == domain.SourceAdventure {
+		for _, plan := range bundle.Plans {
+			body := truncate(plan.Body, 2500)
+			if loc := strings.TrimSpace(plan.Title); loc != "" {
+				body = "#location " + loc + "\n\n" + body
+			}
+			plans = append(plans, domain.PlannedNotes{
+				ID:        bundle.Doc.ID + "-prep-" + slug(plan.Title),
+				Title:     plan.Title,
+				Scope:     campaign,
+				Body:      body,
+				SourceID:  bundle.Doc.ID,
+				CreatedAt: now,
+				UpdatedAt: now,
+			})
+		}
+	}
+	return records, plans
+}
+
+func hasTag(tags []string, want string) bool {
+	for _, tag := range tags {
+		if strings.EqualFold(tag, want) {
+			return true
+		}
+	}
+	return false
+}

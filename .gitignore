@@ -5,3 +5,8 @@
 
 # Generated TUI harness screencaps
 testdata/harness/
+
+# Local 5e.tools dumps (never commit copyrighted JSON)
+.5etools-cache/
+.5etools/
+

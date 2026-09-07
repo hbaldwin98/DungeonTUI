@@ -21,6 +21,8 @@ type browserRegion struct {
 	SessionTree []domain.SessionTreeRow
 	PlanRows    []domain.PlannedNotes
 	Offset      int // Y offset of first record row within the pane content
+	WindowStart int
+	RecordTree  []domain.RecordTreeRow
 }
 
 func paneEntityType(pane prefs.Pane) (domain.EntityType, bool) {
@@ -116,29 +118,37 @@ func (m *Model) selectRecord(record domain.Record) {
 	m.typeFilter = record.Type
 	if m.usesCampaignTree() {
 		m.focusNavType(record.Type)
-		// Keep current pane focus — do not steal focus onto the list.
-		records := m.listRecords()
-		for index, item := range records {
-			if item.ID == record.ID {
-				m.cursor = index
-				return
-			}
-		}
-		m.cursor = 0
+		m.syncRecordTreeCursorFor(m.listRecords())
 		return
 	}
 	pane := entityTypePane(record.Type)
 	if prefs.FindVisibleLeaf(m.layout.Browser.Root, pane) {
 		m.layout.Focus = pane
 	}
-	records := m.recordsForPane(m.layout.Focus)
-	for index, item := range records {
-		if item.ID == record.ID {
+	m.syncRecordTreeCursorFor(m.recordsForPane(m.layout.Focus))
+}
+
+func (m *Model) syncRecordTreeCursorFor(records []domain.Record) {
+	rows := m.recordTreeRowsFor(records)
+	for index, row := range rows {
+		if row.Kind == domain.RecordTreeRecord && row.Record.ID == m.selectedID {
 			m.cursor = index
 			return
 		}
 	}
-	m.cursor = 0
+	if rec := m.selectedRecord(); rec != nil {
+		path := domain.RecordFolderPath(*rec, m.workspace.Sources)
+		if path != "" {
+			m.expandRecordFolderPath(path)
+			rows = m.recordTreeRowsFor(records)
+			for index, row := range rows {
+				if row.Kind == domain.RecordTreeRecord && row.Record.ID == m.selectedID {
+					m.cursor = index
+					return
+				}
+			}
+		}
+	}
 }
 
 func (m *Model) focusNavType(entityType domain.EntityType) {
@@ -220,17 +230,21 @@ func (m *Model) setBrowserFocus(pane prefs.Pane) {
 			m.cursor = clamp(m.cursor, 0, len(plans)-1)
 			m.selectedPlanID = plans[m.cursor].ID
 		default:
-			records := m.listRecords()
-			if len(records) == 0 {
+			rows := m.recordTreeRows()
+			if len(rows) == 0 {
 				return
 			}
-			for index, record := range records {
-				if record.ID == m.selectedID {
+			for index, row := range rows {
+				if row.Kind == domain.RecordTreeRecord && row.Record.ID == m.selectedID {
+					m.cursor = index
+					return
+				}
+				if row.Kind == domain.RecordTreeFolder && m.selectedID == "" && row.Path == m.selectedFolderPath {
 					m.cursor = index
 					return
 				}
 			}
-			m.selectRecord(records[clamp(m.cursor, 0, len(records)-1)])
+			m.applyRecordTreeCursor(m.cursor)
 		}
 		return
 	}
@@ -242,13 +256,22 @@ func (m *Model) setBrowserFocus(pane prefs.Pane) {
 		if len(records) == 0 {
 			return
 		}
-		for index, record := range records {
-			if record.ID == m.selectedID {
+		rows := m.recordTreeRowsFor(records)
+		if len(rows) == 0 {
+			return
+		}
+		for index, row := range rows {
+			if row.Kind == domain.RecordTreeRecord && row.Record.ID == m.selectedID {
+				m.cursor = index
+				return
+			}
+			if row.Kind == domain.RecordTreeFolder && m.selectedID == "" && row.Path == m.selectedFolderPath {
 				m.cursor = index
 				return
 			}
 		}
-		m.selectRecord(records[clamp(m.cursor, 0, len(records)-1)])
+		m.cursor = clamp(m.cursor, 0, len(rows)-1)
+		m.bindRecordTreeRow(rows[m.cursor])
 	}
 }
 
@@ -361,14 +384,15 @@ func visibleBrowserChildren(node prefs.Node) []prefs.Node {
 
 func (m Model) renderBrowserLeaf(pane prefs.Pane, width, height, originX, originY int, regions *[]browserRegion) string {
 	style := m.panelStyleForBrowser(pane).Width(width).Height(height).MaxHeight(height)
+	innerWidth := panelInnerWidth(width)
 	innerHeight := panelInnerHeight(height)
 	var body string
 	switch pane {
 	case prefs.PaneDetail:
 		if m.usesCampaignTree() {
-			body = fitLines(m.renderTreeDetail(), innerHeight)
+			body = fitPanelBody(m.renderTreeDetailWidth(innerWidth), innerWidth, innerHeight)
 		} else {
-			body = fitLines(m.renderDetail(), innerHeight)
+			body = fitPanelBody(m.renderDetailWidth(innerWidth), innerWidth, innerHeight)
 		}
 		if regions != nil {
 			*regions = append(*regions, browserRegion{
@@ -380,7 +404,7 @@ func (m Model) renderBrowserLeaf(pane prefs.Pane, width, height, originX, origin
 			})
 		}
 	case prefs.PaneNav:
-		body = fitLines(m.renderNavTree(), innerHeight)
+		body = fitPanelBody(m.renderNavTree(), innerWidth, innerHeight)
 		if regions != nil {
 			*regions = append(*regions, browserRegion{
 				Pane:       pane,
@@ -394,7 +418,7 @@ func (m Model) renderBrowserLeaf(pane prefs.Pane, width, height, originX, origin
 		}
 	case prefs.PaneList:
 		if m.usesCampaignTree() {
-			body = fitLines(m.renderListPane(), innerHeight)
+			body = fitPanelBody(m.renderListPane(innerHeight), innerWidth, innerHeight)
 			region := browserRegion{
 				Pane:   pane,
 				MinX:   originX,
@@ -409,45 +433,54 @@ func (m Model) renderBrowserLeaf(pane prefs.Pane, width, height, originX, origin
 			case NavPrep:
 				region.PlanRows = m.scopedPlannedNotes()
 			default:
-				region.Rows = m.listRecords()
+				rows := m.recordTreeRows()
+				start, _ := visibleWindow(len(rows), m.cursor, max(1, innerHeight-2))
+				region.RecordTree = rows
+				region.WindowStart = start
 			}
 			if regions != nil {
 				*regions = append(*regions, region)
 			}
 		} else {
 			records := m.recordsForPane(pane)
-			body = fitLines(m.renderTypeSection(pane, records), innerHeight)
+			body = fitPanelBody(m.renderTypeSection(pane, records, innerHeight), innerWidth, innerHeight)
 			if regions != nil {
+				rows := m.recordTreeRowsFor(records)
+				start, _ := visibleWindow(len(rows), m.cursor, max(1, innerHeight-2))
 				*regions = append(*regions, browserRegion{
-					Pane:   pane,
-					MinX:   originX,
-					MaxX:   originX + width - 1,
-					MinY:   originY,
-					MaxY:   originY + height - 1,
-					Rows:   records,
-					Offset: originY + 4,
+					Pane:        pane,
+					MinX:        originX,
+					MaxX:        originX + width - 1,
+					MinY:        originY,
+					MaxY:        originY + height - 1,
+					RecordTree:  rows,
+					WindowStart: start,
+					Offset:      originY + 4,
 				})
 			}
 		}
 	default:
 		records := m.recordsForPane(pane)
-		body = fitLines(m.renderTypeSection(pane, records), innerHeight)
+		body = fitPanelBody(m.renderTypeSection(pane, records, innerHeight), innerWidth, innerHeight)
 		if regions != nil {
+			rows := m.recordTreeRowsFor(records)
+			start, _ := visibleWindow(len(rows), m.cursor, max(1, innerHeight-2))
 			*regions = append(*regions, browserRegion{
-				Pane:   pane,
-				MinX:   originX,
-				MaxX:   originX + width - 1,
-				MinY:   originY,
-				MaxY:   originY + height - 1,
-				Rows:   records,
-				Offset: originY + 4, // border + pad + title + blank
+				Pane:        pane,
+				MinX:        originX,
+				MaxX:        originX + width - 1,
+				MinY:        originY,
+				MaxY:        originY + height - 1,
+				RecordTree:  rows,
+				WindowStart: start,
+				Offset:      originY + 4,
 			})
 		}
 	}
 	return style.Render(body)
 }
 
-func (m Model) renderTypeSection(pane prefs.Pane, records []domain.Record) string {
+func (m Model) renderTypeSection(pane prefs.Pane, records []domain.Record, maxRows int) string {
 	title := strings.ToUpper(string(pane))
 	if entityType, ok := paneEntityType(pane); ok && pane != prefs.PaneList {
 		title = string(entityType)
@@ -460,19 +493,33 @@ func (m Model) renderTypeSection(pane prefs.Pane, records []domain.Record) strin
 	}
 	builder.WriteString(mutedStyle.Render(focusMark))
 	builder.WriteString("\n\n")
-	if len(records) == 0 {
+	rows := m.recordTreeRowsFor(records)
+	if len(rows) == 0 {
 		builder.WriteString(mutedStyle.Render("  —"))
 		return builder.String()
 	}
-	for index, record := range records {
+	start, end := visibleWindow(len(rows), m.cursor, max(1, maxRows-2))
+	for index := start; index < end; index++ {
+		row := rows[index]
 		cursor := "  "
 		style := normalItemStyle
-		if record.ID == m.selectedID || (m.layout.Focus == pane && index == m.cursor) {
+		selected := (m.layout.Focus == pane && index == m.cursor) ||
+			(row.Kind == domain.RecordTreeRecord && row.Record.ID == m.selectedID)
+		if selected {
 			cursor = "▸ "
 			style = selectedItemStyle
 		}
-		line := fmt.Sprintf("%s%s %s", cursor, record.Authority.Marker(), record.Title)
-		builder.WriteString(style.Render(line))
+		var rest string
+		if row.Kind == domain.RecordTreeFolder {
+			glyph := "▾"
+			if m.recordFolderCollapsed(row.Path) {
+				glyph = "▸"
+			}
+			rest = fmt.Sprintf("%s %s · %d", glyph, row.Label, row.Count)
+		} else {
+			rest = fmt.Sprintf("%s %s", row.Record.Authority.Marker(), row.Label)
+		}
+		builder.WriteString(style.PaddingLeft(row.Depth * 2).Render(cursor + rest))
 		builder.WriteRune('\n')
 	}
 	return builder.String()

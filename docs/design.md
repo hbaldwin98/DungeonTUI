@@ -387,9 +387,12 @@ search query, authority marker, and entity type remain visible at all times.
 
 `Enter` opens or focuses the selected entity, `/` filters within the active
 section, `Space` opens contextual actions, and `Tab` moves focus between list
-and detail panes. The detail pane should expose type-specific information such
+and detail panes. The detail pane renders the record's markdown (headings, emphasis,
+lists). Tables that cannot fit the pane flatten to labeled pairs, and rendered
+lines are clamped to the inner width so Glamour output cannot stagger workstation
+borders. Type-specific information such
 as relations, current location, knowledge, goals, recent events, and source
-provenance without collapsing the record into a generic document view.
+provenance still appears without collapsing the record into a generic document view.
 
 Session capture is a separate dashboard composition: it uses campaign/scene
 context above a full-width transcript and command bar. The user can move from
@@ -716,9 +719,11 @@ Domain services --+-- future HTTP/API -- web UI
 SQLite is a pragmatic eventual system of record: transactional, local,
 portable, easy to back up, and capable of structured queries plus FTS5.
 The first persisted vertical slice uses a documented JSON workspace because it
-keeps the data inspectable while the entity model is still changing. The
-storage boundary must allow that implementation to move to SQLite without
-changing domain or TUI code. Portability does not require every internal record
+keeps the data inspectable while the entity model is still changing. Ingested
+5e.tools books land as the same `Record` documents. The storage boundary must
+allow that implementation to move to SQLite with FTS5 (and optional embeddings
+for AI retrieval) without changing domain or TUI code. Cached embeddings are
+derived operational data and are not required to reconstruct canon. Portability does not require every internal record
 to be a Markdown file.
 
 The application should provide versioned, documented export and import formats.

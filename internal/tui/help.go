@@ -53,13 +53,17 @@ func (m Model) helpSections() [][]string {
 		return [][]string{
 			{"New collection", "Type a name", "Enter save", "Esc cancel"},
 		}
+	case m.importing:
+		return [][]string{
+			{"Import", "Tab sources / 5e.tools / files", "j/k move · Enter ingest", "type to filter 5e.tools catalog", "Ctrl+T cycle kind · Ctrl+R refresh catalog", "e enable/disable in campaign", "Esc or b back"},
+		}
 	case m.searching:
 		return [][]string{
 			{"Search", "Type to filter", "↑↓ select", "Enter open", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},
 		}
 	default:
 		return [][]string{
-			{"Browser", "j/k move", "←/→ or Tab panes", "Enter preview hop / playback / collapse", "n new · e edit", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "r reconcile · q quit"},
+			{"Browser", "j/k move", "←/→ or Tab panes", "Enter preview hop / playback / expand source folder", "n new · e edit · I import", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "r reconcile · q quit"},
 		}
 	}
 }

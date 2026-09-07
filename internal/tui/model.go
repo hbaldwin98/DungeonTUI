@@ -13,6 +13,7 @@ import (
 
 	"github.com/hbaldwin98/dungeon/internal/dice"
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 	"github.com/hbaldwin98/dungeon/internal/storage"
@@ -88,9 +89,23 @@ type Model struct {
 	namingCollection   bool
 	collectionName     textinput.Model
 	collapsedFolders   map[string]bool
+	expandedFolders    map[string]bool
 	selectedFolderPath string
 	namingFolder       bool
 	preview            *previewBuf
+	importing          bool
+	importFromPicker   bool
+	importFocus        string // "sources", "tools", or "files"
+	importKind         domain.SourceKind
+	importDir          string
+	importFiles        []importFile
+	importFileCursor   int
+	importSourceCursor int
+	importTools        []fivetools.Entry
+	importToolsCursor  int
+	importToolsQuery   string
+	importBusy         bool
+	toolsFetcher       fivetools.Fetcher
 }
 
 func New() Model {
@@ -155,6 +170,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 		listScope:        searchsvc.CurrentCampaign,
 		collectionName:   name,
 		collapsedFolders: map[string]bool{},
+		expandedFolders:  map[string]bool{},
 	}
 	model.sessionInput = textarea.New()
 	model.sessionInput.Prompt = "│ "
@@ -177,6 +193,10 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
+	case toolsCatalogMsg:
+		return m.handleToolsCatalog(msg)
+	case toolsIngestMsg:
+		return m.handleToolsIngest(msg)
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -203,6 +223,12 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.picking {
 			return m.updatePicker(msg)
+		}
+		if m.importing {
+			if msg.String() == "?" {
+				return m.openHelp()
+			}
+			return m.updateImport(msg)
 		}
 		if m.editing {
 			if msg.String() == "?" {
@@ -321,6 +347,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.cycleCollectionFilter()
 		case "g":
 			return m.openCollectionName()
+		case "I", "i":
+			return m.openImport()
 		case "m":
 			return m.openFolderName()
 		case "a":
@@ -1162,6 +1190,14 @@ func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
 		if m.selectedRecord() != nil {
 			return m.openEditor(false)
 		}
+		rows := m.recordTreeRows()
+		if len(rows) > 0 {
+			row := rows[clamp(m.cursor, 0, len(rows)-1)]
+			if row.Kind == domain.RecordTreeFolder {
+				m.toggleWikiFolder()
+				return m, nil
+			}
+		}
 	}
 	return m, nil
 }
@@ -1191,12 +1227,11 @@ func (m *Model) moveBrowserCursor(delta int) {
 			m.selectedSessionID = ""
 			return
 		default:
-			records := m.listRecords()
-			if len(records) == 0 {
+			rows := m.recordTreeRows()
+			if len(rows) == 0 {
 				return
 			}
-			m.cursor = clamp(m.cursor+delta, 0, len(records)-1)
-			m.selectRecord(records[m.cursor])
+			m.applyRecordTreeCursor(m.cursor + delta)
 			m.layout.Focus = prefs.PaneList
 			return
 		}
@@ -1209,11 +1244,12 @@ func (m *Model) moveBrowserCursor(delta int) {
 		}
 	}
 	records := m.recordsForPane(pane)
-	if len(records) == 0 {
+	rows := m.recordTreeRowsFor(records)
+	if len(rows) == 0 {
 		return
 	}
-	m.cursor = clamp(m.cursor+delta, 0, len(records)-1)
-	m.selectRecord(records[m.cursor])
+	m.cursor = clamp(m.cursor+delta, 0, len(rows)-1)
+	m.bindRecordTreeRow(rows[m.cursor])
 }
 
 func clampBrowserRatio(value float64) float64 {
@@ -1624,12 +1660,29 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+			if len(region.RecordTree) > 0 {
+				index = msg.Y - region.Offset + region.WindowStart
+				if index >= 0 && index < len(region.RecordTree) {
+					m.cursor = index
+					m.bindRecordTreeRow(region.RecordTree[index])
+					m.layout.Focus = prefs.PaneList
+				}
+				return m, nil
+			}
 			if index >= 0 && index < len(region.Rows) {
 				m.selectRecord(region.Rows[index])
 				m.layout.Focus = prefs.PaneList
 			}
 			return m, nil
 		default:
+			if len(region.RecordTree) > 0 {
+				index = msg.Y - region.Offset + region.WindowStart
+				if index >= 0 && index < len(region.RecordTree) {
+					m.cursor = index
+					m.bindRecordTreeRow(region.RecordTree[index])
+				}
+				return m, nil
+			}
 			if len(region.Rows) == 0 {
 				return m, nil
 			}
@@ -1951,11 +2004,16 @@ func (m Model) suggestionsTitle(hit hitTarget) string {
 }
 
 func (m *Model) refreshResults() {
+	if !m.searching && strings.TrimSpace(m.searchInput.Value()) == "" {
+		m.results = nil
+		return
+	}
 	m.results = m.search.Find(searchsvc.Filter{
 		Query:            m.searchInput.Value(),
 		Scope:            m.searchScope,
 		WorldID:          m.workspace.Scope.WorldID,
 		CampaignID:       m.workspace.Scope.CampaignID,
+		EnabledSourceIDs: m.workspace.EnabledSourceIDs(m.workspace.Scope),
 		IncludeProposals: m.includeIdeas,
 	})
 }
@@ -2117,18 +2175,25 @@ func (m Model) View() tea.View {
 		view.MouseMode = tea.MouseModeCellMotion
 		return view
 	}
-	if m.picking {
-		result := tea.NewView(m.renderPicker())
-		result.AltScreen = true
-		result.MouseMode = tea.MouseModeCellMotion
-		result.WindowTitle = "Dungeon · Library"
-		return result
-	}
 	if m.helping {
 		result := tea.NewView(m.renderHelpOverlay())
 		result.AltScreen = true
 		result.MouseMode = tea.MouseModeCellMotion
 		result.WindowTitle = "Dungeon · Help"
+		return result
+	}
+	if m.importing {
+		result := tea.NewView(m.renderImport())
+		result.AltScreen = true
+		result.MouseMode = tea.MouseModeCellMotion
+		result.WindowTitle = "Dungeon · Import"
+		return result
+	}
+	if m.picking {
+		result := tea.NewView(m.renderPicker())
+		result.AltScreen = true
+		result.MouseMode = tea.MouseModeCellMotion
+		result.WindowTitle = "Dungeon · Library"
 		return result
 	}
 	if m.session != nil {
@@ -2191,16 +2256,16 @@ func (m Model) sessionView() tea.View {
 	var upper string
 	switch {
 	case campaignOn && contextOn:
-		scene := m.panelStyleFor(prefs.PaneCampaign).Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
-		context := m.panelStyleFor(prefs.PaneContext).Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
+		scene := m.panelStyleFor(prefs.PaneCampaign).Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderCampaignPane(), panelInnerWidth(leftWidth), panelInnerHeight(upperHeight)))
+		context := m.panelStyleFor(prefs.PaneContext).Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderContextPane(), panelInnerWidth(rightWidth), panelInnerHeight(upperHeight)))
 		upper = lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
 	case contextOn:
-		upper = m.panelStyleFor(prefs.PaneContext).Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderContextPane(), panelInnerHeight(upperHeight)))
+		upper = m.panelStyleFor(prefs.PaneContext).Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderContextPane(), panelInnerWidth(width), panelInnerHeight(upperHeight)))
 	default:
-		upper = m.panelStyleFor(prefs.PaneCampaign).Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitLines(m.renderCampaignPane(), panelInnerHeight(upperHeight)))
+		upper = m.panelStyleFor(prefs.PaneCampaign).Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderCampaignPane(), panelInnerWidth(width), panelInnerHeight(upperHeight)))
 	}
 	transcript := m.panelStyleFor(prefs.PaneTranscript).Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
-	input := m.panelStyleFor(prefs.PaneInput).Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitLines(m.renderSessionInput(), panelInnerHeight(inputHeight)))
+	input := m.panelStyleFor(prefs.PaneInput).Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitPanelBody(m.renderSessionInput(), panelInnerWidth(width), panelInnerHeight(inputHeight)))
 	help := "? help · click pane · Tab · @/$/# · Enter capture · Ctrl+E end"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
@@ -2265,9 +2330,9 @@ func (m Model) renderReview() string {
 	builder.WriteString("\n")
 	builder.WriteString(detailTitleStyle.Render(record.Title))
 	builder.WriteString("\n")
-	builder.WriteString(record.Summary)
+	builder.WriteString(m.renderMarkdown(record.Summary, m.defaultMarkdownWidth()))
 	builder.WriteString("\n\n")
-	builder.WriteString(record.Body)
+	builder.WriteString(m.renderMarkdown(stripRedundantTitleHeading(record.Body, record.Title), m.defaultMarkdownWidth()))
 	builder.WriteString("\n")
 	builder.WriteString(labelStyle.Render("SOURCE"))
 	builder.WriteString(" " + record.Source)
@@ -2340,9 +2405,16 @@ func (m Model) renderHeader(width int) string {
 }
 
 func (m Model) renderDetail() string {
+	return m.renderDetailWidth(m.defaultMarkdownWidth())
+}
+
+func (m Model) renderDetailWidth(width int) string {
 	record := m.selectedRecord()
 	if record == nil {
 		return mutedStyle.Render("No records in this campaign.")
+	}
+	if width < 16 {
+		width = m.defaultMarkdownWidth()
 	}
 
 	var builder strings.Builder
@@ -2353,11 +2425,11 @@ func (m Model) renderDetail() string {
 	builder.WriteString(detailTitleStyle.Render(record.Title))
 	builder.WriteString("\n\n")
 	if record.Summary != "" {
-		builder.WriteString(m.renderProseWithMentions(record.Summary))
+		builder.WriteString(m.renderMarkdown(record.Summary, width))
 		builder.WriteString("\n\n")
 	}
 	if record.Body != "" {
-		builder.WriteString(m.renderProseWithMentions(record.Body))
+		builder.WriteString(m.renderMarkdown(stripRedundantTitleHeading(record.Body, record.Title), width))
 		builder.WriteString("\n\n")
 	}
 	builder.WriteString(labelStyle.Render("SCOPE"))
@@ -2637,4 +2709,8 @@ func fitLines(content string, maxLines int) string {
 		return content
 	}
 	return strings.Join(lines[:maxLines], "\n")
+}
+
+func fitPanelBody(content string, innerWidth, maxLines int) string {
+	return fitLines(clampANSIWidth(content, innerWidth), maxLines)
 }

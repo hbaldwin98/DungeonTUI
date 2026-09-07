@@ -18,6 +18,7 @@ type PlannedNotes struct {
 	LocationID      string
 	LocationName    string
 	PriorSessionIDs []string // optional context from earlier live sits
+	SourceID        string   // set when ingested from a source document
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

@@ -82,6 +82,10 @@ func (m *Model) syncSessionTreeCursor() {
 }
 
 func (m *Model) toggleSelectedFolder() {
+	if m.currentNav().Kind != NavSessions {
+		m.toggleWikiFolder()
+		return
+	}
 	rows := m.sessionTreeRows()
 	if len(rows) == 0 {
 		return
@@ -103,6 +107,143 @@ func (m *Model) toggleSelectedFolder() {
 	m.selectedFolderPath = row.Path
 	m.selectedSessionID = ""
 	m.syncSessionTreeCursor()
+}
+
+func (m Model) recordFolderCollapsed(path string) bool {
+	if path == "" {
+		return false
+	}
+	if m.collapsedFolders[path] {
+		return true
+	}
+	if m.expandedFolders[path] {
+		return false
+	}
+	return true
+}
+
+func (m Model) recordTreeRows() []domain.RecordTreeRow {
+	return m.recordTreeRowsFor(m.listRecords())
+}
+
+func (m Model) recordTreeRowsFor(records []domain.Record) []domain.RecordTreeRow {
+	return domain.FlattenRecordTree(records, m.workspace.Sources, m.recordFolderCollapsed)
+}
+
+func (m *Model) bindRecordTreeRow(row domain.RecordTreeRow) {
+	m.selectedSessionID = ""
+	m.selectedPlanID = ""
+	m.selectedFolderPath = row.Path
+	if row.Kind == domain.RecordTreeRecord {
+		m.selectRecord(row.Record)
+		return
+	}
+	m.selectedID = ""
+}
+
+func (m *Model) applyRecordTreeCursor(index int) {
+	rows := m.recordTreeRows()
+	if len(rows) == 0 {
+		m.cursor = 0
+		m.selectedID = ""
+		m.selectedFolderPath = ""
+		return
+	}
+	m.cursor = clamp(index, 0, len(rows)-1)
+	m.bindRecordTreeRow(rows[m.cursor])
+}
+
+func (m *Model) toggleWikiFolder() {
+	rows := m.recordTreeRows()
+	if len(rows) == 0 {
+		return
+	}
+	row := rows[clamp(m.cursor, 0, len(rows)-1)]
+	if row.Kind != domain.RecordTreeFolder || row.Path == "" {
+		return
+	}
+	if m.collapsedFolders == nil {
+		m.collapsedFolders = map[string]bool{}
+	}
+	if m.expandedFolders == nil {
+		m.expandedFolders = map[string]bool{}
+	}
+	if m.recordFolderCollapsed(row.Path) {
+		m.expandedFolders[row.Path] = true
+		delete(m.collapsedFolders, row.Path)
+		m.status = "Expanded " + row.Label
+	} else {
+		delete(m.expandedFolders, row.Path)
+		m.collapsedFolders[row.Path] = true
+		m.status = "Collapsed " + row.Label
+	}
+	m.selectedFolderPath = row.Path
+	m.selectedID = ""
+	m.applyRecordTreeCursor(m.cursor)
+}
+
+func (m *Model) expandRecordFolderPath(path string) {
+	path = domain.NormalizeFolder(path)
+	if path == "" {
+		return
+	}
+	if m.expandedFolders == nil {
+		m.expandedFolders = map[string]bool{}
+	}
+	if m.collapsedFolders == nil {
+		m.collapsedFolders = map[string]bool{}
+	}
+	acc := ""
+	for _, part := range strings.Split(path, "/") {
+		if acc == "" {
+			acc = part
+		} else {
+			acc += "/" + part
+		}
+		m.expandedFolders[acc] = true
+		delete(m.collapsedFolders, acc)
+	}
+}
+
+func visibleWindow(n, cursor, maxRows int) (start, end int) {
+	if maxRows < 1 {
+		maxRows = 1
+	}
+	if n <= maxRows {
+		return 0, n
+	}
+	start = cursor - maxRows/3
+	if start < 0 {
+		start = 0
+	}
+	if start > n-maxRows {
+		start = n - maxRows
+	}
+	return start, start + maxRows
+}
+
+func (m Model) renderWikiFolderDetail(path string) string {
+	path = domain.NormalizeFolder(path)
+	rows := m.recordTreeRows()
+	count := 0
+	label := path
+	for _, row := range rows {
+		if row.Kind == domain.RecordTreeFolder && row.Path == path {
+			count = row.Count
+			label = row.Label
+			break
+		}
+	}
+	var builder strings.Builder
+	builder.WriteString(sectionStyle.Render("FOLDER"))
+	builder.WriteString("\n\n")
+	builder.WriteString(titleStyle.Render(label))
+	builder.WriteString("\n")
+	builder.WriteString(mutedStyle.Render(strings.ReplaceAll(path, "/", " / ")))
+	builder.WriteString(fmt.Sprintf("\n%d records · Enter expand/collapse", count))
+	builder.WriteString("\n\n")
+	builder.WriteString(mutedStyle.Render("Imported sourcebooks stay in folders so the campaign wiki stays scannable."))
+	return builder.String()
 }
 
 func (m Model) sessionIDsToFile() []string {

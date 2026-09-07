@@ -222,7 +222,7 @@ func (m Model) contextContentLines() []contentLine {
 		}
 		lines = append(lines, locLine)
 		if locationSummary != "" {
-			for _, wrapped := range strings.Split(wrapWords(locationSummary, 36), "\n") {
+			for _, wrapped := range strings.Split(m.renderMarkdown(locationSummary, 36), "\n") {
 				lines = append(lines, contentLine{Text: wrapped, PinX: -1, ClearX: -1})
 			}
 		}

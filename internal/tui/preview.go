@@ -182,7 +182,7 @@ func (m Model) previewWikiBody(hop detailHop, width int) string {
 	builder.WriteString(surface(titleStyle).Render(record.Title))
 	builder.WriteString("\n")
 	if record.Summary != "" {
-		builder.WriteString(fill.Render(m.previewWrapped(record.Summary, width)))
+		builder.WriteString(fill.Render(m.renderMarkdown(record.Summary, width)))
 		builder.WriteString("\n")
 	}
 	if len(record.Tags) > 0 {
@@ -191,7 +191,7 @@ func (m Model) previewWikiBody(hop detailHop, width int) string {
 	}
 	if strings.TrimSpace(record.Body) != "" {
 		builder.WriteString("\n")
-		builder.WriteString(fill.Render(m.previewWrapped(strings.TrimSpace(record.Body), width)))
+		builder.WriteString(fill.Render(m.renderMarkdown(stripRedundantTitleHeading(strings.TrimSpace(record.Body), record.Title), width)))
 		builder.WriteString("\n")
 	}
 	return strings.TrimRight(builder.String(), "\n")
@@ -226,7 +226,7 @@ func (m Model) previewPrepBody(hop detailHop, width int) string {
 	}
 	if strings.TrimSpace(plan.Body) != "" {
 		builder.WriteString("\n")
-		builder.WriteString(fill.Render(m.previewWrapped(strings.TrimSpace(plan.Body), width)))
+		builder.WriteString(fill.Render(m.renderMarkdown(strings.TrimSpace(plan.Body), width)))
 		builder.WriteString("\n")
 	}
 	return strings.TrimRight(builder.String(), "\n")

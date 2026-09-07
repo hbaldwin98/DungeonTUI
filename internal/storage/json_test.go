@@ -29,3 +29,39 @@ func TestJSONStoreRoundTrip(t *testing.T) {
 		t.Fatalf("round trip mismatch: %#v", got)
 	}
 }
+
+func TestJSONStoreRoundTripsSources(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.json")
+	s := NewJSON(path)
+	scope := domain.Scope{WorldID: "fr", WorldName: "Realms", CampaignID: "lmop", Campaign: "Lost Mine"}
+	ws, err := domain.NewWorkspace(scope, []domain.Record{{
+		ID: "src-mm-goblins", Type: domain.Creature, Title: "Goblins",
+		Authority: domain.Canon, SourceID: "src-mm",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.Library = []domain.WorldRef{{
+		ID: "fr", Name: "Realms",
+		Campaigns: []domain.CampaignRef{{ID: "lmop", Name: "Lost Mine", EnabledSourceIDs: []string{"src-mm"}}},
+	}}
+	ws.Sources = []domain.SourceDocument{{
+		ID: "src-mm", Title: "Monster Manual (2025)", Edition: "2025", Kind: domain.SourceBestiary,
+	}}
+	if err := s.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Sources) != 1 || got.Sources[0].ID != "src-mm" {
+		t.Fatalf("sources=%#v", got.Sources)
+	}
+	if got.Records[0].SourceID != "src-mm" {
+		t.Fatalf("record source id=%q", got.Records[0].SourceID)
+	}
+	if len(got.Library[0].Campaigns[0].EnabledSourceIDs) != 1 {
+		t.Fatalf("enablement=%#v", got.Library[0].Campaigns[0].EnabledSourceIDs)
+	}
+}

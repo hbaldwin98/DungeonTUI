@@ -43,8 +43,7 @@ func (m Model) recordInListScope(record domain.Record) bool {
 	case searchsvc.EntireLibrary:
 		return true
 	default: // CurrentCampaign
-		return record.Scope.CampaignID == m.workspace.Scope.CampaignID ||
-			(record.Scope.CampaignID == "" && record.Scope.WorldID == m.workspace.Scope.WorldID)
+		return domain.RecordVisibleIn(record, m.workspace.Scope, m.workspace.EnabledSourceIDs(m.workspace.Scope))
 	}
 }
 
@@ -109,12 +108,7 @@ func (m *Model) cycleTagFilter() {
 			m.tagFilter = tags[found+1]
 		}
 	}
-	m.cursor = 0
-	m.selectedID = ""
-	records := m.listRecords()
-	if len(records) > 0 {
-		m.selectRecord(records[0])
-	}
+	m.resetListSelection()
 	if m.tagFilter == "" {
 		m.status = "Tag filter: all"
 	} else {
@@ -124,15 +118,24 @@ func (m *Model) cycleTagFilter() {
 
 func (m *Model) cycleListScope() {
 	m.listScope = (m.listScope + 1) % 3
-	m.cursor = 0
+	m.resetListSelection()
+	m.status = "Scope filter: " + m.listScope.Label()
+}
+
+func (m *Model) resetListSelection() {
 	m.selectedID = ""
+	if m.usesCampaignTree() && m.currentNav().Kind == NavType {
+		m.applyRecordTreeCursor(0)
+		return
+	}
+	if m.usesCampaignTree() {
+		m.ensureBrowserSelection()
+		return
+	}
 	records := m.listRecords()
 	if len(records) > 0 {
 		m.selectRecord(records[0])
-	} else if m.usesCampaignTree() {
-		m.ensureBrowserSelection()
 	}
-	m.status = "Scope filter: " + m.listScope.Label()
 }
 
 func (m Model) scopedCollections() []domain.Collection {
@@ -174,14 +177,7 @@ func (m *Model) cycleCollectionFilter() {
 			m.collectionFilter = cols[found+1].ID
 		}
 	}
-	m.cursor = 0
-	m.selectedID = ""
-	records := m.listRecords()
-	if len(records) > 0 {
-		m.selectRecord(records[0])
-	} else if m.usesCampaignTree() {
-		m.ensureBrowserSelection()
-	}
+	m.resetListSelection()
 	if m.collectionFilter == "" {
 		m.status = "Collection: all"
 		return

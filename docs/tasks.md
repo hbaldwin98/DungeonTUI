@@ -63,6 +63,18 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Wiki `@` mentions resolve in prose; missing targets stay broken; LINKED /
   REFERENCES / CAST / prep links preview from detail before navigating
   (Argus #45–#46; D-019, D-020).
+- Library source corpus: ingest markdown or 5e.tools books into
+  `SourceDocument`s, campaign enablement, and `@` association (Argus #47–#54;
+  D-021–D-023). Dedicated Import screen with a 5e.tools catalog (`I`)
+  (Argus #51; D-022). SQLite FTS5 / vectors later (Argus #55; D-024).
+  Imported records file under source/type folders, collapsed by default
+  (Argus #56–#57; D-025).
+- Wiki/prep detail, link previews, and `@` peeks render markdown with
+  Glamour; the editor stays source (Argus #58; D-026). Wide tables flatten
+  and rendered lines clamp to the pane so complex stat blocks cannot stagger
+  borders (Argus #60).
+- Adventure ingest nests related rooms, keeps one NPC record per person, and
+  pads tables so following lines stay out of the grid (Argus #59; D-027).
 
 ## In progress
 
@@ -80,5 +92,5 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 ## Deferred
 
 - SQLite operational store and FTS5 migration.
-- Context-aware AI generators and rules/source ingestion.
+- Context-aware AI generators.
 - Web/API client over the shared domain services.
