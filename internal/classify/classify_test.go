@@ -64,16 +64,23 @@ func TestOrganizeRecordsRetypesFrontMatter(t *testing.T) {
 	}
 }
 
-func TestParseHarnessAndWriteDump(t *testing.T) {
+func TestParseHarnessCyclesOffAndOn(t *testing.T) {
 	h, err := ParseHarness("on")
-	if err != nil || h != HarnessDump {
+	if err != nil || h != HarnessOn {
 		t.Fatalf("on -> %q %v", h, err)
 	}
-	if NextHarness(HarnessOff) != HarnessDump || NextHarness(HarnessDump) != HarnessApply || NextHarness(HarnessApply) != HarnessOff {
-		t.Fatal("cycle should be off → dump → apply → off")
+	dump, err := ParseHarness("dump")
+	if err != nil || dump != HarnessOn {
+		t.Fatalf("legacy dump alias -> %q %v", dump, err)
 	}
+	if NextHarness(HarnessOff) != HarnessOn || NextHarness(HarnessOn) != HarnessOff {
+		t.Fatal("cycle should be off → on → off")
+	}
+}
+
+func TestWriteDumpInspectsWorkspace(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "ingest-dump.json")
+	path := filepath.Join(dir, "inspect.json")
 	ws := domain.Workspace{
 		Scope:   domain.Scope{Campaign: "Test", WorldName: "World"},
 		Records: []domain.Record{{ID: "intro", Type: domain.Location, Title: "Introduction", SourceID: "src-x"}},
@@ -86,6 +93,6 @@ func TestParseHarnessAndWriteDump(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(raw), "Introduction") || !strings.Contains(string(raw), "front-matter") {
-		t.Fatalf("dump=%s", raw)
+		t.Fatalf("inspect=%s", raw)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -52,12 +51,12 @@ func runImport(args []string) error {
 	kindFlag := fs.String("kind", "auto", "bestiary, adventure, rules, or auto")
 	dataDir := fs.String("data", "", "local 5e.tools directory containing data/ (optional)")
 	remove := fs.Bool("remove", false, "delete an ingested source by id or title instead of importing")
-	harnessFlag := fs.String("harness", "off", "after ingest: off, dump (ingest-dump.json for agents), or apply (structural retype + dump)")
+	harnessFlag := fs.String("harness", "off", "after ingest: off, or on (clean ingested records and import the cleaned wiki)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: dungeon import [-kind auto|bestiary|adventure|rules] [-harness off|dump|apply] [-data DIR] <file.md|url|5e:ID>\n       dungeon import -remove <source-id-or-title>")
+		return fmt.Errorf("usage: dungeon import [-kind auto|bestiary|adventure|rules] [-harness off|on] [-data DIR] <file.md|url|5e:ID>\n       dungeon import -remove <source-id-or-title>\n\n5e.tools adventures become wiki records. Monster Manual, Player's Handbook, and similar mechanical books prime the D&D 5e plugin (no wiki rows). A harness cleans ingested records and imports that cleaned wiki; it does not write a dump file.")
 	}
 	path, err := storage.DefaultPath()
 	if err != nil {
@@ -95,16 +94,11 @@ func runImport(args []string) error {
 	if err != nil {
 		return err
 	}
-	dumpPath := ""
-	if harness != classify.HarnessOff {
-		dumpPath = filepath.Join(filepath.Dir(path), "ingest-dump.json")
-	}
 	ws, report, err := ingest.ApplyTarget(ws, fs.Arg(0), ingest.Options{
-		Kind:     kind,
-		Scope:    ws.Scope,
-		DataDir:  *dataDir,
-		Harness:  harness,
-		DumpPath: dumpPath,
+		Kind:    kind,
+		Scope:   ws.Scope,
+		DataDir: *dataDir,
+		Harness: harness,
 	})
 	if err != nil {
 		return err
@@ -116,10 +110,7 @@ func runImport(args []string) error {
 	fmt.Printf("%d records, %d prep notes, %d associations\n", report.Records, report.Planned, report.Linked)
 	fmt.Printf("source id %s\n", report.SourceID)
 	if report.Harness != "" {
-		fmt.Printf("harness %s · %d findings\n", report.Harness, report.Findings)
-		if report.DumpPath != "" {
-			fmt.Printf("agent dump %s\n", report.DumpPath)
-		}
+		fmt.Printf("harness %s · cleaned ingest · %d findings\n", report.Harness, report.Findings)
 	}
 	return nil
 }
@@ -160,7 +151,7 @@ func runDump(args []string) error {
 	fs := flag.NewFlagSet("dump", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	source := fs.String("source", "", "limit to a source id or title")
-	body := fs.Bool("body", true, "include record bodies for agent reading")
+	body := fs.Bool("body", true, "include record bodies")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

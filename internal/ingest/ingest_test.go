@@ -9,6 +9,7 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/classify"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
+	"github.com/hbaldwin98/dungeon/internal/ruleset/dnd5e"
 )
 
 const fakeBestiary = `# Test Bestiary (2025)
@@ -286,7 +287,7 @@ Adventure creature stats live here.
 	}
 }
 
-func TestApplyFiveEIngestsChosenBook(t *testing.T) {
+func TestApplyFiveEPrimesPluginWithoutWikiCreatures(t *testing.T) {
 	ws := testWorkspace(t)
 	fetcher := fivetools.MapFetcher{
 		"data/adventures.json":            []byte(`{"adventure":[]}`),
@@ -299,20 +300,21 @@ func TestApplyFiveEIngestsChosenBook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.SourceID != "src-5e-bst" || report.Records != 1 {
+	if report.SourceID != "src-5e-bst" || !report.Plugin || report.Records != 0 {
 		t.Fatalf("report=%#v", report)
 	}
-	var rascal domain.Record
 	for _, record := range ws.Records {
 		if record.Title == "Cave Rascal" {
-			rascal = record
+			t.Fatalf("plugin book leaked into wiki: %#v", record)
 		}
 	}
-	if rascal.Type != domain.Creature || rascal.Scope.CampaignID != "" {
-		t.Fatalf("library creature=%#v", rascal)
+	plugin, err := dnd5e.Open(fetcher, dnd5e.Options{Books: []string{"BST"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(rascal.Body, "**AC** 12") {
-		t.Fatalf("body=%q", rascal.Body)
+	ent, ok := plugin.LookupName("Cave Rascal")
+	if !ok || !strings.Contains(ent.Body, "**AC** 12") {
+		t.Fatalf("plugin lookup=%#v ok=%v", ent, ok)
 	}
 	if !ws.SourceEnabled(ws.Scope, report.SourceID) {
 		t.Fatal("imported book should be enabled for the campaign")
@@ -336,28 +338,22 @@ func containsAlias(list []string, want string) bool {
 	return false
 }
 
-func TestApplyHarnessDumpsAndAppliesStructuralClassify(t *testing.T) {
+func TestApplyHarnessCleansIngestedRecordsWithoutDump(t *testing.T) {
 	dir := t.TempDir()
-	dump := filepath.Join(dir, "ingest-dump.json")
 	ws := testWorkspace(t)
 	ws, report, err := Apply(ws, fakeAdventure, Options{
-		Kind:     domain.SourceAdventure,
-		Scope:    ws.Scope,
-		Harness:  classify.HarnessDump,
-		DumpPath: dump,
+		Kind:    domain.SourceAdventure,
+		Scope:   ws.Scope,
+		Harness: classify.HarnessOn,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Harness != "dump" {
+	if report.Harness != "on" {
 		t.Fatalf("harness=%q", report.Harness)
 	}
-	raw, err := os.ReadFile(dump)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), report.SourceID) {
-		t.Fatalf("dump missing source: %s", raw)
+	if _, err := os.Stat(filepath.Join(dir, "ingest-dump.json")); err == nil {
+		t.Fatal("harness must not write ingest-dump.json")
 	}
 
 	for i, rec := range ws.Records {
@@ -367,13 +363,12 @@ func TestApplyHarnessDumpsAndAppliesStructuralClassify(t *testing.T) {
 		}
 	}
 	ws, report, err = applyHarness(ws, Report{SourceID: report.SourceID}, Options{
-		Harness:  classify.HarnessApply,
-		DumpPath: dump,
+		Harness: classify.HarnessOn,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Harness != "apply" {
+	if report.Harness != "on" {
 		t.Fatalf("harness=%q", report.Harness)
 	}
 	found := false
@@ -381,11 +376,11 @@ func TestApplyHarnessDumpsAndAppliesStructuralClassify(t *testing.T) {
 		if classify.FrontMatter(rec.Title) {
 			found = true
 			if rec.Type != domain.Note {
-				t.Fatalf("%s should be a note after apply, got %s", rec.Title, rec.Type)
+				t.Fatalf("%s should be a note after cleanup, got %s", rec.Title, rec.Type)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("expected a front-matter heading to retype")
+		t.Fatal("expected a front-matter record")
 	}
 }

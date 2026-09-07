@@ -12,10 +12,11 @@ import (
 // A later SQLite FTS5 / vector index should consume these wiki records and
 // the persisted plugin corpus rather than re-fetching 5e.tools JSON.
 type Bundle struct {
-	Entry   Entry
-	Doc     domain.SourceDocument
-	Records []draft
-	Plans   []planDraft
+	Entry      Entry
+	Doc        domain.SourceDocument
+	Records    []draft
+	Plans      []planDraft
+	PluginOnly bool // mechanical books stay in the 5e plugin, not wiki rows
 }
 
 // Catalog reads a local 5e.tools corpus. The durable copy is JSON pulled at
@@ -33,8 +34,11 @@ type Catalog struct {
 	legendary     map[string]map[string]any
 	items         map[string]map[string]any
 	variants      map[string]map[string]any
+	spells        map[string]map[string]any
+	terms         map[string]map[string]any
 	fluff         map[string]string
 	preferred     []string
+	allowed       []string
 }
 
 func NewCatalog(fetcher Fetcher) *Catalog {
@@ -46,6 +50,8 @@ func NewCatalog(fetcher Fetcher) *Catalog {
 		legendary: map[string]map[string]any{},
 		items:     map[string]map[string]any{},
 		variants:  map[string]map[string]any{},
+		spells:    map[string]map[string]any{},
+		terms:     map[string]map[string]any{},
 		fluff:     map[string]string{},
 	}
 }
@@ -117,6 +123,20 @@ func Build(fetcher Fetcher, raw string) (Bundle, error) {
 		if entry.Kind == "" {
 			entry.Kind = "book"
 		}
+	}
+	kind := entry.SourceKind()
+	doc := domain.SourceDocument{
+		ID:      SourceID(entry.ID),
+		Title:   firstNonEmpty(entry.Name, entry.ID),
+		Edition: entry.Edition(),
+		Kind:    kind,
+		Path:    firstNonEmpty(ref.Raw, entry.PageURL()),
+	}
+	if entry.PluginCorpus() {
+		if err := Prime(fetcher, entry); err != nil {
+			return Bundle{}, err
+		}
+		return Bundle{Entry: entry, Doc: doc, PluginOnly: true}, nil
 	}
 	s := NewCatalog(fetcher)
 	if err := s.loadIndexes(); err != nil {
@@ -212,14 +232,6 @@ func Build(fetcher Fetcher, raw string) (Bundle, error) {
 		return Bundle{}, fmt.Errorf("no 5e.tools content published as %s", code)
 	}
 
-	kind := entry.SourceKind()
-	doc := domain.SourceDocument{
-		ID:      SourceID(code),
-		Title:   firstNonEmpty(entry.Name, code),
-		Edition: entry.Edition(),
-		Kind:    kind,
-		Path:    firstNonEmpty(ref.Raw, entry.PageURL()),
-	}
 	return Bundle{Entry: entry, Doc: doc, Records: records, Plans: plans}, nil
 }
 

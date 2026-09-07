@@ -32,6 +32,31 @@ func (e Entry) SourceKind() domain.SourceKind {
 	return domain.SourceRules
 }
 
+// PluginCorpus is true for mechanical books (bestiary, PHB, DMG) that belong
+// in the 5e lookup plugin instead of campaign wiki folders.
+func (e Entry) PluginCorpus() bool {
+	if e.Kind == "adventure" {
+		return false
+	}
+	if e.SourceKind() == domain.SourceBestiary {
+		return true
+	}
+	return looksLikeCharacterRules(e) || looksLikeTreasureRules(e)
+}
+
+func (e Entry) CatalogKind() string {
+	if e.Kind == "adventure" {
+		return "adventure"
+	}
+	if e.PluginCorpus() {
+		return "plugin"
+	}
+	if e.Kind != "" {
+		return e.Kind
+	}
+	return "book"
+}
+
 func (e Entry) Edition() string {
 	if year := yearFrom(e.Published); year != "" {
 		return year

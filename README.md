@@ -21,14 +21,14 @@ go run ./cmd/dungeon
 ## Import a sourcebook or adventure
 
 Choose books in the app. Markdown files still work; **5e.tools** is the
-structured catalog (stat blocks, spells, items, classes, adventures). The
-adapter fetches JSON at import time onto your machine. Adventure and
-rulebook **prose** become wiki records. Shared mechanical tables (bestiary,
-items, templates, legendary groups) land in a **D&D 5e plugin** persisted
-beside the workspace so `@` peeks can show composed stats without dumping that
-bestiary into the campaign tree. That corpus is local durable data (pulled JSON
-now; SQLite FTS5 later), not an in-memory-only index, and never stored in this
-git repository. Re-ingest an adventure after this change so lookups are primed.
+structured catalog. Enter on an **adventure** writes wiki records (sites, NPCs,
+prep). Enter on the **Monster Manual**, **Player's Handbook**, **Dungeon
+Master's Guide**, or similar mechanical books primes the **D&D 5e plugin**
+(creatures, spells, items, conditions, actions) on your machine — no wiki
+folders — and enables it for the **current campaign**. Other campaigns must
+enable those sources; importing an adventure does not grant MM/PHB lookups.
+The adapter fetches JSON at import time. Raw JSON is never stored in this git
+repository. Structural classify always runs before wiki rows are written.
 
 ```sh
 go run ./cmd/dungeon import https://5e.tools/book.html#BOOKID,-1
@@ -36,8 +36,8 @@ go run ./cmd/dungeon import 5e:BOOKID
 go run ./cmd/dungeon import -data /path/to/5etools https://5e.tools/adventure.html#BOOKID,-1
 go run ./cmd/dungeon import -kind bestiary ./bestiary.md
 go run ./cmd/dungeon import -remove src-5e-bookid
-go run ./cmd/dungeon import -harness dump 5e:BOOKID
-go run ./cmd/dungeon import -harness apply ./adventure.md
+go run ./cmd/dungeon import -harness on 5e:BOOKID
+go run ./cmd/dungeon import -harness on ./adventure.md
 
 # Headless inspect for agents (Claude, OpenCode, Codex, Cursor Agent)
 go run ./cmd/dungeon dump
@@ -47,19 +47,19 @@ go run ./cmd/dungeon classify -apply
 ```
 
 Inside a campaign or the library picker, `I` opens **Import**: SOURCES |
-5E.TOOLS | FILES. Type to filter the live catalog, Enter to ingest the
-selected book, `H` to cycle the agentic harness (`off` / `dump` / `apply`)
-so a sanity dump (and optional structural classify) runs after ingest, `e` to
-enable it for the campaign, `d` then `y` to remove an ingested source (and its
-records) so you can ingest it again. Re-importing the same id also replaces its
-previous records. `Esc` returns to the picker or campaign. `dump` writes
-`ingest-dump.json` beside the workspace for agents.
+5E.TOOLS | FILES. Type to filter the live catalog. Enter ingests: adventures
+become wiki records; MM / PHB / DMG prime the plugin. `H` cycles an optional
+agent cleanup (`off` / `on`) after ingest: **on** retypes the ingested records
+from structure and imports that cleaned wiki. It does not write a dump file.
+`e` enables the source for the campaign, `d` then `y` removes it. `Esc` returns
+to the picker or campaign. `dungeon dump` is a separate inspect command.
 
 `@Captain Vale` and other mentions resolve against campaign + world-shared +
-**enabled** sources, then the 5e plugin. Adventure sites are classified from
-structure (front matter, numbered rooms, 5e.tools sections), not a skip list of
-one book's headings. Empty markdown widgets stay empty; 5e.tools ingest is
-what fills AC/HP/spell text from the published JSON.
+**enabled** sources, then the 5e plugin for books enabled on this campaign.
+Adventure sites are classified from
+structure (front matter, numbered rooms, 5e.tools sections) **before** wiki
+rows are written. Empty markdown widgets stay empty; plugin ingest is what
+fills AC/HP/spell text from the published JSON.
 
 SQLite FTS5 and embeddings are a later search backend over wiki records and
 the 5e plugin (see D-024, D-032). The workspace JSON is still the inspectable
@@ -87,7 +87,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `←` / `→` / `Tab` / `Shift+Tab` / `t` | Cycle focus across nav · list · detail |
 | `n` | Create a new draft entity (markdown) |
 | `e` | Edit the selected entity or prep notes (full-screen markdown; `@` suggests) |
-| `I` | Open the Import screen (library sources, 5e.tools catalog, markdown files; `H` cycles post-ingest harness) |
+| `I` | Open the Import screen (library sources, 5e.tools catalog, markdown files; `H` cycles cleanup harness off/on) |
 | `d` | Delete selected entity or session; on Import SOURCES, remove the ingested book (`y` confirm / `n` cancel) |
 | `x` | Supersede selected entity (`y` confirm / `n` cancel) |
 | `?` | Show context-sensitive command help |

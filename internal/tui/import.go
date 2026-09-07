@@ -15,7 +15,6 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/ingest"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
-	"github.com/hbaldwin98/dungeon/internal/storage"
 )
 
 type importFile struct {
@@ -178,29 +177,15 @@ func (m *Model) cycleImportHarness() {
 	next := classify.NextHarness(m.importHarness())
 	m.layout.ImportHarness = string(next)
 	m.persistPreferences()
-	switch next {
-	case classify.HarnessDump:
-		m.status = "Harness dump · writes ingest-dump.json after ingest for agents"
-	case classify.HarnessApply:
-		m.status = "Harness apply · structural retype plus dump after ingest"
-	default:
-		m.status = "Harness off · ingest only"
+	if next == classify.HarnessOn {
+		m.status = "Harness on · ingest, then import cleaned-up records"
+		return
 	}
-}
-
-func (m Model) ingestDumpPath() string {
-	js, ok := m.store.(storage.JSONStore)
-	if !ok || strings.TrimSpace(js.Path) == "" {
-		return ""
-	}
-	return filepath.Join(filepath.Dir(js.Path), "ingest-dump.json")
+	m.status = "Harness off · ingest without extra cleanup"
 }
 
 func (m Model) withImportHarness(opts ingest.Options) ingest.Options {
 	opts.Harness = m.importHarness()
-	if opts.Harness != classify.HarnessOff {
-		opts.DumpPath = m.ingestDumpPath()
-	}
 	return opts
 }
 
@@ -327,6 +312,10 @@ func (m Model) runImportFile(path string) (tea.Model, tea.Cmd) {
 	}
 	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links%s",
 		report.Title, report.Kind, report.Records, report.Planned, report.Linked, harnessStatus(report))
+	if report.Plugin {
+		m.status = fmt.Sprintf("Primed D&D 5e plugin · %s · @ lookups · 0 wiki records%s",
+			report.Title, harnessStatus(report))
+	}
 	return m, nil
 }
 
@@ -507,7 +496,7 @@ func (m Model) renderImportTools(width, height int) string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("5E.TOOLS"))
 	builder.WriteString("\n")
-	filter := "all books · type to filter"
+	filter := "adventures → wiki · MM/PHB → plugin"
 	if m.importToolsQuery != "" {
 		filter = "/" + m.importToolsQuery
 	}
@@ -533,10 +522,7 @@ func (m Model) renderImportTools(width, height int) string {
 			prefix = "▸ "
 			row = selectedItemStyle
 		}
-		kind := entry.Kind
-		if kind == "" {
-			kind = "book"
-		}
+		kind := entry.CatalogKind()
 		line := fmt.Sprintf("%s%s  %s %s", prefix, entry.Name, entry.ID, kind)
 		builder.WriteString(row.Render(truncateImportLine(line, inner)))
 		builder.WriteString("\n")
@@ -596,11 +582,7 @@ func harnessStatus(report ingest.Report) string {
 	if report.Harness == "" {
 		return ""
 	}
-	extra := fmt.Sprintf(" · harness %s · %d findings", report.Harness, report.Findings)
-	if report.DumpPath != "" {
-		extra += " · " + report.DumpPath
-	}
-	return extra
+	return fmt.Sprintf(" · harness %s · %d findings", report.Harness, report.Findings)
 }
 
 type toolsCatalogMsg struct {
@@ -684,5 +666,9 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 	}
 	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links%s",
 		msg.report.Title, msg.report.Kind, msg.report.Records, msg.report.Planned, msg.report.Linked, harnessStatus(msg.report))
+	if msg.report.Plugin {
+		m.status = fmt.Sprintf("Primed D&D 5e plugin · %s · @ lookups · 0 wiki records%s",
+			msg.report.Title, harnessStatus(msg.report))
+	}
 	return m, nil
 }

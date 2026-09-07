@@ -151,12 +151,14 @@ List Enter (playback, folder collapse, wiki edit) is unchanged.
 
 ## D-021 — Library sources, campaign enablement, ingest outside the TUI
 
-Imported books are `SourceDocument`s on the workspace. Creature and rule
-records from a bestiary or PHB are library-scoped and cited by `SourceID`.
-Each campaign enables the sources it uses. `@` and campaign lists resolve
-against campaign + world-shared + enabled sources, not the entire library.
-Ingest is a domain module (`internal/ingest`) with a CLI adapter. The TUI
-opens a dedicated Import screen (library sources, 5e.tools catalog, file
+Imported books are `SourceDocument`s on the workspace. Mechanical 5e.tools
+books (Monster Manual, Player's Handbook, and similar) prime the D&D 5e plugin
+and stay out of wiki folders. Adventure prose becomes campaign wiki records
+with `SourceID`. Each campaign enables the sources it uses. `@` and campaign
+lists resolve against campaign + world-shared + enabled sources, then the
+5e plugin for books that campaign has imported and enabled. Ingest is a
+domain module (`internal/ingest`) with a CLI adapter. The TUI opens a dedicated
+Import screen (library sources, 5e.tools catalog, file
 browser), not a path overlay on the campaign wiki. Parser output is canon with
 provenance; empty stat-block exports stay unknown (no AI fill). 5e.tools JSON
 is fetched at import time and never vendored in git (D-023).
@@ -166,9 +168,11 @@ is fetched at import time and never vendored in git (D-023).
 Import sits beside the world/campaign picker: `I` from the picker or campaign
 browser leaves the wiki and opens SOURCES | 5E.TOOLS | FILES. Esc returns to
 wherever the owner came from. Enabling a source is a campaign action on that
-screen (`e`). `H` cycles the post-ingest agentic harness (`off`, `dump`,
-`apply`): dump writes `ingest-dump.json` for Claude / OpenCode / Codex / Cursor
-Agent; apply also retypes from structural rules (D-033). `d` then `y` removes an ingested source from the library so it
+screen (`e`). `H` cycles an optional cleanup harness after ingest (`off` / `on`).
+On means retype the ingested records from structure and import that cleaned
+wiki; harnesses do not write `ingest-dump.json` (D-035). Structural classify
+always runs on new records before they are written. `d` then `y`
+removes an ingested source from the library so it
 can be ingested again; session CAST links keep their record IDs because those
 IDs are stable per book and title.
 
@@ -224,10 +228,11 @@ Adventure ingest dumps a faithful outline. Types come from structure that is
 the same across 5e books: front matter (introduction, preface, appendix),
 numbered room headings, 5e.tools `section` nodes, and Name/Role tables.
 Front-matter subtrees that reprint later chapters are omitted. Advice boxes
-stay notes. Per-adventure title deny lists are not used. A headless `dungeon dump` JSON snapshot lets Claude,
-OpenCode, Codex, and Cursor Agent read ingested wiki/plugin data and run
-`dungeon classify` as a sanity pass. AI still must not silently rewrite canon
-(D-002); `-apply` only retypes from those structural rules.
+stay notes. Per-adventure title deny lists are not used. `dungeon dump` is a
+headless inspect of the workspace, not the import harness. Import harnesses
+clean ingested records and import the cleaned wiki (D-035). AI still must not
+silently rewrite canon (D-002); cleanup only retypes from those structural
+rules.
 
 ## D-028 — 5e mechanical data is a lookup plugin
 
@@ -236,10 +241,12 @@ Adventures cite shared 5e.tools files (MM bestiary, `template.json`,
 fluff). Those are a **ruleset plugin** (`internal/ruleset`, first pack
 `dnd5e`), not wiki folders. The campaign wiki stays narrative (sites, NPCs,
 prep). `@` peek, mention hops, suggestions, and search display composed
-markdown from the plugin when no wiki record matches. Enabling an adventure loads
-the core bestiary for lookups without ingesting that bestiary as a wiki tree. The plugin corpus is
-pulled onto the local machine and persisted there (D-032); it is not an
-in-memory-only catalog. Raw JSON is never vendored (D-023).
+markdown from the plugin when no wiki record matches. Importing MM, PHB, or
+DMG from the 5e.tools catalog primes that plugin (no wiki tree) and enables
+it for the current campaign. Other campaigns must enable those sources;
+importing an adventure does not grant MM/PHB lookups (D-034). The plugin
+corpus is pulled onto the local machine and persisted there (D-032); it is
+not an in-memory-only catalog. Raw JSON is never vendored (D-023).
 
 ## D-029 — First ruleset pack is D&D 5e / Next (2014)
 
@@ -264,14 +271,31 @@ system of record. Plugin entries still must not land on `Workspace.Records`
 Argus #55) will index plugin creatures/items too; embeddings stay optional and
 are not required to reconstruct canon.
 
-## D-033 — Import can run the agentic harness after ingest
+## D-033 — Classify before wiki write
 
-The Import screen and `dungeon import` can select a post-ingest harness
-(`off`, `dump`, `apply`). `dump` writes `ingest-dump.json` beside the workspace
-for Claude, OpenCode, Codex, and Cursor Agent, and reports structural findings.
-`apply` also retypes from those structural rules, then dumps. AI still must not
-silently rewrite canon (D-002). Default is off so ingest stays a fetch-and-store
-step. The choice persists in preferences (`import_harness`).
+Ingest always runs structural classify on new records **before** they are
+appended to the workspace (front matter → notes, numbered rooms → locations).
+The Import `H` cycle and `dungeon import -harness` clean those ingested
+records and import the cleaned wiki (`off` / `on`). They do not write an
+agent dump file (D-035). AI still must not silently rewrite canon (D-002).
+
+## D-034 — 5e plugin lookups require an imported, campaign-enabled source
+
+The D&D 5e plugin is not attached to every campaign. `@` peek, mention hops,
+suggestions, and search only resolve plugin creatures, spells, items, and
+terms from 5e.tools books that are in the library **and** enabled for the
+current campaign. An empty enablement list loads nothing, even if MM/PHB
+JSON is already on disk from another campaign. Adventures stay wiki records;
+they do not auto-load the core bestiary. Import those mechanical books (and
+enable them) when a campaign needs the stats.
+
+## D-035 — Import harness cleans ingested records; it does not dump
+
+The Import `H` cycle and `dungeon import -harness` are a cleanup pass, not an
+agent dump. **On** retypes leftover ingested rows from the same structural
+rules used at ingest, then those cleaned records are the import. No
+`ingest-dump.json` is written. `dungeon dump` remains a separate inspect
+command for reading the workspace.
 
 
 

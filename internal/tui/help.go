@@ -55,7 +55,7 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.importing:
 		return [][]string{
-			{"Import", "Tab sources / 5e.tools / files", "j/k move · Enter ingest", "H cycle harness (off / dump / apply)", "type to filter 5e.tools catalog", "Ctrl+T cycle kind · Ctrl+R refresh catalog", "e enable/disable in campaign", "d remove source (y confirm)", "Esc or b back"},
+			{"Import", "Tab sources / 5e.tools / files", "j/k move · Enter ingest (adventures → wiki, MM/PHB → plugin)", "H cycle cleanup harness (off / on)", "type to filter 5e.tools catalog", "Ctrl+T cycle markdown kind · Ctrl+R refresh catalog", "e enable/disable in campaign", "d remove source (y confirm)", "Esc or b back"},
 		}
 	case m.searching:
 		return [][]string{

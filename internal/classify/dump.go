@@ -47,7 +47,8 @@ type Snapshot struct {
 	Findings []Finding               `json:"findings"`
 }
 
-// Dump is the headless view of ingested data for an agent harness.
+// Dump is a headless inspect of ingested wiki data. Import harnesses do
+// not write this snapshot; they clean records and import the cleaned wiki.
 func Dump(ws domain.Workspace, sourceFilter string, includeBody bool) Snapshot {
 	filter := strings.TrimSpace(sourceFilter)
 	out := Snapshot{

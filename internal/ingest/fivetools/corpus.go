@@ -14,6 +14,8 @@ type Kind string
 const (
 	KindCreature Kind = "creature"
 	KindItem     Kind = "item"
+	KindSpell    Kind = "spell"
+	KindTerm     Kind = "term"
 )
 
 // Hit is one composed ruleset entity ready to display as markdown.
@@ -31,8 +33,11 @@ func (h Hit) ID() string {
 
 func (h Hit) Record() domain.Record {
 	typ := domain.Creature
-	if h.Kind == KindItem {
+	switch h.Kind {
+	case KindItem:
 		typ = domain.Item
+	case KindSpell, KindTerm:
+		typ = domain.Rule
 	}
 	return domain.Record{
 		ID:        h.ID(),
@@ -55,24 +60,30 @@ func SourceCode(sourceID string) string {
 	return strings.TrimPrefix(sourceID, "src-5e-")
 }
 
-// CoreBestiaryCode is the shared monster book an adventure cites (MM for 2014,
-// XMM for 2024-style X-ids). Lookup can resolve a creature mention without
-// ingesting that bestiary as a wiki tree.
-func CoreBestiaryCode(code string) string {
-	switch strings.ToUpper(strings.TrimSpace(code)) {
-	case "XMM", "XPHB", "XDMG":
-		return "XMM"
-	case "MM", "PHB", "DMG":
-		return "MM"
-	}
-	if strings.HasPrefix(strings.ToUpper(code), "X") {
-		return "XMM"
-	}
-	return "MM"
-}
-
 func (c *Catalog) SetPreferred(codes []string) {
 	c.preferred = append([]string(nil), codes...)
+}
+
+// SetAllowed restricts Lookup/Search to these book codes. An empty list
+// leaves the catalog unrestricted (direct tests and ingest compose).
+func (c *Catalog) SetAllowed(codes []string) {
+	c.allowed = append([]string(nil), codes...)
+}
+
+func (c *Catalog) sourceAllowed(src string) bool {
+	if len(c.allowed) == 0 {
+		return true
+	}
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return false
+	}
+	for _, code := range c.allowed {
+		if strings.EqualFold(strings.TrimSpace(code), src) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Catalog) LoadCompose() error {
@@ -106,6 +117,64 @@ func (c *Catalog) LoadBestiary(code string) error {
 	return nil
 }
 
+func (c *Catalog) LoadSpells(code string) error {
+	if code == "" {
+		return nil
+	}
+	if err := c.loadIndexes(); err != nil {
+		return err
+	}
+	file := indexLookup(c.spellIndex, code)
+	if file == "" {
+		return nil
+	}
+	data, ok, err := c.get("data/spells/" + file)
+	if err != nil || !ok {
+		return err
+	}
+	items, err := jsonObjects(data, "spell")
+	if err != nil {
+		return fmt.Errorf("%s: %w", file, err)
+	}
+	c.rememberSpells(items)
+	fluffName := "fluff-" + strings.TrimSuffix(file, ".json") + ".json"
+	if raw, found, err := c.get("data/spells/" + fluffName); err == nil && found {
+		fluff := fluffIndex(raw, "spellFluff")
+		if len(fluff) == 0 {
+			fluff = fluffIndex(raw, "spell")
+		}
+		if c.fluff == nil {
+			c.fluff = map[string]string{}
+		}
+		for k, v := range fluff {
+			c.fluff[k] = v
+		}
+	}
+	return nil
+}
+
+func (c *Catalog) LoadTerms() error {
+	if err := c.loadTermFile("data/conditionsdiseases.json", []string{"condition", "disease", "status"}); err != nil {
+		return err
+	}
+	return c.loadTermFile("data/actions.json", []string{"action"})
+}
+
+func (c *Catalog) loadTermFile(path string, keys []string) error {
+	data, ok, err := c.get(path)
+	if err != nil || !ok {
+		return err
+	}
+	for _, key := range keys {
+		items, err := jsonObjects(data, key)
+		if err != nil {
+			return err
+		}
+		c.rememberTerms(items)
+	}
+	return nil
+}
+
 func (c *Catalog) LoadItems() error {
 	if err := c.loadItemFile("data/items.json", "item"); err != nil {
 		return err
@@ -128,8 +197,9 @@ func (c *Catalog) LoadItems() error {
 	return nil
 }
 
-// Prime fetches compose files, the chosen book, its core bestiary, and item
-// tables into the fetcher cache without creating wiki records.
+// Prime fetches compose files and the chosen book into the fetcher cache
+// without creating wiki records. Mechanical books also cache items/terms.
+// It does not pull MM/PHB merely because an adventure was imported.
 func Prime(fetcher Fetcher, entry Entry) error {
 	c := NewCatalog(fetcher)
 	if err := c.loadIndexes(); err != nil {
@@ -137,10 +207,11 @@ func Prime(fetcher Fetcher, entry Entry) error {
 	}
 	_ = c.LoadCompose()
 	_ = c.LoadBestiary(entry.ID)
-	if core := CoreBestiaryCode(entry.ID); !strings.EqualFold(core, entry.ID) {
-		_ = c.LoadBestiary(core)
+	_ = c.LoadSpells(entry.ID)
+	if entry.PluginCorpus() {
+		_ = c.LoadItems()
+		_ = c.LoadTerms()
 	}
-	_ = c.LoadItems()
 	return nil
 }
 
@@ -164,6 +235,22 @@ func (c *Catalog) Lookup(kind Kind, name, source string) (Hit, bool) {
 		}
 		if item, src, ok := c.findVariant(name, source); ok {
 			return c.renderVariant(item, src), true
+		}
+		if kind == KindItem {
+			return Hit{}, false
+		}
+	}
+	if kind == "" || kind == KindSpell {
+		if item, src, ok := c.findSpell(name, source); ok {
+			return c.renderSpell(item, src), true
+		}
+		if kind == KindSpell {
+			return Hit{}, false
+		}
+	}
+	if kind == "" || kind == KindTerm {
+		if item, src, ok := c.findTerm(name, source); ok {
+			return c.renderTerm(item, src), true
 		}
 	}
 	return Hit{}, false
@@ -193,6 +280,9 @@ func (c *Catalog) Search(query string, limit int) []Hit {
 				continue
 			}
 			src := itemSource(item)
+			if !c.sourceAllowed(src) {
+				continue
+			}
 			switch kind {
 			case KindCreature:
 				out = append(out, c.renderMonster(item, src))
@@ -202,6 +292,10 @@ func (c *Catalog) Search(query string, limit int) []Hit {
 				} else {
 					out = append(out, c.renderItem(item, src))
 				}
+			case KindSpell:
+				out = append(out, c.renderSpell(item, src))
+			case KindTerm:
+				out = append(out, c.renderTerm(item, src))
 			}
 		}
 	}
@@ -211,6 +305,12 @@ func (c *Catalog) Search(query string, limit int) []Hit {
 	}
 	if len(out) < limit {
 		add(KindItem, c.variants)
+	}
+	if len(out) < limit {
+		add(KindSpell, c.spells)
+	}
+	if len(out) < limit {
+		add(KindTerm, c.terms)
 	}
 	return out
 }
@@ -298,13 +398,31 @@ func (c *Catalog) loadBestiaryFluff(file string) map[string]string {
 }
 
 func (c *Catalog) rememberMonsters(items []map[string]any) {
+	c.rememberNamed(c.monsters, items)
+}
+
+func (c *Catalog) rememberSpells(items []map[string]any) {
+	if c.spells == nil {
+		c.spells = map[string]map[string]any{}
+	}
+	c.rememberNamed(c.spells, items)
+}
+
+func (c *Catalog) rememberTerms(items []map[string]any) {
+	if c.terms == nil {
+		c.terms = map[string]map[string]any{}
+	}
+	c.rememberNamed(c.terms, items)
+}
+
+func (c *Catalog) rememberNamed(store map[string]map[string]any, items []map[string]any) {
 	for _, item := range items {
 		name := asString(item["name"])
 		src := itemSource(item)
 		if name == "" {
 			continue
 		}
-		c.monsters[strings.ToLower(name+"|"+src)] = item
+		store[strings.ToLower(name+"|"+src)] = item
 	}
 }
 
@@ -373,7 +491,7 @@ func (c *Catalog) lookupMonster(name, code string) (map[string]any, error) {
 	if name == "" {
 		return nil, nil
 	}
-	if item, _, ok := c.findMonster(name, code); ok {
+	if item, _, ok := pickNamed(c.monsters, name, code, c.preferred); ok {
 		return item, nil
 	}
 	if code == "" {
@@ -393,7 +511,7 @@ func (c *Catalog) lookupMonster(name, code string) (map[string]any, error) {
 	}
 	c.rememberMonsters(items)
 	c.loadBestiaryFluff(file)
-	item, _, ok := c.findMonster(name, code)
+	item, _, ok := pickNamed(c.monsters, name, code, c.preferred)
 	if !ok {
 		return nil, nil
 	}
@@ -437,27 +555,63 @@ func (c *Catalog) applyLegendaryGroup(item map[string]any) map[string]any {
 }
 
 func (c *Catalog) findMonster(name, source string) (map[string]any, string, bool) {
-	return pickNamed(c.monsters, name, source, c.preferred)
+	return c.pickAllowed(c.monsters, name, source)
+}
+
+func (c *Catalog) findSpell(name, source string) (map[string]any, string, bool) {
+	return c.pickAllowed(c.spells, name, source)
+}
+
+func (c *Catalog) findTerm(name, source string) (map[string]any, string, bool) {
+	return c.pickAllowed(c.terms, name, source)
 }
 
 func (c *Catalog) findItem(name, source string) (map[string]any, string, bool) {
-	return pickNamed(c.items, name, source, c.preferred)
+	return c.pickAllowed(c.items, name, source)
 }
 
 func (c *Catalog) findVariant(name, source string) (map[string]any, string, bool) {
+	var item map[string]any
+	var src string
 	if source != "" {
-		if item, ok := c.variants[strings.ToLower(name+"|"+source)]; ok {
-			return item, itemSource(item), true
+		item = c.variants[strings.ToLower(name+"|"+source)]
+		if item == nil {
+			return nil, "", false
 		}
-	}
-	if item, ok := c.variants[strings.ToLower(name)]; ok {
-		src := itemSource(item)
+		src = itemSource(item)
+	} else if item = c.variants[strings.ToLower(name)]; item != nil {
+		src = itemSource(item)
 		if src == "" {
 			if inherits := asMap(item["inherits"]); inherits != nil {
 				src = itemSource(inherits)
 			}
 		}
+	} else {
+		return nil, "", false
+	}
+	if !c.sourceAllowed(src) {
+		return nil, "", false
+	}
+	return item, src, true
+}
+
+func (c *Catalog) pickAllowed(store map[string]map[string]any, name, source string) (map[string]any, string, bool) {
+	item, src, ok := pickNamed(store, name, source, c.preferred)
+	if ok && c.sourceAllowed(src) {
 		return item, src, true
+	}
+	if source != "" || len(c.allowed) == 0 {
+		return nil, "", false
+	}
+	prefix := strings.ToLower(strings.TrimSpace(name) + "|")
+	for key, candidate := range store {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		src := itemSource(candidate)
+		if c.sourceAllowed(src) {
+			return candidate, src, true
+		}
 	}
 	return nil, "", false
 }
@@ -503,6 +657,36 @@ func (c *Catalog) renderVariant(item map[string]any, source string) Hit {
 		Source:  src,
 		Summary: firstNonEmpty(itemTypeLine(asMap(item["inherits"])), "magic item variant"),
 		Body:    formatMagicVariant(item),
+	}
+}
+
+func (c *Catalog) renderSpell(item map[string]any, source string) Hit {
+	name := asString(item["name"])
+	src := firstNonEmpty(itemSource(item), source)
+	body := formatSpell(item)
+	body = appendFluff(body, name, src, c.fluff)
+	return Hit{
+		Kind:    KindSpell,
+		Name:    name,
+		Source:  src,
+		Summary: spellSummary(item),
+		Body:    body,
+	}
+}
+
+func (c *Catalog) renderTerm(item map[string]any, source string) Hit {
+	name := asString(item["name"])
+	src := firstNonEmpty(itemSource(item), source)
+	body := strings.TrimSpace(renderValue(item["entries"]))
+	if body == "" {
+		body = name + ".\n"
+	}
+	return Hit{
+		Kind:    KindTerm,
+		Name:    name,
+		Source:  src,
+		Summary: firstNonEmpty(summaryOf(body), name),
+		Body:    "# " + name + "\n\n" + body + "\n",
 	}
 }
 

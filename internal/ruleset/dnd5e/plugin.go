@@ -13,7 +13,8 @@ const ID = "dnd5e"
 // Plugin is the D&D Next / 5e ruleset. It reads composed 5e.tools JSON
 // (bestiary, templates, legendary groups, items, magic variants) from the
 // local persisted cache and returns markdown for display. Campaign wiki
-// records stay separate.
+// records stay separate. Lookups are limited to books passed in Options;
+// an empty list means the plugin is not attached.
 type Plugin struct {
 	catalog *fivetools.Catalog
 }
@@ -26,13 +27,29 @@ func Open(fetcher fivetools.Fetcher, opts Options) (*Plugin, error) {
 	if fetcher == nil {
 		return nil, nil
 	}
+	books := uniqueBooks(opts.Books)
+	if len(books) == 0 {
+		return nil, nil
+	}
 	catalog := fivetools.NewCatalog(fetcher)
 	if err := catalog.LoadCompose(); err != nil {
 		return nil, err
 	}
 	_ = catalog.LoadItems()
+	_ = catalog.LoadTerms()
+	for _, book := range books {
+		_ = catalog.LoadBestiary(book)
+		_ = catalog.LoadSpells(book)
+	}
+	catalog.SetAllowed(books)
+	catalog.SetPreferred(books)
+	return &Plugin{catalog: catalog}, nil
+}
+
+func uniqueBooks(books []string) []string {
 	seen := map[string]bool{}
-	for _, book := range opts.Books {
+	out := make([]string, 0, len(books))
+	for _, book := range books {
 		book = strings.TrimSpace(book)
 		if book == "" {
 			continue
@@ -42,14 +59,9 @@ func Open(fetcher fivetools.Fetcher, opts Options) (*Plugin, error) {
 			continue
 		}
 		seen[key] = true
-		_ = catalog.LoadBestiary(book)
-		if core := fivetools.CoreBestiaryCode(book); core != "" && !seen[strings.ToLower(core)] {
-			seen[strings.ToLower(core)] = true
-			_ = catalog.LoadBestiary(core)
-		}
+		out = append(out, book)
 	}
-	catalog.SetPreferred(append(append([]string{}, opts.Books...), "MM", "XMM"))
-	return &Plugin{catalog: catalog}, nil
+	return out
 }
 
 func (p *Plugin) ID() string   { return ID }

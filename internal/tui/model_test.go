@@ -1426,7 +1426,7 @@ func TestImportRemoveSourceAllowsReingest(t *testing.T) {
 	}
 }
 
-func TestImportHarnessCyclesAndWritesDump(t *testing.T) {
+func TestImportHarnessCyclesAndCleansWithoutDump(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bst.md")
 	if err := os.WriteFile(path, []byte("# Test Bestiary (2025)\n\n## Cave Rascals\n\nRaiders in packs.\n"), 0o600); err != nil {
@@ -1443,11 +1443,11 @@ func TestImportHarnessCyclesAndWritesDump(t *testing.T) {
 	}
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'H', Text: "H"}))
 	model = updated.(Model)
-	if model.importHarness() != "dump" {
-		t.Fatalf("H should select dump, got %q status=%s", model.importHarness(), model.status)
+	if model.importHarness() != "on" {
+		t.Fatalf("H should select on, got %q status=%s", model.importHarness(), model.status)
 	}
-	if !strings.Contains(model.View().Content, "harness dump") {
-		t.Fatalf("expected harness dump in header: %q", model.View().Content)
+	if !strings.Contains(model.View().Content, "harness on") {
+		t.Fatalf("expected harness on in header: %q", model.View().Content)
 	}
 
 	model.importDir = dir
@@ -1461,15 +1461,20 @@ func TestImportHarnessCyclesAndWritesDump(t *testing.T) {
 	}
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
-	dump := filepath.Join(dir, "ingest-dump.json")
-	raw, err := os.ReadFile(dump)
-	if err != nil {
-		t.Fatalf("expected ingest dump: %v status=%s", err, model.status)
+	if _, err := os.Stat(filepath.Join(dir, "ingest-dump.json")); err == nil {
+		t.Fatal("harness must not write ingest-dump.json")
 	}
-	if !strings.Contains(string(raw), "Cave Rascals") {
-		t.Fatalf("dump missing ingested record: %s", raw)
+	found := false
+	for _, record := range model.workspace.Records {
+		if record.Title == "Cave Rascals" && record.Type == domain.Creature {
+			found = true
+			break
+		}
 	}
-	if !strings.Contains(model.status, "harness dump") {
+	if !found {
+		t.Fatalf("expected cleaned ingest to land Cave Rascals; status=%s records=%d", model.status, len(model.workspace.Records))
+	}
+	if !strings.Contains(model.status, "harness on") {
 		t.Fatalf("status should mention harness: %s", model.status)
 	}
 }
@@ -1535,15 +1540,17 @@ func TestImportFiveEToolsCatalogIngestsSelectedBook(t *testing.T) {
 	}
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
-	got := false
 	for _, record := range model.workspace.Records {
-		if record.Title == "Cave Rascal" && strings.Contains(record.Body, "**AC** 12") {
-			got = true
-			break
+		if record.Title == "Cave Rascal" {
+			t.Fatalf("plugin book leaked into wiki: %#v", record)
 		}
 	}
-	if !got {
-		t.Fatalf("expected ingested Cave Rascal stats; status=%s records=%d", model.status, len(model.workspace.Records))
+	if !strings.Contains(model.status, "plugin") {
+		t.Fatalf("status should mention plugin: %s", model.status)
+	}
+	rec, ok := model.lookupRuleset("Cave Rascal")
+	if !ok || !strings.Contains(rec.Body, "**AC** 12") {
+		t.Fatalf("expected plugin lookup after ingest; status=%s ok=%v %#v", model.status, ok, rec)
 	}
 }
 

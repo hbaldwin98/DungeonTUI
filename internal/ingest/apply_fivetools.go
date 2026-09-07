@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hbaldwin98/dungeon/internal/classify"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 )
@@ -53,11 +54,16 @@ func ApplyFiveE(ws domain.Workspace, ref string, opts Options) (domain.Workspace
 		scope = ws.Scope
 	}
 	records, plans := fivetools.Materialize(bundle, scope, time.Now().UTC())
+	if bundle.PluginOnly {
+		records = nil
+		plans = nil
+	}
 	for _, record := range records {
 		if err := record.Validate(); err != nil {
 			return ws, Report{}, err
 		}
 	}
+	classify.OrganizeRecords(records)
 	ws.Records = append(ws.Records, records...)
 	ws.PlannedNotes = append(ws.PlannedNotes, plans...)
 
@@ -77,6 +83,7 @@ func ApplyFiveE(ws domain.Workspace, ref string, opts Options) (domain.Workspace
 		Records:  len(records),
 		Planned:  len(plans),
 		Linked:   linked,
+		Plugin:   bundle.PluginOnly,
 	}, opts)
 }
 

@@ -12,13 +12,12 @@ import (
 
 // Options control where ingested content lands.
 type Options struct {
-	Kind     domain.SourceKind
-	Scope    domain.Scope
-	Path     string
-	Fetcher  fivetools.Fetcher // tests; live import uses HTTP or DataDir
-	DataDir  string            // optional local 5e.tools checkout (contains data/)
-	Harness  classify.Harness  // optional post-ingest dump / structural apply
-	DumpPath string            // ingest-dump.json path when Harness is dump or apply
+	Kind    domain.SourceKind
+	Scope   domain.Scope
+	Path    string
+	Fetcher fivetools.Fetcher // tests; live import uses HTTP or DataDir
+	DataDir string            // optional local 5e.tools checkout (contains data/)
+	Harness classify.Harness  // optional cleanup of ingested records before they land
 }
 
 // Report is a short digest of what Apply wrote.
@@ -29,9 +28,9 @@ type Report struct {
 	Records  int
 	Planned  int
 	Linked   int
+	Plugin   bool
 	Harness  string
 	Findings int
-	DumpPath string
 }
 
 // Apply parses markdown and upserts a source document plus records into ws.
@@ -83,6 +82,7 @@ func Apply(ws domain.Workspace, markdown string, opts Options) (domain.Workspace
 			return ws, Report{}, err
 		}
 	}
+	classify.OrganizeRecords(records)
 	ws.Records = append(ws.Records, records...)
 	ws.PlannedNotes = append(ws.PlannedNotes, plans...)
 
@@ -203,7 +203,7 @@ func adventureRecords(book ParsedBook, doc domain.SourceDocument, scope domain.S
 			if later[titleLower] {
 				continue
 			}
-			add(noteRecord(doc, scope, entry))
+			add(noteRecord(doc, scope, entry, strings.Join(entry.Path[:len(entry.Path)-1], "/")))
 			continue
 		}
 		group := locationGroup(entry.Path)
@@ -221,7 +221,7 @@ func adventureRecords(book ParsedBook, doc domain.SourceDocument, scope domain.S
 				plans = append(plans, plannedFromPart(doc, scope, entry, now))
 			}
 		default:
-			add(noteRecord(doc, scope, entry))
+			add(noteRecord(doc, scope, entry, group))
 		}
 	}
 	domain.NestOverviewFolders(records)
@@ -289,9 +289,9 @@ func locationRecord(doc domain.SourceDocument, scope domain.Scope, title, body, 
 	}
 }
 
-func noteRecord(doc domain.SourceDocument, scope domain.Scope, entry ParsedEntry) domain.Record {
+func noteRecord(doc domain.SourceDocument, scope domain.Scope, entry ParsedEntry, group string) domain.Record {
 	body := truncate(entry.Body, 6000)
-	return stampSourceFolder(doc, domain.Record{
+	return domain.Record{
 		ID:        doc.ID + "-note-" + slug(entry.Title),
 		Type:      domain.Note,
 		Title:     entry.Title,
@@ -302,7 +302,8 @@ func noteRecord(doc domain.SourceDocument, scope domain.Scope, entry ParsedEntry
 		Source:    doc.Title,
 		SourceID:  doc.ID,
 		Tags:      []string{"source", "adventure"},
-	})
+		Folder:    domain.SourceFolderWithGroup(doc.Title, domain.Record{Type: domain.Note, Tags: []string{"adventure"}, Source: doc.Title, SourceID: doc.ID}, group),
+	}
 }
 
 func npcRecord(doc domain.SourceDocument, scope domain.Scope, name, summary, group string) domain.Record {
@@ -530,22 +531,11 @@ func firstNonEmpty(values ...string) string {
 }
 
 func applyHarness(ws domain.Workspace, report Report, opts Options) (domain.Workspace, Report, error) {
-	mode := opts.Harness
-	if mode == classify.HarnessOff {
+	if opts.Harness == classify.HarnessOff {
 		return ws, report, nil
 	}
-	if mode == classify.HarnessApply {
-		classify.OrganizeRecords(ws.Records)
-		report.Harness = classify.HarnessApply.Label()
-	} else {
-		report.Harness = classify.HarnessDump.Label()
-	}
+	classify.OrganizeRecords(ws.Records)
+	report.Harness = classify.HarnessOn.Label()
 	report.Findings = len(classify.Diagnose(ws.Records, report.SourceID))
-	if strings.TrimSpace(opts.DumpPath) != "" {
-		if err := classify.WriteDump(opts.DumpPath, ws, report.SourceID, true); err != nil {
-			return ws, report, err
-		}
-		report.DumpPath = opts.DumpPath
-	}
 	return ws, report, nil
 }

@@ -845,7 +845,8 @@ The workflow should be solid manually before AI automates extraction.
 - Add structured records for common mechanical concepts where useful.
 - A ruleset plugin looks up composed source data (5e.tools bestiary, items,
   templates) from local durable storage for display without dumping those
-  books into the campaign wiki. SQLite FTS5 indexes that plugin corpus later.
+  books into the campaign wiki. Lookups are limited to books imported and
+  enabled for the current campaign. SQLite FTS5 indexes that plugin corpus later.
 
 This validates the sourcebook architecture without making commercial PDF parsing
 a prerequisite for the core campaign tool.

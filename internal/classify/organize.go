@@ -10,6 +10,10 @@ func OrganizeRecords(records []domain.Record) {
 		switch rec.Type {
 		case domain.NPC, domain.Item, domain.Creature, domain.Rule, domain.Character:
 			continue
+		case domain.Note:
+			if FrontMatter(rec.Title) || UnderFrontMatter(groupFromFolder(rec.Folder)) {
+				continue
+			}
 		}
 		group := groupFromFolder(rec.Folder)
 		want := Assign(rec.Title, group, rec.Tags)

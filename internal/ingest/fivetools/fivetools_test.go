@@ -40,6 +40,10 @@ func TestRenderTagsBecomeMentions(t *testing.T) {
 	if !strings.Contains(got, "@Mira Holt") || !strings.Contains(got, "@Spark Bolt") {
 		t.Fatalf("got %q", got)
 	}
+	multi := renderTags(`two {@creature cave rascal|BST|cave rascals} watch`)
+	if !strings.Contains(multi, "@Cave Rascal") {
+		t.Fatalf("multi-word mention: %q", multi)
+	}
 	atk := renderTags("{@atk mw} {@hit 3} to hit. {@h} {@damage 1d6 + 1}")
 	if !strings.Contains(atk, "Melee Weapon Attack:") || !strings.Contains(atk, "+3") || !strings.Contains(atk, "Hit:") {
 		t.Fatalf("attack tags: %q", atk)
@@ -142,22 +146,25 @@ func testFetcher() MapFetcher {
 	}
 }
 
-func TestBuildBSTCreatesLibraryCreatureWithStats(t *testing.T) {
-	bundle, err := Build(testFetcher(), "https://5e.tools/book.html#bst,-1")
+func TestBuildBSTPrimesPluginWithoutWikiRecords(t *testing.T) {
+	fetcher := testFetcher()
+	bundle, err := Build(fetcher, "https://5e.tools/book.html#bst,-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bundle.Doc.ID != "src-5e-bst" || bundle.Doc.Kind != domain.SourceBestiary {
-		t.Fatalf("doc=%#v", bundle.Doc)
+	if !bundle.PluginOnly || bundle.Doc.ID != "src-5e-bst" || bundle.Doc.Kind != domain.SourceBestiary {
+		t.Fatalf("doc=%#v plugin=%v", bundle.Doc, bundle.PluginOnly)
 	}
-	found := false
-	for _, d := range bundle.Records {
-		if d.Title == "Cave Rascal" && d.Type == domain.Creature && strings.Contains(d.Body, "**AC** 12") {
-			found = true
-		}
+	if len(bundle.Records) != 0 {
+		t.Fatalf("mechanical books must not create wiki rows: %#v", titles(bundle))
 	}
-	if !found {
-		t.Fatalf("missing cave rascal stats: %#v", titles(bundle))
+	c := NewCatalog(fetcher)
+	if err := c.LoadBestiary("BST"); err != nil {
+		t.Fatal(err)
+	}
+	hit, ok := c.LookupName("Cave Rascal")
+	if !ok || hit.Kind != KindCreature || !strings.Contains(hit.Body, "**AC** 12") {
+		t.Fatalf("plugin lookup=%#v ok=%v", hit, ok)
 	}
 }
 
@@ -175,7 +182,7 @@ func TestBuildADVCreatesAdventureMentionsAndPrep(t *testing.T) {
 			cave = d.Body
 		}
 	}
-	if !strings.Contains(cave, "@cave rascal") {
+	if !strings.Contains(cave, "@Cave Rascal") {
 		t.Fatalf("expected @ mention in room text: %q", cave)
 	}
 	if len(bundle.Plans) == 0 {
@@ -338,8 +345,8 @@ func TestBuildBSTSkipsUnrelatedSharedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range rec.paths {
-		if path == "data/items.json" || strings.HasPrefix(path, "data/class/") {
-			t.Fatalf("BST ingest should not fetch %s; got %v", path, rec.paths)
+		if strings.HasPrefix(path, "data/class/") {
+			t.Fatalf("plugin ingest should not fetch %s; got %v", path, rec.paths)
 		}
 	}
 }

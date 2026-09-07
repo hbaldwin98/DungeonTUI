@@ -8,6 +8,8 @@ type Kind string
 const (
 	Creature Kind = "creature"
 	Item     Kind = "item"
+	Spell    Kind = "spell"
+	Term     Kind = "term"
 )
 
 // Entity is composed source data ready for the TUI. It is not a wiki row and

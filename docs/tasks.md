@@ -79,19 +79,20 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   pads tables so following lines stay out of the grid (Argus #59; D-027).
   Introduction stays a note; markdown that starts with that heading uses the
   filename as the book title (Argus #62).
-- D&D 5e ruleset plugin: adventures stay wiki records; MM/items/templates
-  compose in `internal/ruleset/dnd5e` and display on `@` peek (Argus #63;
-  D-028, D-029). The plugin is pulled and persisted locally (JSON cache now),
-  not an in-memory-only catalog; SQLite FTS5 later (Argus #55, D-032).
-  Re-ingest an adventure to prime the local 5e.tools cache.
-- Headless `dungeon dump` / `dungeon classify` for agent harnesses; ingest
-  classifies from structure instead of per-book title lists (Argus #64;
-  D-030).
+- D&D 5e ruleset plugin: adventures stay wiki records; MM/PHB/DMG/items/spells/
+  conditions compose in `internal/ruleset/dnd5e` and display on `@` peek when
+  those books are imported and enabled for the campaign (Argus #63, #68;
+  D-028, D-029, D-034). Import those books from the 5e.tools catalog to prime
+  the plugin (no wiki folders). Adventures do not auto-attach MM/PHB. The
+  plugin is pulled and persisted locally (JSON cache now), not an
+  in-memory-only catalog; SQLite FTS5 later (Argus #55, D-032).
+- Headless `dungeon dump` inspects the workspace; ingest classifies from
+  structure **before** wiki rows are written (Argus #64, #67; D-030, D-033).
 - Detail pane scrolls when the document exceeds inner height (`PgUp`/`PgDn`,
   Home/End, mouse wheel); `j`/`k` still move hop rows (Argus #65; D-031).
-- Import `H` selects the agentic harness (`off` / `dump` / `apply`) so a
-  sanity dump (and optional structural apply) runs after ingest (Argus #66;
-  D-033).
+- Import `H` selects a cleanup harness (`off` / `on`) after ingest: on retypes
+  ingested records and imports the cleaned wiki; it does not dump JSON
+  (Argus #66, #69; D-033, D-035).
 
 ## In progress
 

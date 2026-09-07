@@ -10,6 +10,10 @@ import (
 func pluginFetcher() MapFetcher {
 	m := testFetcher()
 	m["data/bestiary/index.json"] = []byte(`{"ADV":"bestiary-adv.json","BST":"bestiary-bst.json","MM":"bestiary-mm.json"}`)
+	m["data/spells/index.json"] = []byte(`{"PHB":"spells-phb.json"}`)
+	m["data/spells/spells-phb.json"] = []byte(`{"spell":[{"name":"Spark Bolt","source":"PHB","level":0,"school":"V","entries":["A spark leaps to a target."]}]}`)
+	m["data/conditionsdiseases.json"] = []byte(`{"condition":[{"name":"Muddy","source":"PHB","entries":["A muddy creature has trouble keeping its footing."]}]}`)
+	m["data/actions.json"] = []byte(`{"action":[{"name":"Dash","source":"PHB","entries":["You gain extra movement this turn."]}]}`)
 	m["data/bestiary/bestiary-mm.json"] = []byte(`{"monster":[{
 		"name":"Cave Rascal","source":"MM","size":["S"],"type":"humanoid",
 		"ac":[12],"hp":{"average":9,"formula":"2d6"},
@@ -132,6 +136,24 @@ func TestCatalogLooksUpItemsAndVariants(t *testing.T) {
 	}
 }
 
+func TestCatalogLooksUpSpellsAndTerms(t *testing.T) {
+	c := NewCatalog(pluginFetcher())
+	if err := c.LoadSpells("PHB"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.LoadTerms(); err != nil {
+		t.Fatal(err)
+	}
+	spell, ok := c.LookupName("Spark Bolt")
+	if !ok || spell.Kind != KindSpell || !strings.Contains(spell.Body, "spark leaps") {
+		t.Fatalf("spell=%#v ok=%v", spell, ok)
+	}
+	term, ok := c.LookupName("Muddy")
+	if !ok || term.Kind != KindTerm || !strings.Contains(term.Body, "footing") {
+		t.Fatalf("term=%#v ok=%v", term, ok)
+	}
+}
+
 func TestCacheFetcherReadsAfterWrite(t *testing.T) {
 	dir := t.TempDir()
 	inner := pluginFetcher()
@@ -148,6 +170,55 @@ func TestCacheFetcherReadsAfterWrite(t *testing.T) {
 	again, err := only.Get("data/items.json")
 	if err != nil || string(again) != string(data) {
 		t.Fatalf("cache-only: %v %q", err, again)
+	}
+}
+
+func TestCatalogAllowedSourcesHideCoreLookups(t *testing.T) {
+	c := NewCatalog(pluginFetcher())
+	if err := c.LoadCompose(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.LoadBestiary("ADV"); err != nil {
+		t.Fatal(err)
+	}
+	c.SetAllowed([]string{"ADV"})
+	c.SetPreferred([]string{"ADV"})
+	if _, ok := c.LookupName("Cave Rascal"); ok {
+		t.Fatal("MM creature must not resolve until MM is allowed")
+	}
+	reed, ok := c.LookupName("Reed Holt")
+	if !ok {
+		t.Fatal("adventure NPC should still compose from a copied MM parent")
+	}
+	if !strings.Contains(reed.Body, "**HP** 4") {
+		t.Fatalf("copy stats missing:\n%s", reed.Body)
+	}
+	if _, ok := c.LookupName("Cave Rascal"); ok {
+		t.Fatal("composing an adventure copy must not expose MM lookups")
+	}
+}
+
+func TestPrimeDoesNotFetchCoreBooksForAdventure(t *testing.T) {
+	rec := &recordingFetcher{inner: pluginFetcher()}
+	if err := Prime(rec, Entry{ID: "ADV", Name: "The Hollow Crown", Kind: "adventure"}); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, path := range rec.paths {
+		got[path] = true
+	}
+	for _, path := range []string{
+		"data/bestiary/bestiary-mm.json",
+		"data/spells/spells-phb.json",
+		"data/items.json",
+		"data/conditionsdiseases.json",
+	} {
+		if got[path] {
+			t.Fatalf("adventure prime fetched %s", path)
+		}
+	}
+	if !got["data/bestiary/bestiary-adv.json"] {
+		t.Fatal("adventure prime should fetch the adventure bestiary")
 	}
 }
 

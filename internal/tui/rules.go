@@ -11,11 +11,7 @@ import (
 
 func (m *Model) attachRules() {
 	m.rules = ruleset.New()
-	books := fiveEBooks(m.workspace)
-	if len(books) == 0 && m.toolsFetcher == nil {
-		return
-	}
-	plugin, err := dnd5e.Open(m.rulesFetcher(), dnd5e.Options{Books: books})
+	plugin, err := dnd5e.Open(m.rulesFetcher(), dnd5e.Options{Books: fiveEBooks(m.workspace)})
 	if err != nil || plugin == nil {
 		return
 	}
@@ -35,13 +31,12 @@ func fiveEBooks(ws domain.Workspace) []string {
 	for _, id := range enabled {
 		allow[id] = true
 	}
-	useAll := len(enabled) == 0
 	var books []string
 	for _, doc := range ws.Sources {
 		if !strings.HasPrefix(doc.ID, "src-5e-") {
 			continue
 		}
-		if !useAll && !allow[doc.ID] {
+		if !allow[doc.ID] {
 			continue
 		}
 		books = append(books, fivetools.SourceCode(doc.ID))

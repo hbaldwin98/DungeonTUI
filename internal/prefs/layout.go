@@ -80,7 +80,7 @@ type Layout struct {
 	ActiveWorldID    string `json:"active_world_id,omitempty"`
 	ActiveCampaignID string `json:"active_campaign_id,omitempty"`
 
-	// ImportHarness is the post-ingest agent pass: off, dump, or apply.
+	// ImportHarness is an optional ingest cleanup: off or on.
 	ImportHarness string `json:"import_harness,omitempty"`
 }
 
@@ -193,10 +193,8 @@ func (l Layout) Normalize() Layout {
 	switch strings.ToLower(strings.TrimSpace(out.ImportHarness)) {
 	case "", "off", "none":
 		out.ImportHarness = ""
-	case "dump", "diagnose", "on":
-		out.ImportHarness = "dump"
-	case "apply":
-		out.ImportHarness = "apply"
+	case "on", "clean", "apply", "dump", "diagnose":
+		out.ImportHarness = "on"
 	default:
 		out.ImportHarness = ""
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 var tagPattern = regexp.MustCompile(`\{@([a-zA-Z0-9]+)(?:\s+([^}]*))?\}`)
@@ -245,13 +246,29 @@ func renderTag(kind, arg string) string {
 		if name == "" {
 			return display
 		}
-		return "@" + name
+		return "@" + titleCaseName(name)
 	default:
 		if display != "" {
 			return display
 		}
 		return head
 	}
+}
+
+func titleCaseName(s string) string {
+	parts := strings.Fields(s)
+	for i, part := range parts {
+		runes := []rune(part)
+		if len(runes) == 0 {
+			continue
+		}
+		runes[0] = unicode.ToUpper(runes[0])
+		for j := 1; j < len(runes); j++ {
+			runes[j] = unicode.ToLower(runes[j])
+		}
+		parts[i] = string(runes)
+	}
+	return strings.Join(parts, " ")
 }
 
 func splitTagArg(arg string) []string {

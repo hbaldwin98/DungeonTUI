@@ -12,9 +12,9 @@ func TestRulesetPeekResolvesPluginCreatureWithoutWikiRecord(t *testing.T) {
 	ws := demoWorkspace()
 	ws.EnsureLibrary()
 	ws.Sources = append(ws.Sources, domain.SourceDocument{
-		ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014",
+		ID: "src-5e-mm", Title: "Monster Manual", Kind: domain.SourceBestiary, Edition: "2014",
 	})
-	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
+	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-mm")
 	ws.Records = append(ws.Records, domain.Record{
 		ID: "cave", Type: domain.Location, Title: "Cave Mouth", Authority: domain.Canon, Scope: ws.Scope,
 		Body: "Two @Cave Rascal watch the cave.\n",
@@ -35,6 +35,28 @@ func TestRulesetPeekResolvesPluginCreatureWithoutWikiRecord(t *testing.T) {
 	mentions := model.resolveMentions(line)
 	if len(mentions) != 1 || mentions[0].RecordID == "" {
 		t.Fatalf("mentions=%#v", mentions)
+	}
+}
+
+func TestRulesetPeekRequiresEnabledPluginSource(t *testing.T) {
+	ws := demoWorkspace()
+	ws.EnsureLibrary()
+	ws.Sources = append(ws.Sources,
+		domain.SourceDocument{ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014"},
+		domain.SourceDocument{ID: "src-5e-mm", Title: "Monster Manual", Kind: domain.SourceBestiary, Edition: "2014"},
+	)
+	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
+	ws.Records = append(ws.Records, domain.Record{
+		ID: "cave", Type: domain.Location, Title: "Cave Mouth", Authority: domain.Canon, Scope: ws.Scope,
+		Body: "Two @Cave Rascal watch the cave.\n",
+	})
+	model := newModel(ws, nil, nil)
+	model.toolsFetcher = rulesetTestFetcher()
+	model.attachRules()
+
+	line := "Two @Cave Rascal watch the cave."
+	if peek := model.resolveReferenceAtCursor(line, 8); peek != nil {
+		t.Fatalf("adventure enablement must not attach MM lookups, peek=%#v", peek)
 	}
 }
 
