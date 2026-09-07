@@ -24,9 +24,10 @@ Choose adventures in the app. Markdown files still work; **5e.tools** is the
 structured catalog for **adventures only**. Enter on an adventure **caches** it
 as a read-only reference book (no wiki NPCs or rooms) and enables it for the
 **current campaign**. The campaign tree **Sources** branch lists those titles
-and each book's named hits; the detail pane renders the selected name only.
-Local markdown **FILES** still become owner
-wiki records. Monster Manual, Player's Handbook, and similar mechanical books
+and collapsible chapters; named people and rooms sit inside a chapter. Names
+that share the same text collapse to one row (extra labels stay aliases for
+`@` and `/`). The detail pane renders the selected document only. Local markdown
+**FILES** still become owner wiki records. Monster Manual, Player's Handbook, and similar mechanical books
 are not imported. The adapter fetches JSON at import time. Raw JSON is never
 stored in this git repository.
 

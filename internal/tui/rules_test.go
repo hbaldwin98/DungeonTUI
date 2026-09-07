@@ -108,8 +108,83 @@ func TestSourcesReaderShowsCachedAdventure(t *testing.T) {
 	if !strings.Contains(view, "SOURCE") || !strings.Contains(view, "reference") {
 		t.Fatalf("expected adventure reader: %q", view)
 	}
-	if !strings.Contains(view, "Millhaven") || !strings.Contains(view, "Mira Holt") {
-		t.Fatalf("expected named hits in the Sources list: %q", view)
+	list := model.renderListPane(20)
+	if !strings.Contains(list, "Millhaven") || !strings.Contains(list, "The Ambush") {
+		t.Fatalf("expected chapter folders in the Sources list: %q", list)
+	}
+	if strings.Contains(list, "Mira Holt") {
+		t.Fatalf("chapter names should stay collapsed until Enter: %q", list)
+	}
+}
+
+func TestSourcesChaptersExpandToNamedHits(t *testing.T) {
+	ws := demoWorkspace()
+	ws.EnsureLibrary()
+	ws.Sources = append(ws.Sources, domain.SourceDocument{
+		ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014",
+	})
+	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
+	model := newModel(ws, nil, nil)
+	model.width = 100
+	model.height = 32
+	model.toolsFetcher = adventureTestFetcher()
+	model.attachReferences()
+	model.setNavCursor(2)
+	millhaven := -1
+	for index, row := range model.sourceListRows() {
+		if row.Kind == sourceRowChapter && row.Chapter == "Millhaven" {
+			millhaven = index
+			break
+		}
+	}
+	if millhaven < 0 {
+		t.Fatalf("expected Millhaven chapter, got %#v", model.sourceListRows())
+	}
+	model.cursor = millhaven
+	model.bindSourceListRow(model.sourceListRows()[millhaven])
+	model.toggleSourceFolder()
+
+	list := model.renderListPane(20)
+	if !strings.Contains(list, "Mira Holt") {
+		t.Fatalf("expanded Millhaven should list Mira Holt: %q", list)
+	}
+}
+
+func TestSourcesListOmitsAliasDuplicates(t *testing.T) {
+	ws := demoWorkspace()
+	ws.EnsureLibrary()
+	ws.Sources = append(ws.Sources, domain.SourceDocument{
+		ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014",
+	})
+	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
+	model := newModel(ws, nil, nil)
+	model.width = 100
+	model.height = 32
+	model.toolsFetcher = adventureTestFetcher()
+	model.attachReferences()
+	model.setNavCursor(2)
+	model.expandSourceChapter("src-5e-adv", "The Ambush")
+
+	list := model.renderListPane(20)
+	if strings.Contains(list, "Cave Rascal") {
+		t.Fatalf("creature tag sharing The Ambush body should not be its own row: %q", list)
+	}
+
+	ambush := -1
+	for index, row := range model.sourceListRows() {
+		if row.Kind == sourceRowChapter && row.Chapter == "The Ambush" {
+			ambush = index
+			break
+		}
+	}
+	if ambush < 0 {
+		t.Fatalf("expected Ambush chapter, got %#v", model.sourceListRows())
+	}
+	model.cursor = ambush
+	model.bindSourceListRow(model.sourceListRows()[ambush])
+	detail := model.renderTreeDetail()
+	if !strings.Contains(detail, "also") || !strings.Contains(detail, "Cave Rascal") {
+		t.Fatalf("chapter detail should list Cave Rascal as an alias:\n%s", detail)
 	}
 }
 
@@ -126,19 +201,21 @@ func TestSourcesReaderRendersSelectedHitNotWholeBook(t *testing.T) {
 	model.toolsFetcher = adventureTestFetcher()
 	model.attachReferences()
 	model.setNavCursor(2)
+	model.expandSourceChapter("src-5e-adv", "Millhaven")
+	model.expandSourceChapter("src-5e-adv", "The Ambush")
 
 	mira := -1
 	ambush := -1
 	for index, row := range model.sourceListRows() {
-		if row.IsHit && row.Hit.Name == "Mira Holt" {
+		if row.Kind == sourceRowHit && row.Hit.Name == "Mira Holt" {
 			mira = index
 		}
-		if row.IsHit && row.Hit.Name == "The Ambush" {
+		if row.Kind == sourceRowChapter && row.Chapter == "The Ambush" {
 			ambush = index
 		}
 	}
 	if mira < 0 || ambush < 0 {
-		t.Fatalf("expected Mira Holt and The Ambush hits, got %#v", model.sourceListRows())
+		t.Fatalf("expected Mira Holt hit and The Ambush chapter, got %#v", model.sourceListRows())
 	}
 
 	model.cursor = mira
@@ -170,7 +247,7 @@ func adventureTestFetcher() fivetools.MapFetcher {
 			]
 		},{
 			"type":"section","name":"The Ambush",
-			"entries":["ZZZAMBUSHZZZ wagon raid."]
+			"entries":["ZZZAMBUSHZZZ wagon raid. {@creature cave rascal|BST|Cave Rascal}"]
 		}]}`),
 	}
 }

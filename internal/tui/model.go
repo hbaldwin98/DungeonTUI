@@ -111,6 +111,7 @@ type Model struct {
 	adventures         []fivetools.AdventureBook
 	selectedSourceID   string
 	selectedHitName    string
+	selectedChapter    string
 }
 
 func New() Model {
@@ -1212,6 +1213,14 @@ func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
 		}
 		return m.startSession()
 	case NavSources:
+		rows := m.sourceListRows()
+		if len(rows) > 0 {
+			row := rows[clamp(m.cursor, 0, len(rows)-1)]
+			if row.Kind == sourceRowBook || row.Kind == sourceRowChapter {
+				m.toggleSourceFolder()
+				return m, nil
+			}
+		}
 		return m, nil
 	default:
 		if m.selectedRecord() != nil {
@@ -2822,7 +2831,7 @@ func fitPanelBodyScroll(content string, innerWidth, maxLines, scroll int) string
 }
 
 func (m Model) detailSelectionKey() string {
-	return m.selectedID + "\x1f" + m.selectedSessionID + "\x1f" + m.selectedPlanID + "\x1f" + m.selectedFolderPath + "\x1f" + m.selectedSourceID + "\x1f" + m.selectedHitName
+	return m.selectedID + "\x1f" + m.selectedSessionID + "\x1f" + m.selectedPlanID + "\x1f" + m.selectedFolderPath + "\x1f" + m.selectedSourceID + "\x1f" + m.selectedHitName + "\x1f" + m.selectedChapter
 }
 
 func (m *Model) ensureDetailView() *paneScroll {

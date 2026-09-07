@@ -97,6 +97,12 @@ func (m Model) jumpToHop(hop detailHop) (tea.Model, tea.Cmd) {
 			m.focusNavKind(NavSources)
 			m.selectedSourceID = target.SourceID
 			m.selectedHitName = target.Title
+			if book, ok := m.adventureBookBySource(target.SourceID); ok {
+				if hit, found := book.Lookup(target.Title); found {
+					m.selectedChapter = hit.Chapter
+					m.expandSourceChapter(target.SourceID, hit.Chapter)
+				}
+			}
 			m.syncSourceListCursor()
 			m.layout.Focus = prefs.PaneDetail
 			m.status = "Opened source · " + target.Source

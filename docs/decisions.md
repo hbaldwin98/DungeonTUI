@@ -296,9 +296,10 @@ FILES stay owner wiki after local classify. Cached adventures stay read-only.
 Fetching an adventure stores JSON in the local 5e.tools cache and upserts a
 `SourceDocument`. It does not materialize NPCs, rooms, or prep into the wiki.
 The campaign tree **Sources** branch lists enabled adventure **titles**. The
-center list nests each book's named hits (people, rooms, headings). Detail
-renders **only the selected name**, not the whole book. `@` peeks stay the
-small overlay and are read-only. The left tree does not nest every heading.
+center list nests **chapters** as collapsible folders; named people and rooms
+sit inside a chapter. Detail renders **only the selected name**, not the whole
+book. `@` peeks stay the small overlay and are read-only. The left tree does
+not nest every heading.
 
 ## D-038 — Markdown FILES are wiki; 5e.tools adventures are not
 
@@ -307,16 +308,7 @@ reference. Those write paths stay distinct (D-002).
 
 ## D-039 — Sources reader paints one named slice
 
-Named hits live in the Sources list. The detail pane Glamour-renders the
-selected hit (or a short contents list when a book header is selected). It
-does not re-render the entire cached adventure on every frame.
-
-
-
-
-
-
-
-
-
-
+Named hits nest under collapsible chapter folders in the Sources list. Enter
+expands a chapter. Names that share the same text collapse to one row; extra
+labels stay aliases for `@` and `/`. The detail pane Glamour-renders the
+selected document, not the entire cached adventure.

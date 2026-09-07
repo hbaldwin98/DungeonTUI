@@ -175,7 +175,7 @@ func TestBuildADVCachesAdventureWithoutWikiRows(t *testing.T) {
 		t.Fatal("expected table of contents")
 	}
 	hit, ok := book.Lookup("Mira Holt")
-	if !ok || hit.Name != "Mira Holt" {
+	if !ok || hit.Name != "Mira Holt" || hit.Chapter != "Millhaven" {
 		t.Fatalf("lookup Mira Holt: %#v ok=%v", hit, ok)
 	}
 }
@@ -198,6 +198,39 @@ func TestParseAdventureIndexesHeadingsAndCreatures(t *testing.T) {
 	}
 	if _, ok := book.Lookup("Cave Rascal"); !ok {
 		t.Fatal("expected creature mention")
+	}
+}
+
+func TestParseAdventureMergesSharedBodies(t *testing.T) {
+	data, err := testFetcher().Get("data/adventure/adventure-adv.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	book, err := ParseAdventure(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, hit := range book.Hits {
+		key := documentKey(hit.Body)
+		if key == "" {
+			continue
+		}
+		if other, ok := seen[key]; ok {
+			t.Fatalf("same document listed as %q and %q", other, hit.Name)
+		}
+		seen[key] = hit.Name
+	}
+	rascal, ok := book.Lookup("Cave Rascal")
+	if !ok {
+		t.Fatal("Cave Rascal should still resolve")
+	}
+	if rascal.Name == "Cave Rascal" {
+		t.Fatalf("creature tag should alias onto a heading, got own row %#v", rascal)
+	}
+	mira, ok := book.Lookup("Mira Holt")
+	if !ok || mira.Name != "Mira Holt" {
+		t.Fatalf("Mira Holt has her own writeup, got %#v ok=%v", mira, ok)
 	}
 }
 

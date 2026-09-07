@@ -81,8 +81,9 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   filename as the book title (Argus #62).
 - D&D 5e plugin and import agent removed from this app: 5e.tools adventures
   cache as read-only reference; MM/PHB is not ingested; `@` / `/` hit enabled
-  caches as **reference** (wiki wins); Sources list shows named hits and detail
-  renders the selected slice (Argus #72–#74; D-028, D-034, D-037–D-039).
+  caches as **reference** (wiki wins); Sources groups names under chapter
+  folders, collapses duplicate names onto one document, and detail renders the
+  selected slice (Argus #72–#76; D-028, D-034, D-037–D-039).
 - Headless `dungeon dump` inspects the workspace; markdown FILES classify from
   structure **before** wiki rows are written (Argus #64, #67; D-030, D-033).
 - Detail pane scrolls when the document exceeds inner height (`PgUp`/`PgDn`,

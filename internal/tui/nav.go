@@ -73,6 +73,7 @@ func (m *Model) setNavCursor(index int) {
 	m.selectedFolderPath = ""
 	m.selectedSourceID = ""
 	m.selectedHitName = ""
+	m.selectedChapter = ""
 	switch entry.Kind {
 	case NavType:
 		m.typeFilter = entry.Type
@@ -135,34 +136,145 @@ func (m Model) listRecords() []domain.Record {
 	return out
 }
 
+type sourceRowKind string
+
+const (
+	sourceRowBook    sourceRowKind = "book"
+	sourceRowChapter sourceRowKind = "chapter"
+	sourceRowHit     sourceRowKind = "hit"
+)
+
 type sourceListRow struct {
-	Doc   domain.SourceDocument
-	IsHit bool
-	Hit   fivetools.AdventureHit
+	Kind    sourceRowKind
+	Doc     domain.SourceDocument
+	Chapter string
+	Path    string
+	Hit     fivetools.AdventureHit
+	Count   int
+}
+
+func sourceBookPath(id string) string {
+	return "srcbook:" + id
+}
+
+func sourceChapterPath(id, chapter string) string {
+	return "srcbook:" + id + "/" + chapter
+}
+
+func (m Model) sourceFolderCollapsed(path string, kind sourceRowKind) bool {
+	if path == "" {
+		return false
+	}
+	if m.collapsedFolders[path] {
+		return true
+	}
+	if m.expandedFolders[path] {
+		return false
+	}
+	return kind == sourceRowChapter
 }
 
 func (m Model) sourceListRows() []sourceListRow {
 	docs := m.scopedReferenceSources()
-	out := make([]sourceListRow, 0, len(docs))
+	out := make([]sourceListRow, 0)
 	for _, doc := range docs {
-		out = append(out, sourceListRow{Doc: doc})
 		book, ok := m.adventureBookBySource(doc.ID)
-		if !ok {
+		chapters := adventureChapterGroups(book)
+		bookPath := sourceBookPath(doc.ID)
+		out = append(out, sourceListRow{
+			Kind:  sourceRowBook,
+			Doc:   doc,
+			Path:  bookPath,
+			Count: len(chapters),
+		})
+		if !ok || m.sourceFolderCollapsed(bookPath, sourceRowBook) {
 			continue
 		}
-		for _, hit := range book.Hits {
-			out = append(out, sourceListRow{Doc: doc, IsHit: true, Hit: hit})
+		for _, chapter := range chapters {
+			chPath := sourceChapterPath(doc.ID, chapter.Name)
+			out = append(out, sourceListRow{
+				Kind:    sourceRowChapter,
+				Doc:     doc,
+				Chapter: chapter.Name,
+				Path:    chPath,
+				Hit:     chapter.Hit,
+				Count:   len(chapter.Kids),
+			})
+			if m.sourceFolderCollapsed(chPath, sourceRowChapter) {
+				continue
+			}
+			for _, hit := range chapter.Kids {
+				out = append(out, sourceListRow{
+					Kind:    sourceRowHit,
+					Doc:     doc,
+					Chapter: chapter.Name,
+					Path:    chPath,
+					Hit:     hit,
+				})
+			}
 		}
 	}
 	return out
 }
 
+type adventureChapterGroup struct {
+	Name string
+	Hit  fivetools.AdventureHit
+	Kids []fivetools.AdventureHit
+}
+
+func adventureChapterGroups(book fivetools.AdventureBook) []adventureChapterGroup {
+	if book.ID == "" && len(book.Hits) == 0 && len(book.TOC) == 0 {
+		return nil
+	}
+	order := append([]string{}, book.TOC...)
+	index := map[string]int{}
+	groups := make([]adventureChapterGroup, 0, len(order))
+	ensure := func(name string) int {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			name = "Untitled"
+		}
+		key := strings.ToLower(name)
+		if at, ok := index[key]; ok {
+			return at
+		}
+		index[key] = len(groups)
+		groups = append(groups, adventureChapterGroup{Name: name})
+		return len(groups) - 1
+	}
+	for _, name := range order {
+		ensure(name)
+	}
+	for _, hit := range book.Hits {
+		chapter := strings.TrimSpace(hit.Chapter)
+		if chapter == "" {
+			chapter = hit.Name
+		}
+		at := ensure(chapter)
+		if strings.EqualFold(hit.Name, chapter) {
+			if groups[at].Hit.Name == "" {
+				groups[at].Hit = hit
+			}
+			continue
+		}
+		groups[at].Kids = append(groups[at].Kids, hit)
+	}
+	return groups
+}
+
 func (m *Model) bindSourceListRow(row sourceListRow) {
 	m.selectedSourceID = row.Doc.ID
-	if row.IsHit {
+	m.selectedChapter = row.Chapter
+	m.selectedFolderPath = row.Path
+	switch row.Kind {
+	case sourceRowHit:
 		m.selectedHitName = row.Hit.Name
-	} else {
+	case sourceRowChapter:
+		m.selectedHitName = row.Chapter
+	default:
 		m.selectedHitName = ""
+		m.selectedChapter = ""
 	}
 	m.selectedID = ""
 	m.selectedSessionID = ""
@@ -174,10 +286,12 @@ func (m *Model) selectFirstSourceRow() {
 	if len(rows) == 0 {
 		return
 	}
-	if len(rows) > 1 && rows[1].IsHit && rows[1].Doc.ID == rows[0].Doc.ID {
-		m.bindSourceListRow(rows[1])
-		m.cursor = 1
-		return
+	for index, row := range rows {
+		if row.Kind == sourceRowChapter {
+			m.cursor = index
+			m.bindSourceListRow(row)
+			return
+		}
 	}
 	m.bindSourceListRow(rows[0])
 	m.cursor = 0
@@ -192,17 +306,70 @@ func (m *Model) syncSourceListCursor() {
 		if row.Doc.ID != m.selectedSourceID {
 			continue
 		}
-		if m.selectedHitName == "" && !row.IsHit {
+		switch {
+		case m.selectedHitName != "" && row.Kind == sourceRowHit && strings.EqualFold(row.Hit.Name, m.selectedHitName):
 			m.cursor = index
 			return
-		}
-		if row.IsHit && strings.EqualFold(row.Hit.Name, m.selectedHitName) {
+		case m.selectedHitName != "" && row.Kind == sourceRowChapter && strings.EqualFold(row.Chapter, m.selectedHitName):
+			m.cursor = index
+			return
+		case m.selectedHitName == "" && m.selectedChapter != "" && row.Kind == sourceRowChapter && strings.EqualFold(row.Chapter, m.selectedChapter):
+			m.cursor = index
+			return
+		case m.selectedHitName == "" && m.selectedChapter == "" && row.Kind == sourceRowBook:
 			m.cursor = index
 			return
 		}
 	}
 	m.cursor = clamp(m.cursor, 0, len(rows)-1)
 	m.bindSourceListRow(rows[m.cursor])
+}
+
+func (m *Model) toggleSourceFolder() {
+	rows := m.sourceListRows()
+	if len(rows) == 0 {
+		return
+	}
+	row := rows[clamp(m.cursor, 0, len(rows)-1)]
+	if row.Kind != sourceRowBook && row.Kind != sourceRowChapter {
+		return
+	}
+	if m.collapsedFolders == nil {
+		m.collapsedFolders = map[string]bool{}
+	}
+	if m.expandedFolders == nil {
+		m.expandedFolders = map[string]bool{}
+	}
+	if m.sourceFolderCollapsed(row.Path, row.Kind) {
+		delete(m.collapsedFolders, row.Path)
+		m.expandedFolders[row.Path] = true
+	} else {
+		delete(m.expandedFolders, row.Path)
+		m.collapsedFolders[row.Path] = true
+	}
+	m.bindSourceListRow(row)
+	m.syncSourceListCursor()
+}
+
+func (m *Model) expandSourceChapter(sourceID, chapter string) {
+	if sourceID == "" {
+		return
+	}
+	if m.expandedFolders == nil {
+		m.expandedFolders = map[string]bool{}
+	}
+	if m.collapsedFolders == nil {
+		m.collapsedFolders = map[string]bool{}
+	}
+	bookPath := sourceBookPath(sourceID)
+	delete(m.collapsedFolders, bookPath)
+	m.expandedFolders[bookPath] = true
+	if chapter == "" {
+		return
+	}
+	chPath := sourceChapterPath(sourceID, chapter)
+	delete(m.collapsedFolders, chPath)
+	m.expandedFolders[chPath] = true
 }
 
 func (m Model) selectedSourceHit() (fivetools.AdventureHit, bool) {
@@ -338,31 +505,46 @@ func (m Model) renderListPane(maxRows int) string {
 			style := normalItemStyle
 			selected := m.layout.Focus == prefs.PaneList && index == m.cursor
 			if !selected {
-				if row.IsHit {
+				switch row.Kind {
+				case sourceRowHit:
 					selected = row.Doc.ID == m.selectedSourceID && strings.EqualFold(row.Hit.Name, m.selectedHitName)
-				} else {
-					selected = row.Doc.ID == m.selectedSourceID && m.selectedHitName == ""
+				case sourceRowChapter:
+					selected = row.Doc.ID == m.selectedSourceID && m.selectedHitName == row.Chapter && m.selectedChapter == row.Chapter
+				default:
+					selected = row.Doc.ID == m.selectedSourceID && m.selectedHitName == "" && m.selectedChapter == ""
 				}
 			}
 			if selected {
 				cursor = "▸ "
 				style = selectedItemStyle
 			}
-			if row.IsHit {
-				heading := row.Hit.Heading
-				line := cursor + row.Hit.Name
-				if heading != "" && !strings.EqualFold(heading, row.Hit.Name) {
-					line += "  ·  " + heading
+			indent := 0
+			var line string
+			switch row.Kind {
+			case sourceRowChapter:
+				indent = 2
+				glyph := "▾"
+				if m.sourceFolderCollapsed(row.Path, row.Kind) {
+					glyph = "▸"
 				}
-				builder.WriteString(style.PaddingLeft(2).Render(line))
-			} else {
-				book, ok := m.adventureBookBySource(row.Doc.ID)
-				meta := row.Doc.Title
-				if ok && len(book.Hits) > 0 {
-					meta = fmt.Sprintf("%s · %d names", row.Doc.Title, len(book.Hits))
+				line = fmt.Sprintf("%s%s %s", cursor, glyph, row.Chapter)
+				if row.Count > 0 {
+					line += fmt.Sprintf(" · %d", row.Count)
 				}
-				builder.WriteString(style.Render(cursor + meta))
+			case sourceRowHit:
+				indent = 4
+				line = cursor + row.Hit.Name
+			default:
+				glyph := "▾"
+				if m.sourceFolderCollapsed(row.Path, row.Kind) {
+					glyph = "▸"
+				}
+				line = fmt.Sprintf("%s%s %s", cursor, glyph, row.Doc.Title)
+				if row.Count > 0 {
+					line += fmt.Sprintf(" · %d chapters", row.Count)
+				}
 			}
+			builder.WriteString(style.PaddingLeft(indent).Render(line))
 			builder.WriteRune('\n')
 		}
 	default:
@@ -518,6 +700,10 @@ func (m Model) renderAdventureReader(width int) string {
 			loc += " · " + hit.Heading
 		}
 		builder.WriteString(mutedStyle.Render(loc))
+		if len(hit.Aliases) > 0 {
+			builder.WriteString("\n")
+			builder.WriteString(mutedStyle.Render("also  " + strings.Join(hit.Aliases, " · ")))
+		}
 		builder.WriteString("\n\n")
 		body := strings.TrimSpace(hit.Body)
 		if body == "" {
