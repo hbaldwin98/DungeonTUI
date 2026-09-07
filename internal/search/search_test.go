@@ -2,6 +2,7 @@ package search
 
 import (
 	"testing"
+	"time"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
 )
@@ -89,4 +90,105 @@ func TestTagFilterRequiresAllTags(t *testing.T) {
 	if len(results) != 1 || results[0].Record.ID != "a" {
 		t.Fatalf("expected Vale only, got %#v", results)
 	}
+}
+
+func campaignFilter(query string) Filter {
+	return Filter{
+		Query:      query,
+		Scope:      CurrentCampaign,
+		WorldID:    testScope.WorldID,
+		CampaignID: testScope.CampaignID,
+	}
+}
+
+func TestFindReturnsMatchingPrepNotes(t *testing.T) {
+	service := FromWorkspace(domain.Workspace{
+		PlannedNotes: []domain.PlannedNotes{
+			{ID: "plan-ambush", Title: "Crypt Ambush", Body: "Vale waits at the east gate.", Scope: testScope},
+			{ID: "plan-other", Title: "Market day", Body: "Shopping list.", Scope: testScope},
+			{ID: "plan-sibling", Title: "Crypt Ambush North", Body: "Wrong campaign.", Scope: domain.Scope{WorldID: testScope.WorldID, CampaignID: "embers"}},
+		},
+	})
+
+	results := service.Find(campaignFilter("ambush"))
+	if len(results) != 1 || results[0].Kind != KindPrep || results[0].TargetID() != "plan-ambush" {
+		t.Fatalf("expected campaign prep hit, got %#v", results)
+	}
+	if results[0].TypeLabel() != "prep" || results[0].DisplayTitle() != "Crypt Ambush" {
+		t.Fatalf("expected labeled prep title, got %#v", results[0])
+	}
+}
+
+func TestFindReturnsMatchingSessionsAndTranscripts(t *testing.T) {
+	ended := timePtr()
+	service := FromWorkspace(domain.Workspace{
+		Sessions: []domain.SessionRecord{
+			{
+				ID: "sit-17", Title: "Greywatch Watch", Scope: testScope, LocationName: "Ruined Monastery",
+				EndedAt: ended,
+				Entries: []domain.TranscriptEntry{
+					{ID: "e1", Text: "The party found a silver key near the crypt seal."},
+					{ID: "e2", Text: "undone whisper", Undone: true},
+				},
+			},
+			{ID: "sit-ember", Title: "Greywatch Watch", Scope: domain.Scope{WorldID: testScope.WorldID, CampaignID: "embers"}},
+		},
+	})
+
+	sessions := service.Find(campaignFilter("greywatch watch"))
+	if !hasKind(sessions, KindSession, "sit-17") || hasKind(sessions, KindSession, "sit-ember") {
+		t.Fatalf("expected campaign session only, got %#v", sessions)
+	}
+
+	notes := service.Find(campaignFilter("silver key"))
+	if !hasKind(notes, KindTranscript, "e1") {
+		t.Fatalf("expected transcript hit, got %#v", notes)
+	}
+	if hasKind(notes, KindTranscript, "e2") {
+		t.Fatal("undone transcript entries should not appear")
+	}
+}
+
+func TestFindReturnsMatchingReconciliation(t *testing.T) {
+	service := FromWorkspace(domain.Workspace{
+		Sessions: []domain.SessionRecord{
+			{ID: "sit-17", Title: "Session 17", Scope: testScope},
+		},
+		Reconciliations: []domain.ReconciliationRecord{
+			{
+				ID: "recon-sit-17", SessionID: "sit-17", Title: "Reconcile Session 17",
+				Items: []domain.ReconciliationItem{{Summary: "Promote draft: Sister Elayne"}},
+			},
+		},
+	})
+
+	results := service.Find(campaignFilter("sister elayne"))
+	if !hasKind(results, KindRecon, "recon-sit-17") {
+		t.Fatalf("expected recon hit, got %#v", results)
+	}
+}
+
+func TestFindSkipsExtrasWhenQueryEmpty(t *testing.T) {
+	service := FromWorkspace(domain.Workspace{
+		Records:      []domain.Record{{ID: "npc-vale", Type: domain.NPC, Title: "Captain Vale", Authority: domain.Canon, Scope: testScope}},
+		PlannedNotes: []domain.PlannedNotes{{ID: "plan-ambush", Title: "Crypt Ambush", Scope: testScope}},
+	})
+	results := service.Find(campaignFilter(""))
+	if len(results) != 1 || results[0].Kind != KindRecord {
+		t.Fatalf("empty query should stay wiki-only, got %#v", results)
+	}
+}
+
+func hasKind(results []Result, kind Kind, id string) bool {
+	for _, result := range results {
+		if result.Kind == kind && result.TargetID() == id {
+			return true
+		}
+	}
+	return false
+}
+
+func timePtr() *time.Time {
+	now := time.Now()
+	return &now
 }

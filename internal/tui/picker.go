@@ -10,7 +10,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
-	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 )
 
 func (m *Model) openPicker() {
@@ -52,7 +51,7 @@ func (m *Model) enterScope(scope domain.Scope) {
 	m.navKind = ""
 	m.planID = ""
 	m.ensureBrowserSelection()
-	m.search = searchsvc.New(m.workspace.Records)
+	m.rebuildSearch()
 	m.attachReferences()
 	m.refreshResults()
 	m.persistPreferences()

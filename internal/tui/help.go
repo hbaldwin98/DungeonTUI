@@ -67,7 +67,7 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.searching:
 		return [][]string{
-			{"Search", "Type to filter", "↑↓ select", "Enter open", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},
+			{"Search", "Type to filter wiki, prep, sessions, notes, recon", "↑↓ select", "Enter open", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},
 		}
 	default:
 		return [][]string{

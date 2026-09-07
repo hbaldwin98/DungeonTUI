@@ -404,6 +404,107 @@ func TestSearchCanExplicitlyIncludeAIProposals(t *testing.T) {
 	}
 }
 
+func TestSearchFindsPrepAndOpensIt(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 40
+	model.workspace.PlannedNotes = append(model.workspace.PlannedNotes, domain.PlannedNotes{
+		ID:    "plan-ambush",
+		Title: "Crypt Ambush",
+		Body:  "Vale waits at the east gate.",
+		Scope: model.workspace.Scope,
+	})
+	model.searching = true
+	model.searchInput.SetValue("ambush")
+	model.refreshResults()
+
+	if !searchHasKind(model.results, searchsvc.KindPrep, "plan-ambush") {
+		t.Fatalf("expected prep hit, got %#v", model.results)
+	}
+	selectSearchKind(&model, searchsvc.KindPrep, "plan-ambush")
+	view := model.View().Content
+	if !strings.Contains(view, "prep") || !strings.Contains(view, "Crypt Ambush") {
+		t.Fatalf("expected labeled prep result, got %q", view)
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.searching {
+		t.Fatal("search overlay should close")
+	}
+	if model.navKind != NavPrep || model.selectedPlanID != "plan-ambush" {
+		t.Fatalf("expected prep branch, nav=%q plan=%q", model.navKind, model.selectedPlanID)
+	}
+}
+
+func TestSearchFindsSessionTranscriptAndRecon(t *testing.T) {
+	model := New()
+	model.width = 120
+	model.height = 40
+	ended := time.Now()
+	model.workspace.Sessions = append(model.workspace.Sessions, domain.SessionRecord{
+		ID: "sit-17", Title: "Greywatch Watch", Scope: model.workspace.Scope,
+		EndedAt: &ended, LocationName: "Ruined Monastery",
+		Entries: []domain.TranscriptEntry{
+			{ID: "e-key", Text: "They pocketed the moonstone token."},
+		},
+	})
+	model.workspace.Reconciliations = append(model.workspace.Reconciliations, domain.ReconciliationRecord{
+		ID: "recon-sit-17", SessionID: "sit-17", Title: "Reconcile Greywatch Watch",
+		Items: []domain.ReconciliationItem{{Summary: "Promote draft: Sister Elayne"}},
+	})
+
+	model.searching = true
+	model.searchInput.SetValue("greywatch watch")
+	model.refreshResults()
+	if !searchHasKind(model.results, searchsvc.KindSession, "sit-17") {
+		t.Fatalf("expected session hit, got %#v", model.results)
+	}
+
+	model.searchInput.SetValue("moonstone token")
+	model.refreshResults()
+	if !searchHasKind(model.results, searchsvc.KindTranscript, "e-key") {
+		t.Fatalf("expected transcript hit, got %#v", model.results)
+	}
+	selectSearchKind(&model, searchsvc.KindTranscript, "e-key")
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.navKind != NavSessions || model.selectedSessionID != "sit-17" {
+		t.Fatalf("expected session focus, nav=%q session=%q", model.navKind, model.selectedSessionID)
+	}
+
+	model.searching = true
+	model.searchInput.SetValue("sister elayne")
+	model.refreshResults()
+	if !searchHasKind(model.results, searchsvc.KindRecon, "recon-sit-17") {
+		t.Fatalf("expected recon hit, got %#v", model.results)
+	}
+	selectSearchKind(&model, searchsvc.KindRecon, "recon-sit-17")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if !model.reconciling || model.workspace.Reconciliations[model.reconIndex].ID != "recon-sit-17" {
+		t.Fatalf("expected recon overlay, reconciling=%v index=%d", model.reconciling, model.reconIndex)
+	}
+}
+
+func searchHasKind(results []searchsvc.Result, kind searchsvc.Kind, id string) bool {
+	for _, result := range results {
+		if result.Kind == kind && result.TargetID() == id {
+			return true
+		}
+	}
+	return false
+}
+
+func selectSearchKind(model *Model, kind searchsvc.Kind, id string) {
+	for index, result := range model.results {
+		if result.Kind == kind && result.TargetID() == id {
+			model.selected = index
+			return
+		}
+	}
+}
+
 func TestViewEnablesMouseTracking(t *testing.T) {
 	model := New()
 	model.width = 120

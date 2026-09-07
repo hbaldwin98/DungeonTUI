@@ -175,7 +175,7 @@ func newLoadedModel(workspace domain.Workspace, store storage.Store, prefStore p
 
 func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.Store) Model {
 	input := textinput.New()
-	input.Placeholder = "Search titles, aliases, notes, and sources"
+	input.Placeholder = "Search wiki, prep, sessions, and sources"
 	input.Prompt = "> "
 	input.CharLimit = 120
 
@@ -188,7 +188,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 		workspace:        workspace,
 		store:            store,
 		prefs:            prefStore,
-		search:           searchsvc.New(workspace.Records),
+		search:           searchsvc.FromWorkspace(workspace),
 		searchInput:      input,
 		searchScope:      searchsvc.CurrentCampaign,
 		includeIdeas:     false,
@@ -898,7 +898,7 @@ func (m *Model) handleSessionCommand(text string) {
 	if strings.HasPrefix(text, "$") {
 		if record, ok := parseEntityCommand(text, m.workspace.Scope, m.session); ok {
 			m.workspace.Records = append(m.workspace.Records, record)
-			m.search = searchsvc.New(m.workspace.Records)
+			m.rebuildSearch()
 			m.refreshResults()
 			m.review = &record
 			if m.session != nil {
@@ -922,7 +922,7 @@ func (m *Model) handleSessionCommand(text string) {
 			return
 		}
 		m.workspace.Records = append(m.workspace.Records, record)
-		m.search = searchsvc.New(m.workspace.Records)
+		m.rebuildSearch()
 		m.refreshResults()
 		m.review = &record
 		m.status = "Generated draft entity: " + record.Title
@@ -1375,13 +1375,13 @@ func (m *Model) deleteSelected() {
 		out = append(out, item)
 	}
 	m.workspace.Records = out
-	m.search = searchsvc.New(m.workspace.Records)
+	m.rebuildSearch()
 	m.selectedID = ""
 	m.ensureBrowserSelection()
 	m.refreshResults()
 	if err := m.persistWorkspace(); err != nil {
 		m.workspace = before
-		m.search = searchsvc.New(m.workspace.Records)
+		m.rebuildSearch()
 		m.refreshResults()
 		return
 	}
@@ -1459,11 +1459,11 @@ func (m Model) supersedeSelected() (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	m.search = searchsvc.New(m.workspace.Records)
+	m.rebuildSearch()
 	m.clearDestructiveConfirm("")
 	if err := m.persistWorkspace(); err != nil {
 		m.workspace = before
-		m.search = searchsvc.New(m.workspace.Records)
+		m.rebuildSearch()
 		return m, nil
 	}
 	m.status = "Superseded " + record.Title + " · still searchable as history"
@@ -1511,7 +1511,7 @@ func (m Model) approveReconciliationItem(recon *domain.ReconciliationRecord) (te
 	}
 	recon.Items[m.reconCursor] = updated
 	m.workspace.Records = records
-	m.search = searchsvc.New(records)
+	m.rebuildSearch()
 	if !m.persistReconciliation(before) {
 		return m, nil
 	}
@@ -1524,7 +1524,7 @@ func (m *Model) persistReconciliation(before domain.Workspace) bool {
 		return true
 	}
 	m.workspace = before
-	m.search = searchsvc.New(m.workspace.Records)
+	m.rebuildSearch()
 	return false
 }
 
@@ -1714,14 +1714,7 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		if len(m.results) > 0 {
-			id := m.results[m.selected].Record.ID
-			if rec, ok := m.lookupAny(id); ok {
-				if fivetools.IsReferenceID(rec.ID) {
-					m.openPreview(detailHop{Kind: hopReference, Label: rec.Title, RecordID: rec.ID})
-				} else {
-					m.selectRecord(rec)
-				}
-			}
+			return m.openSearchResult(m.results[m.selected])
 		}
 		m.searching = false
 		m.searchInput.Blur()
@@ -1739,6 +1732,7 @@ func (m Model) openSearch() (tea.Model, tea.Cmd) {
 	m.searching = true
 	m.selected = 0
 	m.searchInput.Focus()
+	m.refreshResults()
 	return m, textinput.Blink
 }
 
@@ -2001,7 +1995,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.selectRecord(record)
-	m.search = searchsvc.New(m.workspace.Records)
+	m.rebuildSearch()
 	m.refreshResults()
 	m.editing = false
 	m.suggestions = nil
@@ -2029,16 +2023,7 @@ func (m Model) updateSearchClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			start = m.selected - visibleRows + 1
 		}
 		m.selected = start + index
-		selectedID := m.results[m.selected].Record.ID
-		if rec, ok := m.lookupAny(selectedID); ok {
-			if fivetools.IsReferenceID(rec.ID) {
-				m.openPreview(detailHop{Kind: hopReference, Label: rec.Title, RecordID: rec.ID})
-			} else {
-				m.selectRecord(rec)
-			}
-			m.searching = false
-			m.searchInput.Blur()
-		}
+		return m.openSearchResult(m.results[m.selected])
 	}
 	return m, nil
 }
@@ -2170,11 +2155,16 @@ func (m Model) suggestionsTitle(hit hitTarget) string {
 	return "suggestion"
 }
 
+func (m *Model) rebuildSearch() {
+	m.search = searchsvc.FromWorkspace(m.workspace)
+}
+
 func (m *Model) refreshResults() {
 	if !m.searching && strings.TrimSpace(m.searchInput.Value()) == "" {
 		m.results = nil
 		return
 	}
+	m.rebuildSearch()
 	m.results = m.search.Find(searchsvc.Filter{
 		Query:            m.searchInput.Value(),
 		Scope:            m.searchScope,
@@ -2189,14 +2179,59 @@ func (m *Model) refreshResults() {
 	}
 	seen := map[string]bool{}
 	for _, result := range m.results {
-		seen[result.Record.ID] = true
+		seen[result.TargetID()] = true
 	}
 	for _, rec := range m.searchReferenceHits(query, 8) {
 		if seen[rec.ID] {
 			continue
 		}
-		m.results = append(m.results, searchsvc.Result{Record: rec, Score: 1})
+		m.results = append(m.results, searchsvc.Result{
+			Kind:   searchsvc.KindReference,
+			ID:     rec.ID,
+			Title:  rec.Title,
+			Record: rec,
+			Score:  1,
+		})
 	}
+}
+
+func (m Model) openSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {
+	m.searching = false
+	m.searchInput.Blur()
+	switch result.Kind {
+	case searchsvc.KindPrep:
+		m.focusPrep(result.TargetID())
+		return m, nil
+	case searchsvc.KindSession, searchsvc.KindTranscript:
+		id := result.SessionID
+		if id == "" {
+			id = result.TargetID()
+		}
+		m.focusSession(id)
+		return m, nil
+	case searchsvc.KindRecon:
+		return m.openReconAt(result.TargetID())
+	}
+	id := result.TargetID()
+	if rec, ok := m.lookupAny(id); ok {
+		if fivetools.IsReferenceID(rec.ID) {
+			m.openPreview(detailHop{Kind: hopReference, Label: rec.Title, RecordID: rec.ID})
+		} else {
+			m.selectRecord(rec)
+		}
+	}
+	return m, nil
+}
+
+func (m Model) openReconAt(id string) (tea.Model, tea.Cmd) {
+	for index, recon := range m.workspace.Reconciliations {
+		if recon.ID == id {
+			m.reconIndex = index
+			return m.openReconciliation()
+		}
+	}
+	m.status = "Reconciliation not found"
+	return m, nil
 }
 
 func (m Model) visibleRecords() []domain.Record {
@@ -2664,7 +2699,7 @@ func (m Model) renderSearchOverlay() string {
 	builder.WriteString("\n\n")
 
 	if len(m.results) == 0 {
-		builder.WriteString(mutedStyle.Render("No matching records in this scope."))
+		builder.WriteString(mutedStyle.Render("No matching results in this scope."))
 	} else {
 		start := 0
 		if m.selected >= visibleRows {
@@ -2679,16 +2714,13 @@ func (m Model) renderSearchOverlay() string {
 				cursor = "▸ "
 				style = selectedSearchResultStyle
 			}
-			kind := string(result.Record.Type)
-			if fivetools.IsReferenceID(result.Record.ID) {
-				kind = "reference"
-			}
+			authority := result.Authority()
 			line := fmt.Sprintf("%s%-9s %s  %-12s %s",
 				cursor,
-				kind,
-				result.Record.Authority.Marker(),
-				result.Record.Authority.Label(),
-				result.Record.Title,
+				result.TypeLabel(),
+				authority.Marker(),
+				authority.Label(),
+				result.DisplayTitle(),
 			)
 			builder.WriteString(style.Render(line))
 			builder.WriteRune('\n')

@@ -15,7 +15,6 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
-	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 )
 
 type importFile struct {
@@ -204,7 +203,7 @@ func (m Model) toggleImportSource() (tea.Model, tea.Cmd) {
 		m.workspace = before
 		return m, nil
 	}
-	m.search = searchsvc.New(m.workspace.Records)
+	m.rebuildSearch()
 	m.attachReferences()
 	m.refreshResults()
 	return m, nil
@@ -237,11 +236,11 @@ func (m Model) confirmRemoveImportSource() (tea.Model, tea.Cmd) {
 	if m.importSourceCursor >= len(m.workspace.Sources) {
 		m.importSourceCursor = max(0, len(m.workspace.Sources)-1)
 	}
-	m.search = searchsvc.New(m.workspace.Records)
+	m.rebuildSearch()
 	m.attachReferences()
 	if err := m.persistWorkspace(); err != nil {
 		m.workspace = before
-		m.search = searchsvc.New(m.workspace.Records)
+		m.rebuildSearch()
 		m.attachReferences()
 		return m, nil
 	}
@@ -805,11 +804,11 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 	}
 	before := m.workspace
 	m.workspace = msg.ws
-	m.search = searchsvc.New(m.workspace.Records)
+	m.rebuildSearch()
 	m.attachReferences()
 	if err := m.persistWorkspace(); err != nil {
 		m.workspace = before
-		m.search = searchsvc.New(m.workspace.Records)
+		m.rebuildSearch()
 		m.attachReferences()
 		return m, nil
 	}
