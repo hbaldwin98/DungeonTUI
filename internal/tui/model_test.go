@@ -294,13 +294,22 @@ func TestCorruptWorkspaceDisablesWrites(t *testing.T) {
 	}
 }
 
-func TestMissingWorkspaceStartsDemoLibrary(t *testing.T) {
+func TestMissingWorkspaceStartsEmptyLibrary(t *testing.T) {
 	model := newLoadFailureModel(failingStore{}, nil, fmt.Errorf("workspace not found: %w", os.ErrNotExist))
 	if model.store == nil {
 		t.Fatal("missing workspace should keep the store for first save")
 	}
-	if len(model.workspace.Library) == 0 {
-		t.Fatal("expected demo library")
+	if len(model.workspace.Library) != 0 {
+		t.Fatalf("first run must not seed demo campaigns, library=%#v", model.workspace.Library)
+	}
+	if !model.picking {
+		t.Fatal("expected library picker")
+	}
+	model = newLoadFailureModel(nil, nil, fmt.Errorf("workspace not found: %w", os.ErrNotExist))
+	updated, _ := model.createPickerItem()
+	model = updated.(Model)
+	if len(model.workspace.Library) != 1 {
+		t.Fatalf("n should create a world, library=%#v", model.workspace.Library)
 	}
 }
 
@@ -341,6 +350,87 @@ func TestReconciliationApproveRollsBackWhenPersistenceFails(t *testing.T) {
 	model = updated.(Model)
 	if got := model.workspace.Reconciliations[0].Items[0].Status; got != domain.ReconPending {
 		t.Fatalf("status = %q", got)
+	}
+}
+
+func TestReconciliationApplyCreatesNoteAndEditsMutation(t *testing.T) {
+	model := newModel(demoWorkspace(), nil, nil)
+	model.width = 100
+	model.height = 36
+	ended := time.Now().UTC()
+	session := domain.SessionRecord{
+		ID: "sit-1", Title: "Sit 1", Scope: model.workspace.Scope, EndedAt: &ended,
+		Entries: []domain.TranscriptEntry{{ID: "e1", Text: "They buried the moonstone token."}},
+	}
+	recon := domain.BuildSessionReconciliation(session, model.workspace.Records)
+	model.workspace.Sessions = append(model.workspace.Sessions, session)
+	model.workspace.Reconciliations = []domain.ReconciliationRecord{recon}
+	model.reconciling = true
+	model.reconIndex = 0
+	for index, item := range recon.Items {
+		if item.Kind == domain.ReconTranscriptNote {
+			model.reconCursor = index
+			break
+		}
+	}
+	updated, _ := model.updateReconciliation(tea.KeyPressMsg{Code: 'e'})
+	model = updated.(Model)
+	if !model.reconEditing {
+		t.Fatal("e should edit the mutation")
+	}
+	model.reconEdit.SetValue("The moonstone was buried under the chapel.")
+	updated, _ = model.updateReconEdit(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if model.reconciling && model.workspace.Reconciliations[0].Items[model.reconCursor].Mutation.Text != "The moonstone was buried under the chapel." {
+		t.Fatalf("mutation=%#v", model.workspace.Reconciliations[0].Items[model.reconCursor])
+	}
+	updated, _ = model.updateReconciliation(tea.KeyPressMsg{Code: 'a'})
+	model = updated.(Model)
+	found := false
+	for _, record := range model.workspace.Records {
+		if record.ID == "note-e1" {
+			found = true
+			if record.Type != domain.Note || record.Authority != domain.Canon {
+				t.Fatalf("note=%#v", record)
+			}
+			if record.Body != "The moonstone was buried under the chapel." {
+				t.Fatalf("body=%q", record.Body)
+			}
+			if record.Source != "Sit 1" {
+				t.Fatalf("source=%q", record.Source)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected sourced note, records=%#v", model.workspace.Records)
+	}
+	if model.workspace.Sessions[len(model.workspace.Sessions)-1].Entries[0].Text != "They buried the moonstone token." {
+		t.Fatal("transcript mutated")
+	}
+}
+
+func TestReconciliationCiteRollsBackWhenPersistenceFails(t *testing.T) {
+	model := newModel(demoWorkspace(), failingStore{}, nil)
+	before := model.workspace.Records[0].Body
+	target := model.workspace.Records[0].ID
+	model.workspace.Reconciliations = []domain.ReconciliationRecord{{
+		SessionID: "session-1",
+		Items: []domain.ReconciliationItem{{
+			Status:   domain.ReconPending,
+			Kind:     domain.ReconLinkReview,
+			RecordID: target,
+			EntryID:  "e1",
+			Mutation: domain.Mutation{Op: domain.MutationCite, RecordID: target, Text: "Cited from play."},
+		}},
+	}}
+	model.reconciling = true
+	updated, _ := model.updateReconciliation(tea.KeyPressMsg{Code: 'a'})
+	model = updated.(Model)
+	if model.workspace.Records[0].Body != before {
+		t.Fatalf("body changed after failed save: %q", model.workspace.Records[0].Body)
+	}
+	if model.workspace.Reconciliations[0].Items[0].Status != domain.ReconPending {
+		t.Fatal("status should roll back")
 	}
 }
 

@@ -10,6 +10,9 @@ testdata/harness/
 # Local coverage dumps from CRAP / reliability analysis
 .reliability-cover.out
 
+# Built binaries
+bin/
+
 # Local 5e.tools dumps (never commit copyrighted JSON)
 .5etools-cache/
 .5etools/

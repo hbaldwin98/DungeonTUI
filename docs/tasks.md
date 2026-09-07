@@ -87,17 +87,20 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   selected slice (Argus #72–#76; D-028, D-034, D-037–D-039).
 - Headless `dungeon dump` inspects the workspace; markdown FILES classify from
   structure **before** wiki rows are written (Argus #64, #67; D-030, D-033).
-- Detail pane scrolls when the document exceeds inner height (`PgUp`/`PgDn`,
-  Home/End, mouse wheel); `j`/`k` still move hop rows (Argus #65; D-031).
+  The `classify` CLI and import-agent harness are removed (Argus #99).
+- Campaign search covers wiki, prep, sessions, transcripts, reconciliation, and
+  labeled adventure references (Argus #94).
+- Reconciliation applies editable, source-linked wiki mutations; the transcript
+  stays immutable (Argus #95).
+- Session and record transactions live in `internal/app` (Argus #97).
+- Empty first-run library, `dungeon export` / `dungeon restore`, MIT license,
+  `make build`, and GitHub Actions CI (Argus #100).
 
 ## In progress
 
 ## Next
 ### Later
 
-- Deepen reconciliation: factual diffs, superseded history, and draft provenance.
-- Add export/import coverage for worlds, campaigns, sessions, links, and
-  workspace preferences.
 - Add optional AI adapters and proposal approval flow after the factual path is
   stable.
 - Optional: interactive pane reordering and fully recursive split editing UI.

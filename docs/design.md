@@ -677,11 +677,11 @@ These tokens should complement interactive filters rather than replace them.
 
 ### Search implementation direction
 
-Use a common search service returning typed results regardless of UI. Start with
-SQLite FTS5 and structured metadata filters over wiki records and the persisted
-5e plugin. Add embeddings only for queries
-where semantic recall materially improves the result. Exact rules lookup and
-mechanical searches should prefer structured and full-text retrieval.
+Use a common search service returning typed results regardless of UI. The
+current backend is an in-memory fuzzy/full-text scan over wiki records, prep
+notes, sessions, transcripts, reconciliation items, and labeled adventure
+references. SQLite FTS5 remains a later store (D-024) and should not change
+the result contract.
 
 The search result contract should contain enough metadata for any client:
 
@@ -707,8 +707,9 @@ Portable local data
 ```
 
 The Bubble Tea model should coordinate presentation and emit typed application
-commands. It should not contain canonical business rules, directly manipulate
-database tables, or be the only representation of state transitions.
+commands. Session and record writes go through `internal/app` so persistence
+failures roll back. The TUI should not be the only representation of state
+transitions.
 
 A future web app should be another client of the same application semantics:
 
@@ -723,12 +724,10 @@ Domain services --+-- future HTTP/API -- web UI
 SQLite is a pragmatic eventual system of record: transactional, local,
 portable, easy to back up, and capable of structured queries plus FTS5.
 The first persisted vertical slice uses a documented JSON workspace because it
-keeps the data inspectable while the entity model is still changing. Ingested
-adventure and rulebook prose land as the same `Record` documents. Shared
-mechanical 5e.tools tables (bestiary, items, templates) are a ruleset plugin:
-pulled onto the local machine, persisted beside the workspace (JSON cache now,
-SQLite FTS5 later), never an in-memory-only corpus, and never copied into
-every campaign wiki. The storage boundary must
+keeps the data inspectable while the entity model is still changing. Owner
+markdown FILES become wiki `Record`s. Published 5e.tools adventures cache as
+read-only reference books, never campaign canon. There is no mechanical 5e
+ruleset plugin in this app (D-029). The storage boundary must
 allow that implementation to move to SQLite with FTS5 (and optional embeddings
 for AI retrieval) without changing domain or TUI code. Cached embeddings are
 derived operational data and are not required to reconstruct canon. Portability does not require every internal record
@@ -813,14 +812,14 @@ and note. Additional types should be added when the owner's campaign needs them.
 
 ### Phase 2: Session reconciliation and campaign memory
 
-- Convert live notes into review items.
-- Manually create and approve factual diffs.
-- Track event history and superseded state.
+- Convert live notes into review items. Shipped: end-session builds typed items.
+- Manually edit and approve factual diffs onto the wiki with session/entry
+  source markers. Transcript stays immutable. Shipped (Argus #95).
+- Track event history and superseded state. Session-grouped entity history exists;
+  superseded records remain searchable.
 - Track party and individual-character knowledge.
-- Show “what changed” by session.
+- Show “what changed” by session (playback + recon).
 - Generate next-session review surfaces from open threads and recent events.
-- Reconcile transcript references, events, and roll results into reviewable
-  factual changes without rewriting the original transcript.
 - Review and approve entities created by `$` commands or contextual generators.
 
 The workflow should be solid manually before AI automates extraction.
@@ -837,16 +836,13 @@ The workflow should be solid manually before AI automates extraction.
 
 ### Phase 4: Rules and open knowledge
 
-- Ingest an open/licensed SRD corpus.
+- Ingest an open/licensed SRD corpus as read-only reference, not wiki canon.
 - Add source, edition, page/section, and entity metadata.
 - Provide exact/full-text rules retrieval with citations.
 - Distinguish rules, interpretations, and house-rule overrides.
-- Enable campaign-specific ruleset and source selection.
-- Add structured records for common mechanical concepts where useful.
-- A ruleset plugin looks up composed source data (5e.tools bestiary, items,
-  templates) from local durable storage for display without dumping those
-  books into the campaign wiki. Lookups are limited to books imported and
-  enabled for the current campaign. SQLite FTS5 indexes that plugin corpus later.
+- Enable campaign-specific source selection.
+- Mechanical 5e lookup is out of this app (D-029); adventure caches stay
+  reference. SQLite FTS5 later indexes wiki and those caches (D-024).
 
 This validates the sourcebook architecture without making commercial PDF parsing
 a prerequisite for the core campaign tool.

@@ -139,6 +139,51 @@ func atomicWrite(path string, data []byte) error {
 	return nil
 }
 
+// ExportTo writes a validated copy of the workspace to path.
+func (s JSONStore) ExportTo(path string) error {
+	ws, err := s.Load()
+	if err != nil {
+		return err
+	}
+	return NewJSON(path).replaceValidated(ws)
+}
+
+// RestoreFrom replaces the primary workspace with a validated export or backup
+// file, including when the current primary is unreadable.
+func (s JSONStore) RestoreFrom(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read restore source: %w", err)
+	}
+	ws, err := decodeWorkspace(data)
+	if err != nil {
+		return fmt.Errorf("invalid restore source: %w", err)
+	}
+	return s.replaceValidated(ws)
+}
+
+func (s JSONStore) replaceValidated(workspace domain.Workspace) error {
+	if s.Path == "" {
+		return fmt.Errorf("workspace path is required")
+	}
+	workspace.EnsureLibrary()
+	workspace.SchemaVersion = CurrentSchemaVersion
+	if err := workspace.Validate(); err != nil {
+		return fmt.Errorf("validate workspace: %w", err)
+	}
+	data, err := json.MarshalIndent(workspace, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode workspace: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
+		return fmt.Errorf("create workspace directory: %w", err)
+	}
+	if err := atomicWrite(s.Path, data); err != nil {
+		return fmt.Errorf("write workspace: %w", err)
+	}
+	return nil
+}
+
 func DefaultPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {

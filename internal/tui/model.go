@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/hbaldwin98/dungeon/internal/app"
 	"github.com/hbaldwin98/dungeon/internal/dice"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
@@ -24,6 +25,7 @@ import (
 
 type Model struct {
 	workspace          domain.Workspace
+	app                app.Service
 	search             searchsvc.Service
 	cursor             int
 	selectedID         string
@@ -61,6 +63,8 @@ type Model struct {
 	reconciling        bool
 	reconIndex         int
 	reconCursor        int
+	reconEditing       bool
+	reconEdit          textarea.Model
 	deleteConfirm      bool
 	confirmKind        string // "delete" or "supersede"
 	planning           bool
@@ -125,10 +129,10 @@ func New() Model {
 }
 
 // NewPersistent loads the owner's workspace from the platform config
-// directory. A first run starts with the small demo workspace and persists it
-// on the first successful edit. Layout preferences load from a sibling file.
-// Launch opens an Obsidian-style world/campaign picker unless a prior scope
-// can be restored from preferences.
+// directory. A first run opens an empty library picker so the owner creates a
+// world instead of inheriting demo campaign data. Layout preferences load from
+// a sibling file. Launch opens an Obsidian-style world/campaign picker unless
+// a prior scope can be restored from preferences.
 func NewPersistent() Model {
 	path, err := storage.DefaultPath()
 	if err != nil {
@@ -147,7 +151,7 @@ func newLoadFailureModel(store storage.Store, prefStore prefs.Store, err error) 
 	if !errors.Is(err, os.ErrNotExist) {
 		return newPickerModel(domain.Workspace{}, nil, prefStore, "Workspace could not be loaded; writes disabled: "+err.Error())
 	}
-	return newPickerModel(demoWorkspace(), store, prefStore, "New library · choose a world and campaign")
+	return newPickerModel(domain.Workspace{}, store, prefStore, "New library · n creates a world")
 }
 
 func newPickerModel(workspace domain.Workspace, store storage.Store, prefStore prefs.Store, status string) Model {
@@ -186,6 +190,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 
 	model := Model{
 		workspace:        workspace,
+		app:              app.New(store),
 		store:            store,
 		prefs:            prefStore,
 		search:           searchsvc.FromWorkspace(workspace),
@@ -1054,28 +1059,31 @@ func (m Model) endSession() (tea.Model, tea.Cmd) {
 	if m.session == nil {
 		return m, nil
 	}
-	before := m.workspace.Clone()
-	previousEndedAt := m.session.EndedAt
 	ended := time.Now().UTC()
-	m.session.EndedAt = &ended
+	session := *m.session
+	session.EndedAt = &ended
+	entrySnapshot := append([]domain.TranscriptEntry(nil), session.Entries...)
+	next, err := m.app.Commit(m.workspace, func(ws domain.Workspace) (domain.Workspace, error) {
+		ws, _, err := app.EndSession(ws, session)
+		return ws, err
+	})
+	if err != nil {
+		m.status = "Saved in memory; persistence failed: " + err.Error()
+		return m, nil
+	}
+	m.workspace = next
 	m.sessionInput.Blur()
-	// Always retain the ended session in the workspace, even when no store is
-	// attached (demo / harness). Persistence remains best-effort afterward.
-	m.upsertSession(*m.session)
-	recon := domain.BuildSessionReconciliation(*m.session, m.workspace.Records)
-	m.upsertReconciliation(recon)
-	entrySnapshot := append([]domain.TranscriptEntry(nil), m.session.Entries...)
-	m.status = fmt.Sprintf("Session ended · %d entries · %d reconcile items · press r", len(entrySnapshot), len(recon.Items))
-	if m.store != nil {
-		if err := m.persistWorkspace(); err != nil {
-			m.workspace = before
-			m.session.EndedAt = previousEndedAt
-			m.sessionInput.Focus()
-			return m, nil
+	m.session = nil
+	recon := domain.ReconciliationRecord{}
+	for index, item := range m.workspace.Reconciliations {
+		if item.SessionID == session.ID {
+			m.reconIndex = index
+			recon = item
+			break
 		}
 	}
-	m.session = nil
-	if !transcriptMatches(m.workspace.Sessions, recon.SessionID, entrySnapshot) {
+	m.status = fmt.Sprintf("Session ended · %d entries · %d reconcile items · press r", len(entrySnapshot), len(recon.Items))
+	if !transcriptMatches(m.workspace.Sessions, session.ID, entrySnapshot) {
 		m.status = "Session ended · transcript integrity check failed"
 	}
 	return m, nil
@@ -1120,10 +1128,11 @@ func (m Model) openReconciliation() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.reconciling = true
+	m.reconEditing = false
 	m.clearDestructiveConfirm("")
 	m.reconIndex = clamp(m.reconIndex, 0, len(m.workspace.Reconciliations)-1)
 	m.reconCursor = 0
-	m.status = "Reconciliation · a approve  x reject  Esc close"
+	m.status = "Reconciliation · e edit  a apply  x reject  Esc close"
 	return m, nil
 }
 
@@ -1365,26 +1374,18 @@ func (m *Model) deleteSelected() {
 	if record == nil {
 		return
 	}
-	before := m.workspace.Clone()
-	id := record.ID
-	out := make([]domain.Record, 0, len(m.workspace.Records))
-	for _, item := range m.workspace.Records {
-		if item.ID == id {
-			continue
-		}
-		out = append(out, item)
+	next, err := m.app.Commit(m.workspace, func(ws domain.Workspace) (domain.Workspace, error) {
+		return app.DeleteRecord(ws, record.ID)
+	})
+	if err != nil {
+		m.status = "Saved in memory; persistence failed: " + err.Error()
+		return
 	}
-	m.workspace.Records = out
+	m.workspace = next
 	m.rebuildSearch()
 	m.selectedID = ""
 	m.ensureBrowserSelection()
 	m.refreshResults()
-	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
-		m.rebuildSearch()
-		m.refreshResults()
-		return
-	}
 	m.status = "Deleted " + record.Title
 }
 
@@ -1406,37 +1407,20 @@ func (m *Model) deleteSelectedSession() {
 	if session == nil {
 		return
 	}
-	before := m.workspace.Clone()
-	activeSession := m.session
-	id := session.ID
-	out := make([]domain.SessionRecord, 0, len(m.workspace.Sessions))
-	for _, item := range m.workspace.Sessions {
-		if item.ID == id {
-			continue
-		}
-		out = append(out, item)
+	next, err := m.app.Commit(m.workspace, func(ws domain.Workspace) (domain.Workspace, error) {
+		return app.DeleteSession(ws, session.ID)
+	})
+	if err != nil {
+		m.status = "Saved in memory; persistence failed: " + err.Error()
+		return
 	}
-	m.workspace.Sessions = out
-	recons := make([]domain.ReconciliationRecord, 0, len(m.workspace.Reconciliations))
-	for _, recon := range m.workspace.Reconciliations {
-		if recon.SessionID == id {
-			continue
-		}
-		recons = append(recons, recon)
-	}
-	m.workspace.Reconciliations = recons
-	if m.session != nil && m.session.ID == id {
+	m.workspace = next
+	if m.session != nil && m.session.ID == session.ID {
 		m.session = nil
 	}
 	m.selectedSessionID = ""
 	m.selectedFolderPath = ""
 	m.syncSessionTreeCursor()
-	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
-		m.session = activeSession
-		m.syncSessionTreeCursor()
-		return
-	}
 	m.status = "Deleted session " + session.Title
 }
 
@@ -1446,26 +1430,23 @@ func (m Model) supersedeSelected() (tea.Model, tea.Cmd) {
 		m.status = "Nothing selected to supersede"
 		return m, nil
 	}
-	before := m.workspace.Clone()
 	if record.Authority == domain.Superseded {
 		m.status = record.Title + " is already superseded"
 		return m, nil
 	}
-	for index := range m.workspace.Records {
-		if m.workspace.Records[index].ID == record.ID {
-			m.workspace.Records[index].Authority = domain.Superseded
-			updated := m.workspace.Records[index]
-			m.selectRecord(updated)
-			break
-		}
+	next, err := m.app.Commit(m.workspace, func(ws domain.Workspace) (domain.Workspace, error) {
+		return app.SupersedeRecord(ws, record.ID)
+	})
+	if err != nil {
+		m.status = "Saved in memory; persistence failed: " + err.Error()
+		return m, nil
+	}
+	m.workspace = next
+	if updated := m.recordByID(record.ID); updated != nil {
+		m.selectRecord(*updated)
 	}
 	m.rebuildSearch()
 	m.clearDestructiveConfirm("")
-	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
-		m.rebuildSearch()
-		return m, nil
-	}
 	m.status = "Superseded " + record.Title + " · still searchable as history"
 	return m, nil
 }
@@ -1473,7 +1454,11 @@ func (m Model) supersedeSelected() (tea.Model, tea.Cmd) {
 func (m Model) updateReconciliation(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if len(m.workspace.Reconciliations) == 0 {
 		m.reconciling = false
+		m.reconEditing = false
 		return m, nil
+	}
+	if m.reconEditing {
+		return m.updateReconEdit(msg)
 	}
 	recon := &m.workspace.Reconciliations[m.reconIndex]
 	switch msg.String() {
@@ -1491,6 +1476,8 @@ func (m Model) updateReconciliation(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.reconCursor = clamp(m.reconCursor-1, 0, len(recon.Items)-1)
 		}
 		return m, nil
+	case "e":
+		return m.startReconEdit(recon)
 	case "a":
 		return m.approveReconciliationItem(recon)
 	case "x":
@@ -1499,57 +1486,109 @@ func (m Model) updateReconciliation(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) startReconEdit(recon *domain.ReconciliationRecord) (tea.Model, tea.Cmd) {
+	if len(recon.Items) == 0 {
+		return m, nil
+	}
+	item := recon.Items[m.reconCursor]
+	if item.Status != domain.ReconPending {
+		m.status = "Only pending mutations can be edited"
+		return m, nil
+	}
+	edit := newMarkdownTextArea(m.width, 8)
+	edit.Placeholder = "Editable factual mutation · transcript stays immutable"
+	edit.SetValue(item.Mutation.Text)
+	edit.Focus()
+	m.reconEdit = edit
+	m.reconEditing = true
+	m.status = "Edit mutation · Ctrl+S save · Esc cancel"
+	return m, textarea.Blink
+}
+
+func (m Model) updateReconEdit(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.reconEditing = false
+		m.reconEdit.Blur()
+		m.status = "Mutation edit cancelled"
+		return m, nil
+	case "ctrl+s":
+		return m.saveReconEdit()
+	}
+	var cmd tea.Cmd
+	m.reconEdit, cmd = m.reconEdit.Update(msg)
+	return m, cmd
+}
+
+func (m Model) saveReconEdit() (tea.Model, tea.Cmd) {
+	if m.reconIndex < 0 || m.reconIndex >= len(m.workspace.Reconciliations) {
+		m.reconciling = false
+		m.reconEditing = false
+		return m, nil
+	}
+	recon := &m.workspace.Reconciliations[m.reconIndex]
+	if m.reconCursor < 0 || m.reconCursor >= len(recon.Items) {
+		m.reconEditing = false
+		return m, nil
+	}
+	text := strings.TrimSpace(m.reconEdit.Value())
+	if text == "" {
+		m.status = "Mutation text is required"
+		return m, nil
+	}
+	next, err := m.app.Commit(m.workspace, func(ws domain.Workspace) (domain.Workspace, error) {
+		return app.EditReconMutation(ws, m.reconIndex, m.reconCursor, text)
+	})
+	if err != nil {
+		m.status = "Mutation edit rolled back: " + err.Error()
+		return m, nil
+	}
+	m.workspace = next
+	m.reconciling = true
+	m.reconEditing = false
+	m.reconEdit.Blur()
+	m.status = "Mutation updated · a apply to wiki"
+	return m, nil
+}
+
 func (m Model) approveReconciliationItem(recon *domain.ReconciliationRecord) (tea.Model, tea.Cmd) {
 	if len(recon.Items) == 0 {
 		return m, nil
 	}
-	before := m.workspace.Clone()
-	updated, records, err := domain.ApproveItem(recon.Items[m.reconCursor], m.workspace.Records)
+	next, err := m.app.Commit(m.workspace, func(ws domain.Workspace) (domain.Workspace, error) {
+		return app.ApplyRecon(ws, m.reconIndex, m.reconCursor)
+	})
 	if err != nil {
 		m.status = err.Error()
 		return m, nil
 	}
-	recon.Items[m.reconCursor] = updated
-	m.workspace.Records = records
+	m.workspace = next
 	m.rebuildSearch()
-	if !m.persistReconciliation(before) {
-		return m, nil
-	}
-	m.status = "Approved · transcript unchanged"
+	m.status = "Applied to wiki · transcript unchanged"
 	return m, nil
-}
-
-func (m *Model) persistReconciliation(before domain.Workspace) bool {
-	if err := m.persistWorkspace(); err == nil {
-		return true
-	}
-	m.workspace = before
-	m.rebuildSearch()
-	return false
 }
 
 func (m Model) rejectReconciliationItem(recon *domain.ReconciliationRecord) (tea.Model, tea.Cmd) {
 	if len(recon.Items) == 0 {
 		return m, nil
 	}
-	before := m.workspace.Clone()
-	recon.Items[m.reconCursor].Status = domain.ReconRejected
-	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+	next, err := m.app.Commit(m.workspace, func(ws domain.Workspace) (domain.Workspace, error) {
+		return app.RejectRecon(ws, m.reconIndex, m.reconCursor)
+	})
+	if err != nil {
+		m.status = "Saved in memory; persistence failed: " + err.Error()
 		return m, nil
 	}
+	m.workspace = next
 	m.status = "Rejected · transcript unchanged"
 	return m, nil
 }
 
 func (m *Model) persistWorkspace() error {
-	if m.store == nil {
-		return nil
-	}
 	if m.session != nil {
 		m.upsertSession(*m.session)
 	}
-	if err := m.store.Save(m.workspace); err != nil {
+	if err := m.app.Save(m.workspace); err != nil {
 		m.status = "Saved in memory; persistence failed: " + err.Error()
 		return err
 	}
@@ -2824,10 +2863,27 @@ func (m Model) renderReconciliationOverlay() string {
 				builder.WriteString(style.Render(line))
 				builder.WriteString("\n")
 			}
+			item := recon.Items[clamp(m.reconCursor, 0, len(recon.Items)-1)]
+			builder.WriteString("\n")
+			builder.WriteString(labelStyle.Render("MUTATION"))
+			builder.WriteString("  ")
+			builder.WriteString(filterStyle.Render(string(item.Mutation.Op)))
+			builder.WriteString("\n")
+			if m.reconEditing {
+				builder.WriteString(m.reconEdit.View())
+			} else if strings.TrimSpace(item.Mutation.Text) != "" {
+				builder.WriteString(item.Mutation.Text)
+			} else {
+				builder.WriteString(mutedStyle.Render("No proposed wiki write."))
+			}
 		}
 	}
 	builder.WriteString("\n")
-	builder.WriteString(helpStyle.Render("j/k move  a approve  x reject  Esc close"))
+	if m.reconEditing {
+		builder.WriteString(helpStyle.Render("Ctrl+S save mutation  Esc cancel"))
+	} else {
+		builder.WriteString(helpStyle.Render("j/k move  e edit  a apply  x reject  Esc close"))
+	}
 	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 		lipgloss.WithWhitespaceChars(" "),

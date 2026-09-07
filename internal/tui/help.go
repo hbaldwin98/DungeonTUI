@@ -65,6 +65,15 @@ func (m Model) helpSections() [][]string {
 		return [][]string{
 			{"Import", "Tab sources / 5e.tools / files", "j/k move · Enter caches a 5e.tools adventure (no wiki rows)", "FILES markdown still becomes owner wiki", "type to filter the adventure catalog", "Ctrl+T cycle markdown kind · Ctrl+R refresh catalog", "e enable/disable in campaign", "d remove source (y confirm)", "Esc or b back"},
 		}
+	case m.reconciling:
+		if m.reconEditing {
+			return [][]string{
+				{"Edit mutation", "Ctrl+S save proposed wiki write", "Esc cancel", "Transcript stays immutable"},
+			}
+		}
+		return [][]string{
+			{"Reconciliation", "j/k move", "e edit mutation", "a apply to wiki", "x reject", "Esc close", "Transcript stays immutable"},
+		}
 	case m.searching:
 		return [][]string{
 			{"Search", "Type to filter wiki, prep, sessions, notes, recon", "↑↓ select", "Enter open", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},

@@ -219,3 +219,40 @@ func TestJSONStoreRoundTripsSources(t *testing.T) {
 		t.Fatalf("enablement=%#v", got.Library[0].Campaigns[0].EnabledSourceIDs)
 	}
 }
+
+func TestJSONStoreExportAndRestoreOverCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	primary := filepath.Join(dir, "workspace.json")
+	store := NewJSON(primary)
+	ws := domain.Workspace{Records: []domain.Record{{ID: "note-1", Type: domain.Note, Title: "Keep"}}}
+	if err := store.Save(ws); err != nil {
+		t.Fatal(err)
+	}
+	exportPath := filepath.Join(dir, "export.json")
+	if err := store.ExportTo(exportPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(primary, []byte(`{"Scope":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RestoreFrom(filepath.Join(dir, "missing.json")); err == nil {
+		t.Fatal("expected missing restore source to fail")
+	}
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte(`{"Scope":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RestoreFrom(bad); err == nil {
+		t.Fatal("expected invalid restore to fail")
+	}
+	if err := store.RestoreFrom(exportPath); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Records) != 1 || got.Records[0].Title != "Keep" {
+		t.Fatalf("restored %#v", got)
+	}
+}

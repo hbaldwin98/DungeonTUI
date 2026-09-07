@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -31,9 +32,15 @@ func main() {
 				os.Exit(1)
 			}
 			return
-		case "classify":
-			if err := runClassify(os.Args[2:]); err != nil {
-				fmt.Fprintf(os.Stderr, "dungeon classify: %v\n", err)
+		case "export":
+			if err := runExport(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "dungeon export: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "restore":
+			if err := runRestore(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "dungeon restore: %v\n", err)
 				os.Exit(1)
 			}
 			return
@@ -228,27 +235,58 @@ func runDump(args []string) error {
 	return enc.Encode(classify.Dump(ws, *source, *body))
 }
 
-func runClassify(args []string) error {
-	fs := flag.NewFlagSet("classify", flag.ContinueOnError)
+func runExport(args []string) error {
+	fs := flag.NewFlagSet("export", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	source := fs.String("source", "", "limit to a source id or title")
-	apply := fs.Bool("apply", false, "retype records that fail the structural sanity pass and save")
+	out := fs.String("o", "", "write to file (default stdout)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	ws, store, err := loadWorkspace()
+	path, err := storage.DefaultPath()
 	if err != nil {
 		return err
 	}
-	findings := classify.Diagnose(ws.Records, *source)
-	if *apply {
-		classify.OrganizeRecords(ws.Records)
-		if err := store.Save(ws); err != nil {
+	store := storage.NewJSON(path)
+	if strings.TrimSpace(*out) != "" {
+		if err := store.ExportTo(*out); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "applied structural classify; %d findings before apply\n", len(findings))
+		fmt.Println("exported workspace to", *out)
+		return nil
+	}
+	ws, err := store.Load()
+	if err != nil {
+		return err
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(findings)
+	return enc.Encode(ws)
+}
+
+func runRestore(args []string) error {
+	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	path, err := storage.DefaultPath()
+	if err != nil {
+		return err
+	}
+	store := storage.NewJSON(path)
+	if fs.NArg() == 0 {
+		if err := store.RestoreBackup(); err != nil {
+			return err
+		}
+		fmt.Println("restored workspace from", store.BackupPath())
+		return nil
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: dungeon restore [export.json]")
+	}
+	if err := store.RestoreFrom(fs.Arg(0)); err != nil {
+		return err
+	}
+	fmt.Println("restored workspace from", fs.Arg(0))
+	return nil
 }

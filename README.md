@@ -4,9 +4,9 @@ Dungeon is a personal, terminal-native campaign workstation for a human Dungeon
 Master. Its factual campaign wiki remains strictly separate from AI-generated
 answers and proposals.
 
-The first implementation includes a persistent local workspace with
-demonstration data for a first run. Draft entities are saved as portable JSON
-in the platform user configuration directory after editing.
+The first implementation includes a persistent local workspace. A first run
+opens an empty library picker (`n` creates a world). Draft entities are saved
+as portable JSON in the platform user configuration directory after editing.
 
 ## Run
 
@@ -17,6 +17,8 @@ There, `e` renames a world or campaign and `d` then `y` deletes it.
 ```sh
 go mod tidy
 go run ./cmd/dungeon
+make test
+make build
 ```
 
 ## Import a sourcebook or adventure
@@ -42,8 +44,10 @@ go run ./cmd/dungeon import -remove src-5e-bookid
 # Headless inspect of the workspace wiki
 go run ./cmd/dungeon dump
 go run ./cmd/dungeon dump -source src-markdown-title
-go run ./cmd/dungeon classify
-go run ./cmd/dungeon classify -apply
+go run ./cmd/dungeon export -o campaign.json
+go run ./cmd/dungeon restore campaign.json
+go run ./cmd/dungeon restore
+
 ```
 
 Inside a campaign or the library picker, `I` opens **Import**: SOURCES |
@@ -154,9 +158,13 @@ for the current implementation boundaries and queue.
 ```text
 cmd/dungeon       executable entry point
 internal/domain   UI-independent campaign concepts and invariants
+internal/app      session/record/recon transactions and persistence rollback
 internal/search   typed, scoped search service
+internal/storage  JSON workspace, export, and restore
 internal/tui      Bubble Tea presentation and interaction
 ```
+
+Licensed under MIT. See [LICENSE](LICENSE).
 
 See [the design document](docs/design.md) for the full product direction and
 phased plan.
