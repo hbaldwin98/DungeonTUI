@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -46,54 +47,104 @@ func main() {
 }
 
 func runImport(args []string) error {
+	fs, kindFlag, dataDir, remove, err := parseImportArgs(args)
+	if err != nil {
+		return err
+	}
+	return runParsedImport(fs.Arg(0), *kindFlag, *dataDir, *remove)
+}
+
+func runParsedImport(target, kindFlag, dataDir string, remove bool) error {
+	path, err := storage.DefaultPath()
+	if err != nil {
+		return err
+	}
+	return runStoredImport(storage.NewJSON(path), path, target, kindFlag, dataDir, remove)
+}
+
+func runStoredImport(store storage.JSONStore, path, target, kindFlag, dataDir string, remove bool) error {
+	ws, err := loadImportWorkspace(store, path, remove)
+	if err != nil {
+		return err
+	}
+	ws.EnsureLibrary()
+	return routeStoredImport(store, ws, target, kindFlag, dataDir, remove)
+}
+
+func routeStoredImport(store storage.JSONStore, ws domain.Workspace, target, kindFlag, dataDir string, remove bool) error {
+	if remove {
+		return removeImportSource(store, ws, target)
+	}
+	return applyImportTarget(store, ws, target, kindFlag, dataDir)
+}
+
+func parseImportArgs(args []string) (*flag.FlagSet, *string, *string, *bool, error) {
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	kindFlag := fs.String("kind", "auto", "bestiary, adventure, rules, or auto (markdown files)")
 	dataDir := fs.String("data", "", "local 5e.tools directory containing data/ (optional)")
 	remove := fs.Bool("remove", false, "delete an ingested source by id or title instead of importing")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return nil, nil, nil, nil, err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: dungeon import [-kind auto|bestiary|adventure|rules] [-data DIR] <file.md|url|5e:ID>\n       dungeon import -remove <source-id-or-title>\n\n5e.tools adventures are cached as read-only reference (no wiki rows). Markdown files still become owner wiki records. Mechanical books (MM/PHB) are not imported.")
+		return nil, nil, nil, nil, fmt.Errorf("usage: dungeon import [-kind auto|bestiary|adventure|rules] [-data DIR] <file.md|url|5e:ID>\n       dungeon import -remove <source-id-or-title>\n\n5e.tools adventures are cached as read-only reference (no wiki rows). Markdown files still become owner wiki records. Mechanical books (MM/PHB) are not imported.")
 	}
-	path, err := storage.DefaultPath()
-	if err != nil {
-		return err
-	}
-	store := storage.NewJSON(path)
+	return fs, kindFlag, dataDir, remove, nil
+}
+
+func loadImportWorkspace(store storage.JSONStore, path string, removing bool) (domain.Workspace, error) {
 	ws, err := store.Load()
-	if err != nil {
-		if *remove {
-			return fmt.Errorf("no workspace at %s", path)
-		}
-		ws = newImportWorkspace()
-		fmt.Println("created a new workspace at", path)
+	if err == nil {
+		return ws, nil
 	}
-	ws.EnsureLibrary()
-	if *remove {
-		doc, ok := ws.FindSource(fs.Arg(0))
-		if !ok {
-			return fmt.Errorf("no ingested source matching %q", fs.Arg(0))
-		}
-		if !ws.RemoveSource(doc.ID) {
-			return fmt.Errorf("could not remove %s", doc.ID)
-		}
-		if err := store.Save(ws); err != nil {
-			return err
-		}
-		fmt.Printf("Removed %s (%s)\n", doc.Title, doc.ID)
-		return nil
+	return newOrFailedImportWorkspace(path, removing, err)
+}
+
+func newOrFailedImportWorkspace(path string, removing bool, loadErr error) (domain.Workspace, error) {
+	if !errors.Is(loadErr, os.ErrNotExist) {
+		return domain.Workspace{}, fmt.Errorf("load workspace at %s: %w", path, loadErr)
 	}
-	kind, err := ingest.ParseKind(*kindFlag)
+	if removing {
+		return domain.Workspace{}, fmt.Errorf("no workspace at %s", path)
+	}
+	fmt.Println("created a new workspace at", path)
+	return newImportWorkspace(), nil
+}
+
+func removeImportSource(store storage.JSONStore, ws domain.Workspace, query string) error {
+	doc, ok := ws.FindSource(query)
+	if !ok {
+		return fmt.Errorf("no ingested source matching %q", query)
+	}
+	if !ws.RemoveSource(doc.ID) {
+		return fmt.Errorf("could not remove %s", doc.ID)
+	}
+	return saveRemovedImport(store, ws, doc)
+}
+
+func saveRemovedImport(store storage.JSONStore, ws domain.Workspace, doc domain.SourceDocument) error {
+	if err := store.Save(ws); err != nil {
+		return err
+	}
+	fmt.Printf("Removed %s (%s)\n", doc.Title, doc.ID)
+	return nil
+}
+
+func applyImportTarget(store storage.JSONStore, ws domain.Workspace, target, kindFlag, dataDir string) error {
+	kind, err := ingest.ParseKind(kindFlag)
 	if err != nil {
 		return err
 	}
+	return applyParsedImportTarget(store, ws, target, dataDir, kind)
+}
+
+func applyParsedImportTarget(store storage.JSONStore, ws domain.Workspace, target, dataDir string, kind domain.SourceKind) error {
 	var lastProgress string
-	ws, report, err := ingest.ApplyTarget(ws, fs.Arg(0), ingest.Options{
+	ws, report, err := ingest.ApplyTarget(ws, target, ingest.Options{
 		Kind:    kind,
 		Scope:   ws.Scope,
-		DataDir: *dataDir,
+		DataDir: dataDir,
 		Progress: func(p ingest.Progress) {
 			line := p.String()
 			if line == lastProgress {
@@ -106,18 +157,26 @@ func runImport(args []string) error {
 	if err != nil {
 		return err
 	}
+	return saveAppliedImport(store, ws, report)
+}
+
+func saveAppliedImport(store storage.JSONStore, ws domain.Workspace, report ingest.Report) error {
 	if err := store.Save(ws); err != nil {
 		return err
 	}
+	printImportReport(ws, report)
+	return nil
+}
+
+func printImportReport(ws domain.Workspace, report ingest.Report) {
 	if report.Reference {
 		fmt.Printf("Cached %s as reference · enable it for Sources to read and @ peek\n", report.Title)
 		fmt.Printf("source id %s\n", report.SourceID)
-		return nil
+		return
 	}
 	fmt.Printf("Imported %s (%s) into %s\n", report.Title, report.Kind, ws.Scope.Campaign)
 	fmt.Printf("%d records, %d prep notes, %d associations\n", report.Records, report.Planned, report.Linked)
 	fmt.Printf("source id %s\n", report.SourceID)
-	return nil
 }
 
 func newImportWorkspace() domain.Workspace {

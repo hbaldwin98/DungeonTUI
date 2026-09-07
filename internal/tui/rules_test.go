@@ -142,7 +142,8 @@ func TestSourcesChaptersExpandToNamedHits(t *testing.T) {
 	}
 	model.cursor = millhaven
 	model.bindSourceListRow(model.sourceListRows()[millhaven])
-	model.toggleSourceFolder()
+	updated, _ := model.activateSourceSelection()
+	model = updated.(Model)
 
 	list := model.renderListPane(20)
 	if !strings.Contains(list, "Mira Holt") {

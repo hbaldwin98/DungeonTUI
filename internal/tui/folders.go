@@ -321,6 +321,7 @@ func (m Model) updateFolderName(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) saveSessionFolder() (tea.Model, tea.Cmd) {
+	before := m.workspace.Clone()
 	ids := m.sessionIDsToFile()
 	if len(ids) == 0 {
 		m.closeFolderName()
@@ -330,7 +331,11 @@ func (m Model) saveSessionFolder() (tea.Model, tea.Cmd) {
 	folder := strings.TrimSpace(m.collectionName.Value())
 	m.workspace.Sessions = domain.ApplySessionFolder(m.workspace.Sessions, ids, folder)
 	m.closeFolderName()
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		m.syncSessionTreeCursor()
+		return m, nil
+	}
 	m.syncSessionTreeCursor()
 	if domain.NormalizeFolder(folder) == "" {
 		m.status = fmt.Sprintf("Unfiled %d sit(s) · grouped by month", len(ids))

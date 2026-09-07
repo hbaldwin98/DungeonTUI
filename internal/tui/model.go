@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -129,26 +132,41 @@ func New() Model {
 func NewPersistent() Model {
 	path, err := storage.DefaultPath()
 	if err != nil {
-		model := newModel(demoWorkspace(), nil, nil)
-		model.openPicker()
-		return model
+		return newPickerModel(demoWorkspace(), nil, nil, "")
 	}
 	store := storage.NewJSON(path)
 	prefStore := prefs.NewJSON(prefs.BesideWorkspace(path))
 	workspace, err := store.Load()
 	if err != nil {
-		model := newModel(demoWorkspace(), store, prefStore)
-		model.applyPreferences()
-		model.openPicker()
-		model.status = "New library · choose a world and campaign"
-		return model
+		return newLoadFailureModel(store, prefStore, err)
 	}
+	return newLoadedModel(workspace, store, prefStore)
+}
+
+func newLoadFailureModel(store storage.Store, prefStore prefs.Store, err error) Model {
+	if !errors.Is(err, os.ErrNotExist) {
+		return newPickerModel(domain.Workspace{}, nil, prefStore, "Workspace could not be loaded; writes disabled: "+err.Error())
+	}
+	return newPickerModel(demoWorkspace(), store, prefStore, "New library · choose a world and campaign")
+}
+
+func newPickerModel(workspace domain.Workspace, store storage.Store, prefStore prefs.Store, status string) Model {
+	model := newModel(workspace, store, prefStore)
+	model.applyPreferences()
+	model.openPicker()
+	model.status = status
+	return model
+}
+
+func newLoadedModel(workspace domain.Workspace, store storage.Store, prefStore prefs.Store) Model {
 	model := newModel(workspace, store, prefStore)
 	model.applyPreferences()
 	model.workspace.EnsureLibrary()
 	if scope, ok := model.workspace.ScopeFor(model.layout.ActiveWorldID, model.layout.ActiveCampaignID); ok {
 		model.enterScope(scope)
-		model.status = "Restored " + scope.Campaign + " · b back to library"
+		if model.session == nil {
+			model.status = "Restored " + scope.Campaign + " · b back to library"
+		}
 		return model
 	}
 	model.openPicker()
@@ -1036,54 +1054,64 @@ func (m Model) endSession() (tea.Model, tea.Cmd) {
 	if m.session == nil {
 		return m, nil
 	}
+	before := m.workspace.Clone()
+	previousEndedAt := m.session.EndedAt
 	ended := time.Now().UTC()
 	m.session.EndedAt = &ended
 	m.sessionInput.Blur()
 	// Always retain the ended session in the workspace, even when no store is
 	// attached (demo / harness). Persistence remains best-effort afterward.
-	updated := false
-	for index := range m.workspace.Sessions {
-		if m.workspace.Sessions[index].ID == m.session.ID {
-			m.workspace.Sessions[index] = *m.session
-			updated = true
-			break
+	m.upsertSession(*m.session)
+	recon := domain.BuildSessionReconciliation(*m.session, m.workspace.Records)
+	m.upsertReconciliation(recon)
+	entrySnapshot := append([]domain.TranscriptEntry(nil), m.session.Entries...)
+	m.status = fmt.Sprintf("Session ended · %d entries · %d reconcile items · press r", len(entrySnapshot), len(recon.Items))
+	if m.store != nil {
+		if err := m.persistWorkspace(); err != nil {
+			m.workspace = before
+			m.session.EndedAt = previousEndedAt
+			m.sessionInput.Focus()
+			return m, nil
 		}
 	}
-	if !updated {
-		m.workspace.Sessions = append(m.workspace.Sessions, *m.session)
+	m.session = nil
+	if !transcriptMatches(m.workspace.Sessions, recon.SessionID, entrySnapshot) {
+		m.status = "Session ended · transcript integrity check failed"
 	}
-	recon := domain.BuildSessionReconciliation(*m.session, m.workspace.Records)
-	replaced := false
+	return m, nil
+}
+
+func (m *Model) upsertSession(session domain.SessionRecord) {
+	for index := range m.workspace.Sessions {
+		if m.workspace.Sessions[index].ID == session.ID {
+			m.workspace.Sessions[index] = session
+			return
+		}
+	}
+	m.workspace.Sessions = append(m.workspace.Sessions, session)
+}
+
+func (m *Model) upsertReconciliation(recon domain.ReconciliationRecord) {
 	for index := range m.workspace.Reconciliations {
 		if m.workspace.Reconciliations[index].SessionID == recon.SessionID {
 			m.workspace.Reconciliations[index] = recon
 			m.reconIndex = index
-			replaced = true
-			break
+			return
 		}
 	}
-	if !replaced {
-		m.workspace.Reconciliations = append(m.workspace.Reconciliations, recon)
-		m.reconIndex = len(m.workspace.Reconciliations) - 1
-	}
-	entrySnapshot := append([]domain.TranscriptEntry(nil), m.session.Entries...)
-	m.status = fmt.Sprintf("Session ended · %d entries · %d reconcile items · press r", len(entrySnapshot), len(recon.Items))
-	if m.store != nil {
-		m.persistWorkspace()
-	}
-	m.session = nil
-	// Prove transcript immutability: ended session copy keeps original entry text.
-	for index := range m.workspace.Sessions {
-		if m.workspace.Sessions[index].ID == recon.SessionID {
-			for entryIndex := range m.workspace.Sessions[index].Entries {
-				if m.workspace.Sessions[index].Entries[entryIndex].Text != entrySnapshot[entryIndex].Text {
-					m.status = "Session ended · transcript integrity check failed"
-				}
-			}
-			break
+	m.workspace.Reconciliations = append(m.workspace.Reconciliations, recon)
+	m.reconIndex = len(m.workspace.Reconciliations) - 1
+}
+
+func transcriptMatches(sessions []domain.SessionRecord, sessionID string, entries []domain.TranscriptEntry) bool {
+	for _, session := range sessions {
+		if session.ID == sessionID {
+			return slices.EqualFunc(session.Entries, entries, func(a, b domain.TranscriptEntry) bool {
+				return a.Text == b.Text
+			})
 		}
 	}
-	return m, nil
+	return false
 }
 
 func (m Model) openReconciliation() (tea.Model, tea.Cmd) {
@@ -1194,47 +1222,72 @@ func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
 	}
 	switch m.currentNav().Kind {
 	case NavPrep:
-		if m.selectedPlanID == "" {
-			return m.openPlannedNotes(true)
-		}
-		m.planID = m.selectedPlanID
-		return m.openPlannedNotes(false)
+		return m.activatePrepSelection()
 	case NavSessions:
-		rows := m.sessionTreeRows()
-		if len(rows) > 0 {
-			row := rows[clamp(m.cursor, 0, len(rows)-1)]
-			if row.Kind == domain.SessionTreeFolder {
-				m.toggleSelectedFolder()
-				return m, nil
-			}
-		}
-		session := m.selectedSession()
-		if session != nil && session.EndedAt != nil {
-			return m.openPlayback()
-		}
-		return m.startSession()
+		return m.activateSessionSelection()
 	case NavSources:
-		rows := m.sourceListRows()
-		if len(rows) > 0 {
-			row := rows[clamp(m.cursor, 0, len(rows)-1)]
-			if row.Kind == sourceRowBook || row.Kind == sourceRowChapter {
-				m.toggleSourceFolder()
-				return m, nil
-			}
-		}
-		return m, nil
+		return m.activateSourceSelection()
 	default:
-		if m.selectedRecord() != nil {
-			return m.openEditor(false)
-		}
-		rows := m.recordTreeRows()
-		if len(rows) > 0 {
-			row := rows[clamp(m.cursor, 0, len(rows)-1)]
-			if row.Kind == domain.RecordTreeFolder {
-				m.toggleWikiFolder()
-				return m, nil
-			}
-		}
+		return m.activateWikiSelection()
+	}
+}
+
+func (m Model) activatePrepSelection() (tea.Model, tea.Cmd) {
+	if m.selectedPlanID == "" {
+		return m.openPlannedNotes(true)
+	}
+	m.planID = m.selectedPlanID
+	return m.openPlannedNotes(false)
+}
+
+func (m Model) activateSessionSelection() (tea.Model, tea.Cmd) {
+	rows := m.sessionTreeRows()
+	if len(rows) > 0 && rows[clamp(m.cursor, 0, len(rows)-1)].Kind == domain.SessionTreeFolder {
+		m.toggleSelectedFolder()
+		return m, nil
+	}
+	session := m.selectedSession()
+	if session == nil {
+		return m.startSession()
+	}
+	if session.EndedAt != nil {
+		return m.openPlayback()
+	}
+	return m.resumeSelectedSession(session)
+}
+
+func (m Model) resumeSelectedSession(session *domain.SessionRecord) (tea.Model, tea.Cmd) {
+	m.session = session
+	m.sessionInput.Focus()
+	m.configureTranscriptViewport()
+	m.refreshTranscriptViewport()
+	m.refreshSuggestions()
+	m.status = "Resumed " + session.Title + " · Ctrl+E ends capture"
+	return m, nil
+}
+
+func (m Model) activateSourceSelection() (tea.Model, tea.Cmd) {
+	rows := m.sourceListRows()
+	if len(rows) == 0 {
+		return m, nil
+	}
+	if sourceFolderRow(rows[clamp(m.cursor, 0, len(rows)-1)].Kind) {
+		m.toggleSourceFolder()
+	}
+	return m, nil
+}
+
+func sourceFolderRow(kind sourceRowKind) bool {
+	return kind == sourceRowBook || kind == sourceRowChapter
+}
+
+func (m Model) activateWikiSelection() (tea.Model, tea.Cmd) {
+	if m.selectedRecord() != nil {
+		return m.openEditor(false)
+	}
+	rows := m.recordTreeRows()
+	if len(rows) > 0 && rows[clamp(m.cursor, 0, len(rows)-1)].Kind == domain.RecordTreeFolder {
+		m.toggleWikiFolder()
 	}
 	return m, nil
 }
@@ -1312,6 +1365,7 @@ func (m *Model) deleteSelected() {
 	if record == nil {
 		return
 	}
+	before := m.workspace.Clone()
 	id := record.ID
 	out := make([]domain.Record, 0, len(m.workspace.Records))
 	for _, item := range m.workspace.Records {
@@ -1325,7 +1379,12 @@ func (m *Model) deleteSelected() {
 	m.selectedID = ""
 	m.ensureBrowserSelection()
 	m.refreshResults()
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		m.search = searchsvc.New(m.workspace.Records)
+		m.refreshResults()
+		return
+	}
 	m.status = "Deleted " + record.Title
 }
 
@@ -1347,6 +1406,8 @@ func (m *Model) deleteSelectedSession() {
 	if session == nil {
 		return
 	}
+	before := m.workspace.Clone()
+	activeSession := m.session
 	id := session.ID
 	out := make([]domain.SessionRecord, 0, len(m.workspace.Sessions))
 	for _, item := range m.workspace.Sessions {
@@ -1370,7 +1431,12 @@ func (m *Model) deleteSelectedSession() {
 	m.selectedSessionID = ""
 	m.selectedFolderPath = ""
 	m.syncSessionTreeCursor()
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		m.session = activeSession
+		m.syncSessionTreeCursor()
+		return
+	}
 	m.status = "Deleted session " + session.Title
 }
 
@@ -1380,6 +1446,7 @@ func (m Model) supersedeSelected() (tea.Model, tea.Cmd) {
 		m.status = "Nothing selected to supersede"
 		return m, nil
 	}
+	before := m.workspace.Clone()
 	if record.Authority == domain.Superseded {
 		m.status = record.Title + " is already superseded"
 		return m, nil
@@ -1394,7 +1461,11 @@ func (m Model) supersedeSelected() (tea.Model, tea.Cmd) {
 	}
 	m.search = searchsvc.New(m.workspace.Records)
 	m.clearDestructiveConfirm("")
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		m.search = searchsvc.New(m.workspace.Records)
+		return m, nil
+	}
 	m.status = "Superseded " + record.Title + " · still searchable as history"
 	return m, nil
 }
@@ -1421,53 +1492,68 @@ func (m Model) updateReconciliation(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "a":
-		if len(recon.Items) == 0 {
-			return m, nil
-		}
-		item := recon.Items[m.reconCursor]
-		updated, records, err := domain.ApproveItem(item, m.workspace.Records)
-		if err != nil {
-			m.status = err.Error()
-			return m, nil
-		}
-		recon.Items[m.reconCursor] = updated
-		m.workspace.Records = records
-		m.search = searchsvc.New(m.workspace.Records)
-		m.persistWorkspace()
-		m.status = "Approved · transcript unchanged"
-		return m, nil
+		return m.approveReconciliationItem(recon)
 	case "x":
-		if len(recon.Items) == 0 {
-			return m, nil
-		}
-		recon.Items[m.reconCursor].Status = domain.ReconRejected
-		m.persistWorkspace()
-		m.status = "Rejected · transcript unchanged"
-		return m, nil
+		return m.rejectReconciliationItem(recon)
 	}
 	return m, nil
 }
 
-func (m *Model) persistWorkspace() {
+func (m Model) approveReconciliationItem(recon *domain.ReconciliationRecord) (tea.Model, tea.Cmd) {
+	if len(recon.Items) == 0 {
+		return m, nil
+	}
+	before := m.workspace.Clone()
+	updated, records, err := domain.ApproveItem(recon.Items[m.reconCursor], m.workspace.Records)
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	recon.Items[m.reconCursor] = updated
+	m.workspace.Records = records
+	m.search = searchsvc.New(records)
+	if !m.persistReconciliation(before) {
+		return m, nil
+	}
+	m.status = "Approved · transcript unchanged"
+	return m, nil
+}
+
+func (m *Model) persistReconciliation(before domain.Workspace) bool {
+	if err := m.persistWorkspace(); err == nil {
+		return true
+	}
+	m.workspace = before
+	m.search = searchsvc.New(m.workspace.Records)
+	return false
+}
+
+func (m Model) rejectReconciliationItem(recon *domain.ReconciliationRecord) (tea.Model, tea.Cmd) {
+	if len(recon.Items) == 0 {
+		return m, nil
+	}
+	before := m.workspace.Clone()
+	recon.Items[m.reconCursor].Status = domain.ReconRejected
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		return m, nil
+	}
+	m.status = "Rejected · transcript unchanged"
+	return m, nil
+}
+
+func (m *Model) persistWorkspace() error {
 	if m.store == nil {
-		return
+		return nil
 	}
 	if m.session != nil {
-		updated := false
-		for index := range m.workspace.Sessions {
-			if m.workspace.Sessions[index].ID == m.session.ID {
-				m.workspace.Sessions[index] = *m.session
-				updated = true
-				break
-			}
-		}
-		if !updated {
-			m.workspace.Sessions = append(m.workspace.Sessions, *m.session)
-		}
+		m.upsertSession(*m.session)
 	}
 	if err := m.store.Save(m.workspace); err != nil {
 		m.status = "Saved in memory; persistence failed: " + err.Error()
+		return err
 	}
+	return nil
 }
 
 func (m *Model) applyPreferences() {

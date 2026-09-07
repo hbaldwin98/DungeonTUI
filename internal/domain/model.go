@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -175,6 +177,7 @@ func (r Record) Validate() error {
 }
 
 type Workspace struct {
+	SchemaVersion   int
 	Scope           Scope
 	Library         []WorldRef
 	Sources         []SourceDocument
@@ -183,6 +186,141 @@ type Workspace struct {
 	Reconciliations []ReconciliationRecord
 	PlannedNotes    []PlannedNotes
 	Collections     []Collection
+}
+
+// Clone returns a deep copy suitable for background work or rollback.
+func (w Workspace) Clone() Workspace {
+	data, _ := json.Marshal(w)
+	var clone Workspace
+	_ = json.Unmarshal(data, &clone)
+	return clone
+}
+
+// Validate checks aggregate invariants required by every storage adapter.
+// An empty active scope is valid while the library picker is open.
+func (w Workspace) Validate() error {
+	if err := validateLibrary(w.Library); err != nil {
+		return err
+	}
+	if err := validateActiveScope(w); err != nil {
+		return err
+	}
+	validators := []func() error{
+		func() error { return validateUniqueRecords(w.Records) },
+		func() error { return validateUniqueSources(w.Sources) },
+		func() error { return validateUniqueSessions(w.Sessions) },
+		func() error { return validateUniquePlans(w.PlannedNotes) },
+		func() error { return validateUniqueCollections(w.Collections) },
+	}
+	for _, validate := range validators {
+		if err := validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateLibrary(library []WorldRef) error {
+	worldIDs := map[string]bool{}
+	campaignIDs := map[string]bool{}
+	for _, world := range library {
+		if world.ID == "" || strings.TrimSpace(world.Name) == "" {
+			return fmt.Errorf("world ID and name are required")
+		}
+		if worldIDs[world.ID] {
+			return fmt.Errorf("duplicate world ID %q", world.ID)
+		}
+		worldIDs[world.ID] = true
+		for _, campaign := range world.Campaigns {
+			if campaign.ID == "" || strings.TrimSpace(campaign.Name) == "" {
+				return fmt.Errorf("campaign ID and name are required in world %q", world.ID)
+			}
+			if campaignIDs[campaign.ID] {
+				return fmt.Errorf("duplicate campaign ID %q", campaign.ID)
+			}
+			campaignIDs[campaign.ID] = true
+		}
+	}
+	return nil
+}
+
+func validateActiveScope(w Workspace) error {
+	if w.Scope.WorldID != "" || w.Scope.CampaignID != "" {
+		if _, ok := w.ScopeFor(w.Scope.WorldID, w.Scope.CampaignID); !ok {
+			return fmt.Errorf("active scope does not exist in library")
+		}
+	}
+	return nil
+}
+
+func validateUniqueRecords(records []Record) error {
+	ids := map[string]bool{}
+	for _, record := range records {
+		if err := record.Validate(); err != nil {
+			return err
+		}
+		if ids[record.ID] {
+			return fmt.Errorf("duplicate record ID %q", record.ID)
+		}
+		ids[record.ID] = true
+	}
+	return nil
+}
+
+func validateUniqueSources(sources []SourceDocument) error {
+	ids := map[string]bool{}
+	for _, source := range sources {
+		if err := source.Validate(); err != nil {
+			return err
+		}
+		if ids[source.ID] {
+			return fmt.Errorf("duplicate source ID %q", source.ID)
+		}
+		ids[source.ID] = true
+	}
+	return nil
+}
+
+func validateUniqueSessions(sessions []SessionRecord) error {
+	ids := map[string]bool{}
+	for _, session := range sessions {
+		if session.ID == "" || strings.TrimSpace(session.Title) == "" || session.StartedAt.IsZero() {
+			return fmt.Errorf("session ID, title, and start time are required")
+		}
+		if ids[session.ID] {
+			return fmt.Errorf("duplicate session ID %q", session.ID)
+		}
+		ids[session.ID] = true
+	}
+	return nil
+}
+
+func validateUniquePlans(plans []PlannedNotes) error {
+	ids := map[string]bool{}
+	for _, plan := range plans {
+		if err := plan.Validate(); err != nil {
+			return err
+		}
+		if ids[plan.ID] {
+			return fmt.Errorf("duplicate planned notes ID %q", plan.ID)
+		}
+		ids[plan.ID] = true
+	}
+	return nil
+}
+
+func validateUniqueCollections(collections []Collection) error {
+	ids := map[string]bool{}
+	for _, collection := range collections {
+		if err := collection.Validate(); err != nil {
+			return err
+		}
+		if ids[collection.ID] {
+			return fmt.Errorf("duplicate collection ID %q", collection.ID)
+		}
+		ids[collection.ID] = true
+	}
+	return nil
 }
 
 func NewWorkspace(scope Scope, records []Record) (Workspace, error) {

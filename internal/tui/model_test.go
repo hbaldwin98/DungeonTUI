@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,13 @@ import (
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 	"github.com/hbaldwin98/dungeon/internal/storage"
 )
+
+type failingStore struct{}
+
+func (failingStore) Load() (domain.Workspace, error) {
+	return domain.Workspace{}, errors.New("load failed")
+}
+func (failingStore) Save(domain.Workspace) error { return errors.New("disk full") }
 
 func flushCmd(t *testing.T, model Model, cmd tea.Cmd) Model {
 	t.Helper()
@@ -160,6 +168,201 @@ func TestLibraryPickerDeletesWorld(t *testing.T) {
 	}
 	if _, ok := model.workspace.FindWorld("ashen-realms"); !ok {
 		t.Fatal("ashen-realms should remain")
+	}
+}
+
+func TestLibraryPickerCreateAfterDeleteUsesUniqueID(t *testing.T) {
+	ws := demoWorkspace()
+	if err := ws.DeleteWorld("ashen-realms"); err != nil {
+		t.Fatal(err)
+	}
+	model := newModel(ws, nil, nil)
+	model.openPicker()
+	updated, _ := model.createPickerItem()
+	model = updated.(Model)
+	seen := map[string]bool{}
+	for _, world := range model.workspace.Library {
+		if seen[world.ID] {
+			t.Fatalf("duplicate world ID %q", world.ID)
+		}
+		seen[world.ID] = true
+	}
+}
+
+func TestDeleteRollsBackWhenPersistenceFails(t *testing.T) {
+	model := newModel(demoWorkspace(), failingStore{}, nil)
+	model.enterDemoCampaign()
+	record := model.selectedRecord()
+	if record == nil {
+		t.Fatal("expected selected record")
+	}
+	model.deleteSelected()
+	found := false
+	for _, candidate := range model.workspace.Records {
+		found = found || candidate.ID == record.ID
+	}
+	if !found || !strings.Contains(model.status, "persistence failed") {
+		t.Fatalf("found=%v status=%q", found, model.status)
+	}
+}
+
+func TestEndSessionRemainsLiveWhenPersistenceFails(t *testing.T) {
+	model := newModel(demoWorkspace(), failingStore{}, nil)
+	model.enterDemoCampaign()
+	started, _ := model.startSession()
+	model = started.(Model)
+	updated, _ := model.endSession()
+	model = updated.(Model)
+	if model.session == nil || model.session.EndedAt != nil {
+		t.Fatalf("session = %#v", model.session)
+	}
+	if !strings.Contains(model.status, "persistence failed") {
+		t.Fatalf("status = %q", model.status)
+	}
+}
+
+func TestReconciliationRejectRollsBackWhenPersistenceFails(t *testing.T) {
+	model := newModel(demoWorkspace(), failingStore{}, nil)
+	model.workspace.Reconciliations = []domain.ReconciliationRecord{{
+		SessionID: "session-1",
+		Items:     []domain.ReconciliationItem{{Status: domain.ReconPending}},
+	}}
+	model.reconciling = true
+	updated, _ := model.updateReconciliation(tea.KeyPressMsg{Code: 'x'})
+	model = updated.(Model)
+	if got := model.workspace.Reconciliations[0].Items[0].Status; got != domain.ReconPending {
+		t.Fatalf("status = %q", got)
+	}
+}
+
+func TestEnterScopeResumesUnfinishedSession(t *testing.T) {
+	ws := demoWorkspace()
+	ws.Sessions = append(ws.Sessions, domain.SessionRecord{
+		ID: "session-live", Title: "Live session", Scope: ws.Scope, StartedAt: time.Now().UTC(),
+	})
+	model := newModel(ws, nil, nil)
+	model.enterScope(ws.Scope)
+	if model.session == nil || model.session.ID != "session-live" {
+		t.Fatalf("session = %#v", model.session)
+	}
+	before := len(model.workspace.Sessions)
+	model.selectedSessionID = "session-live"
+	updated, _ := model.activateBrowserSelection()
+	model = updated.(Model)
+	if model.session == nil || model.session.ID != "session-live" || len(model.workspace.Sessions) != before {
+		t.Fatalf("session=%#v sessions=%d", model.session, len(model.workspace.Sessions))
+	}
+}
+
+func TestCreateCampaignUsesUniqueID(t *testing.T) {
+	model := newModel(demoWorkspace(), nil, nil)
+	model.openPicker()
+	model.pickerLevel = "campaign"
+	model.pickerWorldID = model.workspace.Library[0].ID
+	updated, _ := model.createPickerItem()
+	model = updated.(Model)
+	seen := map[string]bool{}
+	for _, world := range model.workspace.Library {
+		for _, campaign := range world.Campaigns {
+			if seen[campaign.ID] {
+				t.Fatalf("duplicate campaign ID %q", campaign.ID)
+			}
+			seen[campaign.ID] = true
+		}
+	}
+}
+
+func TestToggleImportSourceRollsBackWhenPersistenceFails(t *testing.T) {
+	model := newModel(demoWorkspace(), failingStore{}, nil)
+	model.workspace.Sources = []domain.SourceDocument{{ID: "source", Title: "Source", Kind: domain.SourceAdventure}}
+	model.importFocus = "sources"
+	model.importSourceCursor = 0
+	updated, _ := model.toggleImportSource()
+	model = updated.(Model)
+	if model.workspace.SourceEnabled(model.workspace.Scope, "source") {
+		t.Fatal("source remained enabled after failed persistence")
+	}
+}
+
+func TestCorruptWorkspaceDisablesWrites(t *testing.T) {
+	model := newLoadFailureModel(failingStore{}, nil, errors.New("decode workspace: unexpected EOF"))
+	if model.store != nil {
+		t.Fatal("corrupt load must disable writes")
+	}
+	if !strings.Contains(model.status, "writes disabled") {
+		t.Fatalf("status=%q", model.status)
+	}
+}
+
+func TestMissingWorkspaceStartsDemoLibrary(t *testing.T) {
+	model := newLoadFailureModel(failingStore{}, nil, fmt.Errorf("workspace not found: %w", os.ErrNotExist))
+	if model.store == nil {
+		t.Fatal("missing workspace should keep the store for first save")
+	}
+	if len(model.workspace.Library) == 0 {
+		t.Fatal("expected demo library")
+	}
+}
+
+func TestReconciliationNavigationAndApproval(t *testing.T) {
+	model := newModel(demoWorkspace(), nil, nil)
+	model.workspace.Reconciliations = []domain.ReconciliationRecord{{SessionID: "session", Items: []domain.ReconciliationItem{{Status: domain.ReconPending}, {Status: domain.ReconPending}}}}
+	model.reconciling = true
+	updated, _ := model.updateReconciliation(tea.KeyPressMsg{Code: 'a'})
+	model = updated.(Model)
+	if model.workspace.Reconciliations[0].Items[0].Status != domain.ReconApproved {
+		t.Fatal("item was not approved")
+	}
+	updated, _ = model.updateReconciliation(tea.KeyPressMsg{Code: 'j'})
+	model = updated.(Model)
+	if model.reconCursor != 1 {
+		t.Fatalf("cursor = %d", model.reconCursor)
+	}
+	updated, _ = model.updateReconciliation(tea.KeyPressMsg{Code: 'x'})
+	model = updated.(Model)
+	if model.workspace.Reconciliations[0].Items[1].Status != domain.ReconRejected {
+		t.Fatal("item was not rejected")
+	}
+	updated, _ = model.updateReconciliation(tea.KeyPressMsg{Code: tea.KeyEscape})
+	model = updated.(Model)
+	if model.reconciling {
+		t.Fatal("reconciliation remained open")
+	}
+}
+
+func TestReconciliationApproveRollsBackWhenPersistenceFails(t *testing.T) {
+	model := newModel(demoWorkspace(), failingStore{}, nil)
+	model.workspace.Reconciliations = []domain.ReconciliationRecord{{
+		SessionID: "session-1",
+		Items:     []domain.ReconciliationItem{{Status: domain.ReconPending}},
+	}}
+	model.reconciling = true
+	updated, _ := model.updateReconciliation(tea.KeyPressMsg{Code: 'a'})
+	model = updated.(Model)
+	if got := model.workspace.Reconciliations[0].Items[0].Status; got != domain.ReconPending {
+		t.Fatalf("status = %q", got)
+	}
+}
+
+func TestPlannedLinksDoNotResolveAcrossCampaigns(t *testing.T) {
+	ws := demoWorkspace()
+	ws.Records = append(ws.Records, domain.Record{
+		ID: "foreign-vale", Type: domain.NPC, Title: "Foreign Vale", Aliases: []string{"Captain Vale"},
+		Authority: domain.Canon, Scope: domain.Scope{WorldID: "barovia", WorldName: "Barovia", CampaignID: "curse-of-strahd", Campaign: "Curse of Strahd"},
+	})
+	model := newModel(ws, nil, nil)
+	updatedModel, _ := model.openPlannedNotes(true)
+	model = updatedModel.(Model)
+	model.planTitle.SetValue("Scoped prep")
+	model.planBody.SetValue("Meet @Captain Vale")
+	updated, _ := model.savePlannedNotes()
+	model = updated.(Model)
+	if len(model.workspace.PlannedNotes) == 0 || len(model.workspace.PlannedNotes[len(model.workspace.PlannedNotes)-1].Links) != 1 {
+		t.Fatalf("plans = %#v", model.workspace.PlannedNotes)
+	}
+	link := model.workspace.PlannedNotes[len(model.workspace.PlannedNotes)-1].Links[0]
+	if link.RecordID == "foreign-vale" {
+		t.Fatalf("resolved foreign campaign record: %#v", link)
 	}
 }
 

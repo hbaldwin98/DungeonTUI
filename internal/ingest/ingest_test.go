@@ -347,3 +347,15 @@ func TestApplyReportsProgress(t *testing.T) {
 		t.Fatalf("expected convert/classify/write stages, got %v", stages)
 	}
 }
+
+func TestApplyFileRejectsOversizedMarkdown(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.md")
+	if err := os.WriteFile(path, make([]byte, MaxMarkdownBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ws := testWorkspace(t)
+	_, _, err := ApplyFile(ws, path, Options{Scope: ws.Scope})
+	if err == nil || !strings.Contains(err.Error(), "exceeds 16 MiB") {
+		t.Fatalf("ApplyFile error = %v", err)
+	}
+}

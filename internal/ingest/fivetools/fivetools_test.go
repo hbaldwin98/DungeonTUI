@@ -1,11 +1,54 @@
 package fivetools
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
 )
+
+func TestHTTPFetcherRejectsOversizedContentLength(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", strconv.FormatInt(MaxResponseBytes+1, 10))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	_, err := (HTTPFetcher{BaseURL: server.URL, Client: server.Client()}).Get("data/test.json")
+	if err == nil || !strings.Contains(err.Error(), "exceeds 64 MiB") {
+		t.Fatalf("Get error = %v", err)
+	}
+}
+
+func TestHTTPFetcherRejectsOversizedStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "-1")
+		_, _ = w.Write(make([]byte, MaxResponseBytes+1))
+	}))
+	defer server.Close()
+	if _, err := (HTTPFetcher{BaseURL: server.URL, Client: server.Client()}).Get("data/test.json"); err == nil {
+		t.Fatal("expected oversized response error")
+	}
+}
+
+func TestDirFetcherReadsAndReportsMissingFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "small.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := (DirFetcher{Root: dir}).Get("small.json")
+	if err != nil || string(data) != `{}` {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+	if _, err := (DirFetcher{Root: dir}).Get("missing.json"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing error = %v", err)
+	}
+}
 
 func TestParseRefFromFiveEToolsURLs(t *testing.T) {
 	cases := []struct {

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -55,7 +56,27 @@ func (m *Model) enterScope(scope domain.Scope) {
 	m.attachReferences()
 	m.refreshResults()
 	m.persistPreferences()
-	m.status = "Opened " + scope.Campaign + " · b back to library"
+	if m.resumeUnfinishedSession(scope) {
+		m.status = "Resumed " + m.session.Title + " · Ctrl+E ends capture"
+	} else {
+		m.status = "Opened " + scope.Campaign + " · b back to library"
+	}
+}
+
+func (m *Model) resumeUnfinishedSession(scope domain.Scope) bool {
+	for index := len(m.workspace.Sessions) - 1; index >= 0; index-- {
+		session := m.workspace.Sessions[index]
+		if session.EndedAt == nil && session.Scope.WorldID == scope.WorldID && session.Scope.CampaignID == scope.CampaignID {
+			m.session = &session
+			m.sessionInput.Focus()
+			m.configureTranscriptViewport()
+			m.refreshTranscriptViewport()
+			m.refreshSuggestions()
+			return true
+		}
+	}
+	m.session = nil
+	return false
 }
 
 // enterDemoCampaign skips the picker for tests/harness that expect the browser.
@@ -170,8 +191,12 @@ func (m Model) activatePickerItem() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) createPickerItem() (tea.Model, tea.Cmd) {
+	before := m.workspace.Clone()
 	if m.pickerLevel == "world" {
-		id := fmt.Sprintf("world-%d", len(m.workspace.Library)+1)
+		id := nextAvailableID("world", func(candidate string) bool {
+			_, exists := m.workspace.FindWorld(candidate)
+			return exists
+		})
 		name := "New World"
 		m.workspace.Library = append(m.workspace.Library, domain.WorldRef{
 			ID:   id,
@@ -181,14 +206,26 @@ func (m Model) createPickerItem() (tea.Model, tea.Cmd) {
 			},
 		})
 		m.pickerCursor = len(m.workspace.Library) - 1
-		m.persistWorkspace()
+		if err := m.persistWorkspace(); err != nil {
+			m.workspace = before
+			return m, nil
+		}
 		return m.openPickerRename()
 	}
 	world, ok := m.workspace.FindWorld(m.pickerWorldID)
 	if !ok {
 		return m, nil
 	}
-	id := fmt.Sprintf("%s-campaign-%d", world.ID, len(world.Campaigns)+1)
+	id := nextAvailableID(world.ID+"-campaign", func(candidate string) bool {
+		for _, item := range m.workspace.Library {
+			for _, campaign := range item.Campaigns {
+				if campaign.ID == candidate {
+					return true
+				}
+			}
+		}
+		return false
+	})
 	name := "New Campaign"
 	for index := range m.workspace.Library {
 		if m.workspace.Library[index].ID != world.ID {
@@ -200,8 +237,20 @@ func (m Model) createPickerItem() (tea.Model, tea.Cmd) {
 		m.pickerCursor = len(m.workspace.Library[index].Campaigns) - 1
 		break
 	}
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		return m, nil
+	}
 	return m.openPickerRename()
+}
+
+func nextAvailableID(prefix string, exists func(string) bool) string {
+	for suffix := time.Now().UTC().UnixNano(); ; suffix++ {
+		candidate := fmt.Sprintf("%s-%d", prefix, suffix)
+		if !exists(candidate) {
+			return candidate
+		}
+	}
 }
 
 func (m Model) selectedPickerWorld() (domain.WorldRef, bool) {
@@ -274,6 +323,7 @@ func (m Model) updatePickerName(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) savePickerRename() (tea.Model, tea.Cmd) {
+	before := m.workspace.Clone()
 	name := strings.TrimSpace(m.collectionName.Value())
 	if name == "" {
 		m.status = "Name is required"
@@ -302,7 +352,10 @@ func (m Model) savePickerRename() (tea.Model, tea.Cmd) {
 		m.status = err.Error()
 		return m, nil
 	}
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		return m, nil
+	}
 	m.status = "Renamed to “" + name + "”"
 	return m, nil
 }
@@ -331,6 +384,7 @@ func (m Model) armPickerDelete() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) confirmPickerDelete() (tea.Model, tea.Cmd) {
+	before := m.workspace.Clone()
 	kind := m.confirmKind
 	m.clearDestructiveConfirm("")
 	var err error
@@ -361,7 +415,11 @@ func (m Model) confirmPickerDelete() (tea.Model, tea.Cmd) {
 	}
 	m.pickerCursor = clamp(m.pickerCursor, 0, max(0, m.pickerItemCount()-1))
 	m.syncPickerLayout()
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		m.syncPickerLayout()
+		return m, nil
+	}
 	m.status = "Deleted “" + label + "”"
 	return m, nil
 }

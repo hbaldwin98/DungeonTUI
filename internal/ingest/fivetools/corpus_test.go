@@ -173,6 +173,45 @@ func TestCacheFetcherReadsAfterWrite(t *testing.T) {
 	}
 }
 
+func TestCacheFetcherReportsUnavailableCache(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(dir, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cached := NewCacheFetcher(MapFetcher{"data/items.json": []byte(`{"item":[]}`)}, dir)
+	if _, err := cached.Get("data/items.json"); err == nil {
+		t.Fatalf("Get error = %v", err)
+	}
+}
+
+func TestCacheOnlyRejectsMalformedJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "data", "items.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"item":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CacheOnly(dir).Get("data/items.json"); err == nil || !strings.Contains(err.Error(), "not valid JSON") {
+		t.Fatalf("Get error = %v", err)
+	}
+}
+
+func TestCacheFetcherRejectsMalformedCachedJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "data", "items.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"item":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewCacheFetcher(MapFetcher{}, dir).Get("data/items.json"); err == nil {
+		t.Fatal("expected invalid cache error")
+	}
+}
+
 func TestCatalogAllowedSourcesHideCoreLookups(t *testing.T) {
 	c := NewCatalog(pluginFetcher())
 	if err := c.LoadCompose(); err != nil {

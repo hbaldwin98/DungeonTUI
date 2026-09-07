@@ -231,6 +231,7 @@ func (m Model) updateCollectionName(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) saveNamedCollection() (tea.Model, tea.Cmd) {
+	before := m.workspace.Clone()
 	title := strings.TrimSpace(m.collectionName.Value())
 	if title == "" {
 		m.status = "Collection title is required"
@@ -254,12 +255,18 @@ func (m Model) saveNamedCollection() (tea.Model, tea.Cmd) {
 	m.lastCollectionID = col.ID
 	m.namingCollection = false
 	m.collectionName.Blur()
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		m.collectionFilter = ""
+		m.lastCollectionID = ""
+		return m, nil
+	}
 	m.status = "Collection “" + col.Title + "” · a adds the selected entity"
 	return m, nil
 }
 
 func (m Model) toggleCollectionMembership() (tea.Model, tea.Cmd) {
+	before := m.workspace.Clone()
 	col := m.targetCollection()
 	if col == nil {
 		m.status = "Cycle to a collection with c, then a to add or remove"
@@ -277,7 +284,10 @@ func (m Model) toggleCollectionMembership() (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		return m, nil
+	}
 	if updated.Has(record.ID) {
 		m.status = "Added " + record.Title + " to " + updated.Title
 	} else {

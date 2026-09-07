@@ -190,6 +190,7 @@ func (m Model) toggleImportSource() (tea.Model, tea.Cmd) {
 	if m.importFocus != "sources" || m.importSourceCursor < 0 || m.importSourceCursor >= len(m.workspace.Sources) {
 		return m, nil
 	}
+	before := m.workspace.Clone()
 	scope := m.workspace.Scope
 	id := m.workspace.Sources[m.importSourceCursor].ID
 	if m.workspace.SourceEnabled(scope, id) {
@@ -199,7 +200,10 @@ func (m Model) toggleImportSource() (tea.Model, tea.Cmd) {
 		m.workspace.EnableSource(scope.WorldID, scope.CampaignID, id)
 		m.status = "Enabled in " + scope.Campaign
 	}
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		return m, nil
+	}
 	m.search = searchsvc.New(m.workspace.Records)
 	m.attachReferences()
 	m.refreshResults()
@@ -224,6 +228,7 @@ func (m Model) confirmRemoveImportSource() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	source := m.workspace.Sources[m.importSourceCursor]
+	before := m.workspace.Clone()
 	m.clearDestructiveConfirm("")
 	if !m.workspace.RemoveSource(source.ID) {
 		m.status = "Could not remove " + source.Title
@@ -234,7 +239,12 @@ func (m Model) confirmRemoveImportSource() (tea.Model, tea.Cmd) {
 	}
 	m.search = searchsvc.New(m.workspace.Records)
 	m.attachReferences()
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		m.search = searchsvc.New(m.workspace.Records)
+		m.attachReferences()
+		return m, nil
+	}
 	m.ensureBrowserSelection()
 	m.refreshResults()
 	m.status = "Removed " + source.Title + " · ingest it again from 5e.tools or FILES"
@@ -262,7 +272,7 @@ func (m Model) activateImport() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) runImportFile(path string) (tea.Model, tea.Cmd) {
-	ws := m.workspace
+	ws := m.workspace.Clone()
 	return m.startIngest(filepath.Base(path), ingest.Options{
 		Kind:  m.importKind,
 		Scope: ws.Scope,
@@ -748,7 +758,7 @@ func (m Model) runImportTools() (tea.Model, tea.Cmd) {
 	}
 	entry := entries[m.importToolsCursor]
 	ref := entry.PageURL()
-	ws := m.workspace
+	ws := m.workspace.Clone()
 	return m.startIngest(entry.Name+" from 5e.tools", ingest.Options{
 		Kind:    m.importKind,
 		Scope:   ws.Scope,
@@ -793,10 +803,16 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 		m.status = "Import failed: " + msg.err.Error()
 		return m, nil
 	}
+	before := m.workspace
 	m.workspace = msg.ws
 	m.search = searchsvc.New(m.workspace.Records)
 	m.attachReferences()
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		m.search = searchsvc.New(m.workspace.Records)
+		m.attachReferences()
+		return m, nil
+	}
 	m.ensureBrowserSelection()
 	m.refreshResults()
 	for index, source := range m.workspace.Sources {

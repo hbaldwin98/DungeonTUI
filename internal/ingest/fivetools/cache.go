@@ -1,6 +1,7 @@
 package fivetools
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -40,6 +41,9 @@ func (c CacheFetcher) Get(path string) ([]byte, error) {
 		return nil, err
 	}
 	if data, err := os.ReadFile(full); err == nil {
+		if !json.Valid(data) {
+			return nil, fmt.Errorf("cache %s: cached response is not valid JSON", path)
+		}
 		return data, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -52,10 +56,49 @@ func (c CacheFetcher) Get(path string) ([]byte, error) {
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return data, nil
+		return nil, fmt.Errorf("create 5e.tools cache directory: %w", err)
 	}
-	_ = os.WriteFile(full, data, 0o644)
+	if !json.Valid(data) {
+		return nil, fmt.Errorf("cache %s: response is not valid JSON", path)
+	}
+	if err := writeCacheFile(full, data); err != nil {
+		return nil, fmt.Errorf("cache %s: %w", path, err)
+	}
 	return data, nil
+}
+
+func writeCacheFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".5etools-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 // CacheOnlyFetcher never hits the network. The TUI uses it so @ peeks read
@@ -79,6 +122,9 @@ func (c CacheOnlyFetcher) Get(path string) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s", ErrNotFound, path)
 		}
 		return nil, err
+	}
+	if !json.Valid(data) {
+		return nil, fmt.Errorf("cache %s: cached response is not valid JSON", path)
 	}
 	return data, nil
 }

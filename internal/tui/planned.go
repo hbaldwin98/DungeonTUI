@@ -174,6 +174,7 @@ func (m Model) renderPlanLiveSits() string {
 }
 
 func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
+	before := m.workspace.Clone()
 	now := time.Now().UTC()
 	notes := m.planDraft
 	notes.ID = m.planID
@@ -184,7 +185,13 @@ func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
 	if notes.CreatedAt.IsZero() {
 		notes.CreatedAt = now
 	}
-	notes = notes.RefreshPlannedLinks(m.workspace.Records)
+	visible := make([]domain.Record, 0, len(m.workspace.Records))
+	for _, record := range m.workspace.Records {
+		if domain.RecordVisibleIn(record, m.workspace.Scope, m.workspace.EnabledSourceIDs(m.workspace.Scope)) {
+			visible = append(visible, record)
+		}
+	}
+	notes = notes.RefreshPlannedLinks(visible)
 	if err := notes.Validate(); err != nil {
 		m.status = err.Error()
 		return m, nil
@@ -204,7 +211,10 @@ func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
 	m.selectedPlanID = notes.ID
 	m.planning = false
 	m.suggestions = nil
-	m.persistWorkspace()
+	if err := m.persistWorkspace(); err != nil {
+		m.workspace = before
+		return m, nil
+	}
 	m.status = "Saved planned notes · s starts another live sit from this prep"
 	return m, nil
 }

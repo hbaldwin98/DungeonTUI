@@ -13,6 +13,8 @@ import (
 
 const DefaultBaseURL = "https://5e.tools"
 
+const MaxResponseBytes int64 = 64 << 20
+
 var ErrNotFound = errors.New("5e.tools path not found")
 
 // Fetcher loads a 5e.tools site-relative path such as "data/books.json".
@@ -61,7 +63,17 @@ func (f HTTPFetcher) Get(path string) ([]byte, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("GET %s: HTTP %s", path, resp.Status)
 	}
-	return io.ReadAll(resp.Body)
+	if resp.ContentLength > MaxResponseBytes {
+		return nil, fmt.Errorf("GET %s: response exceeds %d MiB limit", path, MaxResponseBytes>>20)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > MaxResponseBytes {
+		return nil, fmt.Errorf("GET %s: response exceeds %d MiB limit", path, MaxResponseBytes>>20)
+	}
+	return data, nil
 }
 
 // DirFetcher reads a local 5e.tools checkout (the directory that contains data/).
@@ -71,12 +83,20 @@ type DirFetcher struct {
 
 func (f DirFetcher) Get(path string) ([]byte, error) {
 	full := filepath.Join(f.Root, filepath.FromSlash(path))
-	data, err := os.ReadFile(full)
+	file, err := os.Open(full)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("%w: %s", ErrNotFound, path)
 		}
 		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, MaxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > MaxResponseBytes {
+		return nil, fmt.Errorf("read %s: response exceeds %d MiB limit", path, MaxResponseBytes>>20)
 	}
 	return data, nil
 }
