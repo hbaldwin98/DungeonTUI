@@ -41,7 +41,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Close focused type/session panes with `-`; delete and supersede require `y`
   confirmation (Argus #34).
 - Library launch picker: choose world → campaign (vault-style); `b` switches
-  back (Argus #35; decision #36 / D-014).
+  back; `e` renames; `d` then `y` deletes (Argus #35, #81; decision #36 / #86 /
+  D-014, D-040).
 - In-campaign tree navigator: Sessions, Prep, and typed wiki sections as
   first-class branches with list|detail browsing (Argus #36; decision #35 /
   D-013).

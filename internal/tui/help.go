@@ -45,6 +45,14 @@ func (m Model) helpSections() [][]string {
 		return [][]string{
 			{"Playback", "← / h rewind", "→ / l fast-forward", "Home first · End last", "Esc close"},
 		}
+	case m.namingPicker:
+		return [][]string{
+			{"Rename vault", "Type a world or campaign name", "Enter save", "Esc cancel"},
+		}
+	case m.picking:
+		return [][]string{
+			{"Library", "j/k move", "Enter open", "n new", "e rename", "d delete (y confirm)", "I import", "Esc back to worlds", "q quit"},
+		}
 	case m.namingFolder:
 		return [][]string{
 			{"Session folder", "Type a slash path", "Enter save", "Empty unfiles to month groups", "Esc cancel"},

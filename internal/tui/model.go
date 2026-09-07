@@ -70,6 +70,7 @@ type Model struct {
 	pickerLevel        string // "world" or "campaign"
 	pickerCursor       int
 	pickerWorldID      string
+	namingPicker       bool
 	navCursor          int
 	navKind            NavKind
 	navType            domain.EntityType

@@ -98,9 +98,18 @@ aids layered on that tree (`f` tags, `c` collections).
 
 Dungeon opens like an Obsidian vault switcher: pick a world, then a campaign,
 then work inside that context. `b` returns to the library picker to switch.
-Preferences may restore the last-opened campaign on relaunch, but switching is
-always available by going back. In-campaign hierarchy (sections / sessions /
-prep) comes after that entry gate.
+`e` renames the selected world or campaign. `d` then `y` deletes it (and that
+scope's wiki, sessions, prep, and collections); `n` or Esc cancels. Preferences
+may restore the last-opened campaign on relaunch, but switching is always
+available by going back. In-campaign hierarchy (sections / sessions / prep)
+comes after that entry gate.
+
+## D-040 — Library vaults can be renamed or deleted
+
+World and campaign names are labels on stable IDs. Delete from the picker is
+hard and confirmed, like entity delete: it drops that vault's scoped wiki,
+sessions, prep, and collections. World-shared rows survive campaign delete.
+Sibling campaigns and other worlds stay.
 
 ## D-015 — Entity coherence spine
 

@@ -74,6 +74,95 @@ func TestLibraryPickerSelectsCampaign(t *testing.T) {
 	}
 }
 
+func TestLibraryPickerRenamesWorld(t *testing.T) {
+	model := newModel(demoWorkspace(), nil, nil)
+	model.width = 80
+	model.height = 24
+	model.openPicker()
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Text: "e"}))
+	model = updated.(Model)
+	if !model.namingPicker {
+		t.Fatal("expected rename prompt")
+	}
+	model.collectionName.SetValue("The Cinder Marches")
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	if model.namingPicker {
+		t.Fatal("rename should close")
+	}
+	world, ok := model.workspace.FindWorld("ashen-realms")
+	if !ok || world.Name != "The Cinder Marches" {
+		t.Fatalf("world=%#v ok=%v", world, ok)
+	}
+	if model.workspace.Scope.WorldName != "The Cinder Marches" {
+		t.Fatalf("scope still %q", model.workspace.Scope.WorldName)
+	}
+	if !strings.Contains(model.View().Content, "The Cinder Marches") {
+		t.Fatalf("view missing rename: %q", model.View().Content)
+	}
+}
+
+func TestLibraryPickerDeleteCampaignRequiresConfirm(t *testing.T) {
+	model := newModel(demoWorkspace(), nil, nil)
+	model.width = 80
+	model.height = 24
+	model.openPicker()
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	model = updated.(Model)
+	if !model.deleteConfirm || model.confirmKind != "delete-campaign" {
+		t.Fatalf("confirm=%v kind=%q", model.deleteConfirm, model.confirmKind)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
+	model = updated.(Model)
+	if model.deleteConfirm {
+		t.Fatal("n should cancel")
+	}
+	if _, ok := model.workspace.ScopeFor("ashen-realms", "ashen-crown"); !ok {
+		t.Fatal("cancel should keep campaign")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+	model = updated.(Model)
+	if _, ok := model.workspace.ScopeFor("ashen-realms", "ashen-crown"); ok {
+		t.Fatal("confirmed delete should drop campaign")
+	}
+	foundVale := false
+	foundGreywatch := false
+	for _, record := range model.workspace.Records {
+		if record.Title == "Captain Vale" {
+			foundVale = true
+		}
+		if record.Title == "Greywatch" {
+			foundGreywatch = true
+		}
+	}
+	if foundVale || !foundGreywatch {
+		t.Fatalf("vale=%v greywatch=%v records=%d", foundVale, foundGreywatch, len(model.workspace.Records))
+	}
+}
+
+func TestLibraryPickerDeletesWorld(t *testing.T) {
+	model := newModel(demoWorkspace(), nil, nil)
+	model.width = 80
+	model.height = 24
+	model.openPicker()
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+	model = updated.(Model)
+	if _, ok := model.workspace.FindWorld("barovia"); ok {
+		t.Fatal("barovia should be gone")
+	}
+	if _, ok := model.workspace.FindWorld("ashen-realms"); !ok {
+		t.Fatal("ashen-realms should remain")
+	}
+}
+
 func TestSearchStartsCampaignScopedAndFactsOnly(t *testing.T) {
 	model := New()
 	model.width = 120

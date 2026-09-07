@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -24,6 +25,7 @@ func (m *Model) openPicker() {
 	m.playingBack = false
 	m.namingCollection = false
 	m.namingFolder = false
+	m.namingPicker = false
 	m.preview = nil
 	m.importing = false
 	m.clearDestructiveConfirm("")
@@ -35,7 +37,7 @@ func (m *Model) openPicker() {
 			}
 		}
 	}
-	m.status = "Choose a world · Enter open · n new · q quit"
+	m.status = "Choose a world · Enter open · n new · e rename · d delete · q quit"
 }
 
 func (m *Model) enterScope(scope domain.Scope) {
@@ -67,15 +69,30 @@ func (m *Model) enterDemoCampaign() {
 }
 
 func (m Model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.namingPicker {
+		return m.updatePickerName(msg)
+	}
+	if m.deleteConfirm {
+		switch msg.String() {
+		case "y":
+			return m.confirmPickerDelete()
+		case "n", "esc":
+			m.clearDestructiveConfirm("Cancelled")
+			return m, nil
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
+	case "?":
+		return m.openHelp()
 	case "esc", "backspace":
 		if m.pickerLevel == "campaign" {
 			m.pickerLevel = "world"
 			m.pickerWorldID = ""
 			m.pickerCursor = 0
-			m.status = "Choose a world · Enter open · n new · q quit"
+			m.status = pickerWorldHint()
 			return m, nil
 		}
 		return m, nil
@@ -91,8 +108,20 @@ func (m Model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openImport()
 	case "n":
 		return m.createPickerItem()
+	case "e":
+		return m.openPickerRename()
+	case "d":
+		return m.armPickerDelete()
 	}
 	return m, nil
+}
+
+func pickerWorldHint() string {
+	return "Choose a world · Enter open · n new · e rename · d delete · q quit"
+}
+
+func pickerCampaignHint(worldName string) string {
+	return "Choose a campaign in " + worldName + " · Enter open · n new · e rename · d delete · Esc back"
 }
 
 func (m Model) pickerItemCount() int {
@@ -123,7 +152,7 @@ func (m Model) activatePickerItem() (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		m.status = "Choose a campaign in " + world.Name + " · Enter open · Esc back"
+		m.status = pickerCampaignHint(world.Name)
 		return m, nil
 	}
 	world, ok := m.workspace.FindWorld(m.pickerWorldID)
@@ -153,8 +182,7 @@ func (m Model) createPickerItem() (tea.Model, tea.Cmd) {
 		})
 		m.pickerCursor = len(m.workspace.Library) - 1
 		m.persistWorkspace()
-		m.status = "Created " + name + " · Enter to open its campaign"
-		return m, nil
+		return m.openPickerRename()
 	}
 	world, ok := m.workspace.FindWorld(m.pickerWorldID)
 	if !ok {
@@ -173,8 +201,188 @@ func (m Model) createPickerItem() (tea.Model, tea.Cmd) {
 		break
 	}
 	m.persistWorkspace()
-	m.status = "Created " + name + " · Enter to open"
+	return m.openPickerRename()
+}
+
+func (m Model) selectedPickerWorld() (domain.WorldRef, bool) {
+	if m.pickerLevel == "world" {
+		if m.pickerCursor < 0 || m.pickerCursor >= len(m.workspace.Library) {
+			return domain.WorldRef{}, false
+		}
+		return m.workspace.Library[m.pickerCursor], true
+	}
+	return m.workspace.FindWorld(m.pickerWorldID)
+}
+
+func (m Model) selectedPickerCampaign() (domain.CampaignRef, bool) {
+	world, ok := m.workspace.FindWorld(m.pickerWorldID)
+	if !ok || m.pickerCursor < 0 || m.pickerCursor >= len(world.Campaigns) {
+		return domain.CampaignRef{}, false
+	}
+	return world.Campaigns[m.pickerCursor], true
+}
+
+func (m Model) openPickerRename() (tea.Model, tea.Cmd) {
+	kind := "world"
+	name := ""
+	if m.pickerLevel == "campaign" {
+		campaign, ok := m.selectedPickerCampaign()
+		if !ok {
+			m.status = "Nothing selected"
+			return m, nil
+		}
+		kind = "campaign"
+		name = campaign.Name
+	} else {
+		world, ok := m.selectedPickerWorld()
+		if !ok {
+			m.status = "Nothing selected"
+			return m, nil
+		}
+		name = world.Name
+	}
+	m.namingPicker = true
+	m.collectionName.Placeholder = kind + " name"
+	m.collectionName.Prompt = "Name: "
+	m.collectionName.SetValue(name)
+	m.collectionName.SetWidth(max(24, min(48, m.width-16)))
+	m.collectionName.Focus()
+	m.status = "Rename " + kind + " · Enter save · Esc cancel"
+	return m, textinput.Blink
+}
+
+func (m *Model) closePickerRename() {
+	m.namingPicker = false
+	m.collectionName.Blur()
+	m.collectionName.Placeholder = "Collection name"
+	m.collectionName.Prompt = "Name: "
+	m.collectionName.SetValue("")
+}
+
+func (m Model) updatePickerName(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.closePickerRename()
+		m.status = "Cancelled rename"
+		return m, nil
+	case "enter":
+		return m.savePickerRename()
+	}
+	var cmd tea.Cmd
+	m.collectionName, cmd = m.collectionName.Update(msg)
+	return m, cmd
+}
+
+func (m Model) savePickerRename() (tea.Model, tea.Cmd) {
+	name := strings.TrimSpace(m.collectionName.Value())
+	if name == "" {
+		m.status = "Name is required"
+		return m, nil
+	}
+	var err error
+	if m.pickerLevel == "campaign" {
+		campaign, ok := m.selectedPickerCampaign()
+		if !ok {
+			m.closePickerRename()
+			m.status = "Nothing selected"
+			return m, nil
+		}
+		err = m.workspace.RenameCampaign(m.pickerWorldID, campaign.ID, name)
+	} else {
+		world, ok := m.selectedPickerWorld()
+		if !ok {
+			m.closePickerRename()
+			m.status = "Nothing selected"
+			return m, nil
+		}
+		err = m.workspace.RenameWorld(world.ID, name)
+	}
+	m.closePickerRename()
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	m.persistWorkspace()
+	m.status = "Renamed to “" + name + "”"
 	return m, nil
+}
+
+func (m Model) armPickerDelete() (tea.Model, tea.Cmd) {
+	if m.pickerLevel == "campaign" {
+		campaign, ok := m.selectedPickerCampaign()
+		if !ok {
+			m.status = "Nothing selected"
+			return m, nil
+		}
+		m.deleteConfirm = true
+		m.confirmKind = "delete-campaign"
+		m.status = "Delete campaign “" + campaign.Name + "” and its wiki, sessions, and prep?  y confirm · n/Esc cancel"
+		return m, nil
+	}
+	world, ok := m.selectedPickerWorld()
+	if !ok {
+		m.status = "Nothing selected"
+		return m, nil
+	}
+	m.deleteConfirm = true
+	m.confirmKind = "delete-world"
+	m.status = "Delete world “" + world.Name + "” and every campaign inside it?  y confirm · n/Esc cancel"
+	return m, nil
+}
+
+func (m Model) confirmPickerDelete() (tea.Model, tea.Cmd) {
+	kind := m.confirmKind
+	m.clearDestructiveConfirm("")
+	var err error
+	label := ""
+	switch kind {
+	case "delete-campaign":
+		campaign, ok := m.selectedPickerCampaign()
+		if !ok {
+			m.status = "Nothing selected"
+			return m, nil
+		}
+		label = campaign.Name
+		err = m.workspace.DeleteCampaign(m.pickerWorldID, campaign.ID)
+	case "delete-world":
+		world, ok := m.selectedPickerWorld()
+		if !ok {
+			m.status = "Nothing selected"
+			return m, nil
+		}
+		label = world.Name
+		err = m.workspace.DeleteWorld(world.ID)
+	default:
+		return m, nil
+	}
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	m.pickerCursor = clamp(m.pickerCursor, 0, max(0, m.pickerItemCount()-1))
+	m.syncPickerLayout()
+	m.persistWorkspace()
+	m.status = "Deleted “" + label + "”"
+	return m, nil
+}
+
+func (m *Model) syncPickerLayout() {
+	changed := false
+	if m.layout.ActiveWorldID != "" {
+		if _, ok := m.workspace.FindWorld(m.layout.ActiveWorldID); !ok {
+			m.layout.ActiveWorldID = ""
+			m.layout.ActiveCampaignID = ""
+			changed = true
+		} else if m.layout.ActiveCampaignID != "" {
+			if _, ok := m.workspace.ScopeFor(m.layout.ActiveWorldID, m.layout.ActiveCampaignID); !ok {
+				m.layout.ActiveCampaignID = ""
+				changed = true
+			}
+		}
+	}
+	if changed {
+		m.persistPreferences()
+	}
 }
 
 func (m Model) renderPicker() string {
@@ -185,7 +393,16 @@ func (m Model) renderPicker() string {
 	builder.WriteString("\n")
 	builder.WriteString(mutedStyle.Render("Choose a world and campaign — like picking a vault"))
 	builder.WriteString("\n\n")
-	if m.pickerLevel == "world" {
+	if m.namingPicker {
+		kind := "WORLD"
+		if m.pickerLevel == "campaign" {
+			kind = "CAMPAIGN"
+		}
+		builder.WriteString(sectionStyle.Render("RENAME " + kind))
+		builder.WriteString("\n\n")
+		builder.WriteString(m.collectionName.View())
+		builder.WriteString("\n")
+	} else if m.pickerLevel == "world" {
 		builder.WriteString(sectionStyle.Render("WORLDS"))
 		builder.WriteString("\n\n")
 		if len(m.workspace.Library) == 0 {
@@ -223,7 +440,10 @@ func (m Model) renderPicker() string {
 		}
 	}
 	builder.WriteString("\n")
-	help := "j/k move  Enter open  n new  I import  Esc back  q quit"
+	help := "j/k move  Enter open  n new  e rename  d delete  I import  Esc back  q quit"
+	if m.namingPicker {
+		help = "Enter save  Esc cancel"
+	}
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}

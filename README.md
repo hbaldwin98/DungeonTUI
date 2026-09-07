@@ -12,6 +12,7 @@ in the platform user configuration directory after editing.
 
 Dungeon requires Go 1.25 or newer. On launch you choose a world and campaign
 (Obsidian-vault style); `b` returns to that library picker to switch context.
+There, `e` renames a world or campaign and `d` then `y` deletes it.
 
 ```sh
 go mod tidy
@@ -89,7 +90,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `?` | Show context-sensitive command help |
 | `f` | Cycle tag filter on the current section list |
 | `o` | Cycle list scope filter (campaign → world → library) |
-| `b` | Back to world/campaign library picker |
+| `b` | Back to world/campaign library picker (`e` rename, `d` then `y` delete) |
 | `p` | Draft planned session notes (prep markdown, not live) |
 | `s` | Start a live session (uses selected/latest planned notes as context) |
 | `m` | File the selected sit (or folder group) into a session folder |
