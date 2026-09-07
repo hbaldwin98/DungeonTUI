@@ -8,28 +8,31 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 )
 
-func TestRulesetPeekResolvesPluginCreatureWithoutWikiRecord(t *testing.T) {
+func TestAdventurePeekResolvesEnabledSourceWithoutWikiRecord(t *testing.T) {
 	ws := demoWorkspace()
 	ws.EnsureLibrary()
 	ws.Sources = append(ws.Sources, domain.SourceDocument{
-		ID: "src-5e-mm", Title: "Monster Manual", Kind: domain.SourceBestiary, Edition: "2014",
+		ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014",
 	})
-	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-mm")
+	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
 	ws.Records = append(ws.Records, domain.Record{
-		ID: "cave", Type: domain.Location, Title: "Cave Mouth", Authority: domain.Canon, Scope: ws.Scope,
-		Body: "Two @Cave Rascal watch the cave.\n",
+		ID: "inn", Type: domain.Location, Title: "The Mill Inn", Authority: domain.Canon, Scope: ws.Scope,
+		Body: "Meet @Mira Holt at the bar.\n",
 	})
 	model := newModel(ws, nil, nil)
-	model.toolsFetcher = rulesetTestFetcher()
-	model.attachRules()
+	model.toolsFetcher = adventureTestFetcher()
+	model.attachReferences()
 
-	line := "Two @Cave Rascal watch the cave."
+	line := "Meet @Mira Holt at the bar."
 	peek := model.resolveReferenceAtCursor(line, 8)
-	if peek == nil || peek.Title != "Cave Rascal" || peek.Source != "MM" {
+	if peek == nil || peek.Title != "Mira Holt" || peek.Source != "The Hollow Crown" {
 		t.Fatalf("peek=%#v", peek)
 	}
-	if !strings.Contains(peek.Body, "**AC** 12") {
-		t.Fatalf("expected composed stats:\n%s", peek.Body)
+	if !fivetools.IsReferenceID(peek.ID) {
+		t.Fatalf("expected reference id, got %q", peek.ID)
+	}
+	if !strings.Contains(peek.Body, "bar") && !strings.Contains(peek.Summary, "Mira") {
+		t.Fatalf("expected adventure text:\n%#v", peek)
 	}
 
 	mentions := model.resolveMentions(line)
@@ -38,42 +41,136 @@ func TestRulesetPeekResolvesPluginCreatureWithoutWikiRecord(t *testing.T) {
 	}
 }
 
-func TestRulesetPeekRequiresEnabledPluginSource(t *testing.T) {
+func TestAdventurePeekRequiresEnabledSource(t *testing.T) {
 	ws := demoWorkspace()
 	ws.EnsureLibrary()
-	ws.Sources = append(ws.Sources,
-		domain.SourceDocument{ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014"},
-		domain.SourceDocument{ID: "src-5e-mm", Title: "Monster Manual", Kind: domain.SourceBestiary, Edition: "2014"},
-	)
-	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
+	ws.Sources = append(ws.Sources, domain.SourceDocument{
+		ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014",
+	})
 	ws.Records = append(ws.Records, domain.Record{
-		ID: "cave", Type: domain.Location, Title: "Cave Mouth", Authority: domain.Canon, Scope: ws.Scope,
-		Body: "Two @Cave Rascal watch the cave.\n",
+		ID: "inn", Type: domain.Location, Title: "The Mill Inn", Authority: domain.Canon, Scope: ws.Scope,
+		Body: "Meet @Mira Holt at the bar.\n",
 	})
 	model := newModel(ws, nil, nil)
-	model.toolsFetcher = rulesetTestFetcher()
-	model.attachRules()
+	model.toolsFetcher = adventureTestFetcher()
+	model.attachReferences()
 
-	line := "Two @Cave Rascal watch the cave."
+	line := "Meet @Mira Holt at the bar."
 	if peek := model.resolveReferenceAtCursor(line, 8); peek != nil {
-		t.Fatalf("adventure enablement must not attach MM lookups, peek=%#v", peek)
+		t.Fatalf("disabled adventure must not peek, peek=%#v", peek)
 	}
 }
 
-func rulesetTestFetcher() fivetools.MapFetcher {
+func TestWikiPeekWinsOverAdventureReference(t *testing.T) {
+	ws := demoWorkspace()
+	ws.EnsureLibrary()
+	ws.Sources = append(ws.Sources, domain.SourceDocument{
+		ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014",
+	})
+	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
+	ws.Records = append(ws.Records, domain.Record{
+		ID: "mira-wiki", Type: domain.NPC, Title: "Mira Holt", Authority: domain.Canon, Scope: ws.Scope,
+		Summary: "The campaign's innkeeper.",
+		Body:    "She is ours.",
+	})
+	model := newModel(ws, nil, nil)
+	model.toolsFetcher = adventureTestFetcher()
+	model.attachReferences()
+
+	line := "Meet @Mira Holt at the bar."
+	peek := model.resolveReferenceAtCursor(line, 8)
+	if peek == nil || peek.ID != "mira-wiki" {
+		t.Fatalf("wiki must win name collision, peek=%#v", peek)
+	}
+	if fivetools.IsReferenceID(peek.ID) {
+		t.Fatal("wiki peek must not be a reference id")
+	}
+}
+
+func TestSourcesReaderShowsCachedAdventure(t *testing.T) {
+	ws := demoWorkspace()
+	ws.EnsureLibrary()
+	ws.Sources = append(ws.Sources, domain.SourceDocument{
+		ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014",
+	})
+	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
+	model := newModel(ws, nil, nil)
+	model.width = 100
+	model.height = 32
+	model.toolsFetcher = adventureTestFetcher()
+	model.attachReferences()
+	model.setNavCursor(2) // Sources
+
+	view := model.View().Content
+	if !strings.Contains(view, "Sources") || !strings.Contains(view, "The Hollow Crown") {
+		t.Fatalf("expected Sources title: %q", view)
+	}
+	if !strings.Contains(view, "SOURCE") || !strings.Contains(view, "reference") {
+		t.Fatalf("expected adventure reader: %q", view)
+	}
+	if !strings.Contains(view, "Millhaven") || !strings.Contains(view, "Mira Holt") {
+		t.Fatalf("expected named hits in the Sources list: %q", view)
+	}
+}
+
+func TestSourcesReaderRendersSelectedHitNotWholeBook(t *testing.T) {
+	ws := demoWorkspace()
+	ws.EnsureLibrary()
+	ws.Sources = append(ws.Sources, domain.SourceDocument{
+		ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014",
+	})
+	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
+	model := newModel(ws, nil, nil)
+	model.width = 100
+	model.height = 32
+	model.toolsFetcher = adventureTestFetcher()
+	model.attachReferences()
+	model.setNavCursor(2)
+
+	mira := -1
+	ambush := -1
+	for index, row := range model.sourceListRows() {
+		if row.IsHit && row.Hit.Name == "Mira Holt" {
+			mira = index
+		}
+		if row.IsHit && row.Hit.Name == "The Ambush" {
+			ambush = index
+		}
+	}
+	if mira < 0 || ambush < 0 {
+		t.Fatalf("expected Mira Holt and The Ambush hits, got %#v", model.sourceListRows())
+	}
+
+	model.cursor = mira
+	model.bindSourceListRow(model.sourceListRows()[mira])
+	detail := model.renderTreeDetail()
+	if !strings.Contains(detail, "Mira Holt") || !strings.Contains(detail, "bar") {
+		t.Fatalf("expected Mira slice:\n%s", detail)
+	}
+	if strings.Contains(detail, "ZZZAMBUSHZZZ") {
+		t.Fatalf("Mira slice must not Glamour the rest of the book:\n%s", detail)
+	}
+
+	model.cursor = ambush
+	model.bindSourceListRow(model.sourceListRows()[ambush])
+	detail = model.renderTreeDetail()
+	if !strings.Contains(detail, "ZZZAMBUSHZZZ") {
+		t.Fatalf("expected Ambush slice:\n%s", detail)
+	}
+}
+
+func adventureTestFetcher() fivetools.MapFetcher {
 	return fivetools.MapFetcher{
-		"data/bestiary/index.json": []byte(`{"ADV":"bestiary-adv.json","MM":"bestiary-mm.json"}`),
-		"data/spells/index.json":   []byte(`{}`),
-		"data/bestiary/bestiary-mm.json": []byte(`{"monster":[{
-			"name":"Cave Rascal","source":"MM","size":["S"],"type":"humanoid",
-			"ac":[12],"hp":{"average":9},"cr":"1/8"
+		"data/adventures.json": []byte(`{"adventure":[{"id":"ADV","name":"The Hollow Crown","published":"2020-01-01"}]}`),
+		"data/adventure/adventure-adv.json": []byte(`{"data":[{
+			"type":"section","name":"Millhaven",
+			"entries":[
+				"A frontier town.",
+				{"type":"entries","name":"Mira Holt","entries":["She greets guests at the bar."]}
+			]
+		},{
+			"type":"section","name":"The Ambush",
+			"entries":["ZZZAMBUSHZZZ wagon raid."]
 		}]}`),
-		"data/bestiary/fluff-bestiary-mm.json": []byte(`{"monsterFluff":[{"name":"Cave Rascal","source":"MM","entries":["A cave rascal."]}]}`),
-		"data/bestiary/bestiary-adv.json":      []byte(`{"monster":[]}`),
-		"data/bestiary/template.json":          []byte(`{"monsterTemplate":[]}`),
-		"data/bestiary/legendarygroups.json":   []byte(`{"legendaryGroup":[]}`),
-		"data/items.json":                      []byte(`{"item":[]}`),
-		"data/items-base.json":                 []byte(`{"baseitem":[]}`),
-		"data/magicvariants.json":              []byte(`{"magicvariant":[]}`),
 	}
 }

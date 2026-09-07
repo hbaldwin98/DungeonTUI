@@ -80,7 +80,7 @@ type Layout struct {
 	ActiveWorldID    string `json:"active_world_id,omitempty"`
 	ActiveCampaignID string `json:"active_campaign_id,omitempty"`
 
-	// ImportHarness is an optional ingest cleanup: off or on.
+	// ImportHarness is unused. Kept so older preferences.json still load.
 	ImportHarness string `json:"import_harness,omitempty"`
 }
 
@@ -193,8 +193,16 @@ func (l Layout) Normalize() Layout {
 	switch strings.ToLower(strings.TrimSpace(out.ImportHarness)) {
 	case "", "off", "none":
 		out.ImportHarness = ""
+	case "claude":
+		out.ImportHarness = "claude"
+	case "opencode", "open-code":
+		out.ImportHarness = "opencode"
+	case "codex":
+		out.ImportHarness = "codex"
+	case "cursor", "cursor-agent", "agent":
+		out.ImportHarness = "cursor"
 	case "on", "clean", "apply", "dump", "diagnose":
-		out.ImportHarness = "on"
+		out.ImportHarness = "claude"
 	default:
 		out.ImportHarness = ""
 	}

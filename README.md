@@ -20,50 +20,45 @@ go run ./cmd/dungeon
 
 ## Import a sourcebook or adventure
 
-Choose books in the app. Markdown files still work; **5e.tools** is the
-structured catalog. Enter on an **adventure** writes wiki records (sites, NPCs,
-prep). Enter on the **Monster Manual**, **Player's Handbook**, **Dungeon
-Master's Guide**, or similar mechanical books primes the **D&D 5e plugin**
-(creatures, spells, items, conditions, actions) on your machine — no wiki
-folders — and enables it for the **current campaign**. Other campaigns must
-enable those sources; importing an adventure does not grant MM/PHB lookups.
-The adapter fetches JSON at import time. Raw JSON is never stored in this git
-repository. Structural classify always runs before wiki rows are written.
+Choose adventures in the app. Markdown files still work; **5e.tools** is the
+structured catalog for **adventures only**. Enter on an adventure **caches** it
+as a read-only reference book (no wiki NPCs or rooms) and enables it for the
+**current campaign**. The campaign tree **Sources** branch lists those titles
+and each book's named hits; the detail pane renders the selected name only.
+Local markdown **FILES** still become owner
+wiki records. Monster Manual, Player's Handbook, and similar mechanical books
+are not imported. The adapter fetches JSON at import time. Raw JSON is never
+stored in this git repository.
 
 ```sh
-go run ./cmd/dungeon import https://5e.tools/book.html#BOOKID,-1
+go run ./cmd/dungeon import https://5e.tools/adventure.html#BOOKID,-1
 go run ./cmd/dungeon import 5e:BOOKID
 go run ./cmd/dungeon import -data /path/to/5etools https://5e.tools/adventure.html#BOOKID,-1
 go run ./cmd/dungeon import -kind bestiary ./bestiary.md
 go run ./cmd/dungeon import -remove src-5e-bookid
-go run ./cmd/dungeon import -harness on 5e:BOOKID
-go run ./cmd/dungeon import -harness on ./adventure.md
 
-# Headless inspect for agents (Claude, OpenCode, Codex, Cursor Agent)
+# Headless inspect of the workspace wiki
 go run ./cmd/dungeon dump
-go run ./cmd/dungeon dump -source src-5e-bookid
+go run ./cmd/dungeon dump -source src-markdown-title
 go run ./cmd/dungeon classify
 go run ./cmd/dungeon classify -apply
 ```
 
 Inside a campaign or the library picker, `I` opens **Import**: SOURCES |
-5E.TOOLS | FILES. Type to filter the live catalog. Enter ingests: adventures
-become wiki records; MM / PHB / DMG prime the plugin. `H` cycles an optional
-agent cleanup (`off` / `on`) after ingest: **on** retypes the ingested records
-from structure and imports that cleaned wiki. It does not write a dump file.
-`e` enables the source for the campaign, `d` then `y` removes it. `Esc` returns
-to the picker or campaign. `dungeon dump` is a separate inspect command.
+5E.TOOLS | FILES. Type to filter the live adventure catalog. Enter caches the
+selected adventure. `e` enables the source for the campaign, `d` then `y`
+removes it. `Esc` returns to the picker or campaign. `dungeon dump` is a
+separate inspect command.
 
-`@Captain Vale` and other mentions resolve against campaign + world-shared +
-**enabled** sources, then the 5e plugin for books enabled on this campaign.
-Adventure sites are classified from
-structure (front matter, numbered rooms, 5e.tools sections) **before** wiki
-rows are written. Empty markdown widgets stay empty; plugin ingest is what
-fills AC/HP/spell text from the published JSON.
+`@Mira Holt` and other mentions resolve against campaign + world-shared wiki
+first. Enabled adventure caches are **reference** only (never wiki); the
+owner's wiki wins on a name collision. `@` peeks stay the small overlay.
+Adventure sites from **markdown FILES** are classified from structure (front
+matter, numbered rooms) **before** wiki rows are written.
 
 SQLite FTS5 and embeddings are a later search backend over wiki records and
-the 5e plugin (see D-024, D-032). The workspace JSON is still the inspectable
-campaign store; plugin JSON lives in the local 5e.tools cache.
+cached adventure text (see D-024, D-032). The workspace JSON is still the
+inspectable campaign store; adventure JSON lives in the local 5e.tools cache.
 
 
 ## Validate / screencap
@@ -87,7 +82,7 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `←` / `→` / `Tab` / `Shift+Tab` / `t` | Cycle focus across nav · list · detail |
 | `n` | Create a new draft entity (markdown) |
 | `e` | Edit the selected entity or prep notes (full-screen markdown; `@` suggests) |
-| `I` | Open the Import screen (library sources, 5e.tools catalog, markdown files; `H` cycles cleanup harness off/on) |
+| `I` | Open the Import screen (library sources, 5e.tools adventures, markdown files) |
 | `d` | Delete selected entity or session; on Import SOURCES, remove the ingested book (`y` confirm / `n` cancel) |
 | `x` | Supersede selected entity (`y` confirm / `n` cancel) |
 | `?` | Show context-sensitive command help |
@@ -120,7 +115,7 @@ The workspace stores the active campaign and records through a UI-independent
 JSON storage boundary. The type filter keeps NPCs, locations, items, sessions,
 and other entity kinds visibly separate while preserving one shared domain model
 for future clients. Inside a campaign, the browser is an IDE-style tree:
-**nav | list | detail**. The left branch lists Sessions, Prep, and typed wiki
+**nav | list | detail**. The left branch lists Sessions, Prep, Sources, and typed wiki
 sections; the center list and right detail follow the selected branch. Detail,
 prep notes, peeks, and link previews render markdown; `e` still edits source.
 Sessions nest under collapsible folders (`m` files a sit; unfiled nights bucket by

@@ -68,7 +68,7 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   D-021–D-023). Dedicated Import screen with a 5e.tools catalog (`I`)
   (Argus #51; D-022). `d` then `y` on SOURCES removes a book so it can be
   ingested again (Argus #61). SQLite FTS5 / vectors later over wiki records
-  and the 5e plugin (Argus #55; D-024, D-032).
+  and cached adventure text (Argus #55; D-024, D-032).
   Imported records file under source/type folders, collapsed by default
   (Argus #56–#57; D-025).
 - Wiki/prep detail, link previews, and `@` peeks render markdown with
@@ -79,20 +79,14 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   pads tables so following lines stay out of the grid (Argus #59; D-027).
   Introduction stays a note; markdown that starts with that heading uses the
   filename as the book title (Argus #62).
-- D&D 5e ruleset plugin: adventures stay wiki records; MM/PHB/DMG/items/spells/
-  conditions compose in `internal/ruleset/dnd5e` and display on `@` peek when
-  those books are imported and enabled for the campaign (Argus #63, #68;
-  D-028, D-029, D-034). Import those books from the 5e.tools catalog to prime
-  the plugin (no wiki folders). Adventures do not auto-attach MM/PHB. The
-  plugin is pulled and persisted locally (JSON cache now), not an
-  in-memory-only catalog; SQLite FTS5 later (Argus #55, D-032).
-- Headless `dungeon dump` inspects the workspace; ingest classifies from
+- D&D 5e plugin and import agent removed from this app: 5e.tools adventures
+  cache as read-only reference; MM/PHB is not ingested; `@` / `/` hit enabled
+  caches as **reference** (wiki wins); Sources list shows named hits and detail
+  renders the selected slice (Argus #72–#74; D-028, D-034, D-037–D-039).
+- Headless `dungeon dump` inspects the workspace; markdown FILES classify from
   structure **before** wiki rows are written (Argus #64, #67; D-030, D-033).
 - Detail pane scrolls when the document exceeds inner height (`PgUp`/`PgDn`,
   Home/End, mouse wheel); `j`/`k` still move hop rows (Argus #65; D-031).
-- Import `H` selects a cleanup harness (`off` / `on`) after ingest: on retypes
-  ingested records and imports the cleaned wiki; it does not dump JSON
-  (Argus #66, #69; D-033, D-035).
 
 ## In progress
 
@@ -108,7 +102,7 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Deferred
 
-- SQLite operational store and FTS5 migration over wiki records and the 5e
-  plugin corpus (Argus #55; D-024, D-032).
+- SQLite operational store and FTS5 migration over wiki records and cached
+  adventure text (Argus #55; D-024, D-032).
 - Context-aware AI generators.
 - Web/API client over the shared domain services.

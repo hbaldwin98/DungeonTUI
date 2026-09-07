@@ -1,15 +1,14 @@
 package ingest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/hbaldwin98/dungeon/internal/classify"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
-	"github.com/hbaldwin98/dungeon/internal/ruleset/dnd5e"
 )
 
 const fakeBestiary = `# Test Bestiary (2025)
@@ -287,37 +286,28 @@ Adventure creature stats live here.
 	}
 }
 
-func TestApplyFiveEPrimesPluginWithoutWikiCreatures(t *testing.T) {
+func TestApplyFiveECachesAdventureWithoutWikiRows(t *testing.T) {
 	ws := testWorkspace(t)
 	fetcher := fivetools.MapFetcher{
-		"data/adventures.json":            []byte(`{"adventure":[]}`),
-		"data/books.json":                 []byte(`{"book":[{"id":"BST","name":"Test Bestiary (2025)","group":"core","published":"2025-02-18"}]}`),
-		"data/bestiary/index.json":        []byte(`{"BST":"bestiary-bst.json"}`),
-		"data/spells/index.json":          []byte(`{}`),
-		"data/bestiary/bestiary-bst.json": []byte(`{"monster":[{"name":"Cave Rascal","source":"BST","ac":[12],"hp":{"average":9,"formula":"2d6"},"str":9,"dex":13,"con":11,"int":8,"wis":10,"cha":7}]}`),
+		"data/adventures.json":              []byte(`{"adventure":[{"id":"ADV","name":"The Hollow Crown","published":"2020-01-01"}]}`),
+		"data/adventure/adventure-adv.json": []byte(`{"data":[{"type":"section","name":"Millhaven","entries":["A frontier town. {@creature Mira Holt|ADV} keeps the inn."]}]}`),
 	}
-	ws, report, err := ApplyFiveE(ws, "5e:BST", Options{Scope: ws.Scope, Fetcher: fetcher})
+	ws, report, err := ApplyFiveE(ws, "5e:ADV", Options{Scope: ws.Scope, Fetcher: fetcher})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.SourceID != "src-5e-bst" || !report.Plugin || report.Records != 0 {
+	if report.SourceID != "src-5e-adv" || !report.Reference || report.Records != 0 {
 		t.Fatalf("report=%#v", report)
 	}
-	for _, record := range ws.Records {
-		if record.Title == "Cave Rascal" {
-			t.Fatalf("plugin book leaked into wiki: %#v", record)
-		}
-	}
-	plugin, err := dnd5e.Open(fetcher, dnd5e.Options{Books: []string{"BST"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ent, ok := plugin.LookupName("Cave Rascal")
-	if !ok || !strings.Contains(ent.Body, "**AC** 12") {
-		t.Fatalf("plugin lookup=%#v ok=%v", ent, ok)
+	if len(ws.Records) != 0 {
+		t.Fatalf("adventure leaked into wiki: %#v", ws.Records)
 	}
 	if !ws.SourceEnabled(ws.Scope, report.SourceID) {
-		t.Fatal("imported book should be enabled for the campaign")
+		t.Fatal("imported adventure should be enabled for the campaign")
+	}
+	_, _, err = ApplyFiveE(ws, "5e:BST", Options{Scope: ws.Scope, Fetcher: fetcher})
+	if err == nil {
+		t.Fatal("rules books must not import")
 	}
 }
 
@@ -338,49 +328,22 @@ func containsAlias(list []string, want string) bool {
 	return false
 }
 
-func TestApplyHarnessCleansIngestedRecordsWithoutDump(t *testing.T) {
-	dir := t.TempDir()
+func TestApplyReportsProgress(t *testing.T) {
 	ws := testWorkspace(t)
-	ws, report, err := Apply(ws, fakeAdventure, Options{
-		Kind:    domain.SourceAdventure,
-		Scope:   ws.Scope,
-		Harness: classify.HarnessOn,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.Harness != "on" {
-		t.Fatalf("harness=%q", report.Harness)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "ingest-dump.json")); err == nil {
-		t.Fatal("harness must not write ingest-dump.json")
-	}
-
-	for i, rec := range ws.Records {
-		if classify.FrontMatter(rec.Title) {
-			rec.Type = domain.Location
-			ws.Records[i] = rec
-		}
-	}
-	ws, report, err = applyHarness(ws, Report{SourceID: report.SourceID}, Options{
-		Harness: classify.HarnessOn,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.Harness != "on" {
-		t.Fatalf("harness=%q", report.Harness)
-	}
-	found := false
-	for _, rec := range ws.Records {
-		if classify.FrontMatter(rec.Title) {
-			found = true
-			if rec.Type != domain.Note {
-				t.Fatalf("%s should be a note after cleanup, got %s", rec.Title, rec.Type)
+	var stages []Stage
+	ws, _, err := Apply(ws, fakeAdventure, Options{
+		Scope: ws.Scope,
+		Progress: func(p Progress) {
+			if len(stages) == 0 || stages[len(stages)-1] != p.Stage {
+				stages = append(stages, p.Stage)
 			}
-		}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !found {
-		t.Fatal("expected a front-matter record")
+	joined := fmt.Sprintf("%v", stages)
+	if !strings.Contains(joined, string(StageConvert)) || !strings.Contains(joined, string(StageClassify)) || !strings.Contains(joined, string(StageWrite)) {
+		t.Fatalf("expected convert/classify/write stages, got %v", stages)
 	}
 }

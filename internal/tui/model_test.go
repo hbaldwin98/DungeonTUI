@@ -19,6 +19,30 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/storage"
 )
 
+func flushCmd(t *testing.T, model Model, cmd tea.Cmd) Model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected command")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for cmd != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("command did not finish")
+		}
+		msg := cmd()
+		if msg == nil {
+			return model
+		}
+		updated, next := model.Update(msg)
+		model = updated.(Model)
+		if !model.importBusy {
+			return model
+		}
+		cmd = next
+	}
+	return model
+}
+
 func TestLibraryPickerSelectsCampaign(t *testing.T) {
 	model := newModel(demoWorkspace(), nil, nil)
 	model.width = 80
@@ -240,7 +264,7 @@ func TestViewFillsTerminal(t *testing.T) {
 			t.Fatalf("row %d: expected width %d, got %d", index, model.width, width)
 		}
 	}
-	if !strings.Contains(content, "CAMPAIGN") || !strings.Contains(content, "Sessions") || !strings.Contains(content, "Prep") {
+	if !strings.Contains(content, "CAMPAIGN") || !strings.Contains(content, "Sessions") || !strings.Contains(content, "Prep") || !strings.Contains(content, "Sources") {
 		t.Fatalf("expected campaign tree in browser view: %q", content)
 	}
 	if !strings.Contains(content, "NPCs") {
@@ -256,8 +280,8 @@ func TestCampaignTreeFiltersListBySection(t *testing.T) {
 	if model.currentNav().Type != domain.NPC {
 		t.Fatalf("expected initial NPC section, got %#v", model.currentNav())
 	}
-	// Move nav to Locations (index 4: Sessions, Prep, NPCs, Characters, Locations)
-	model.setNavCursor(4)
+	// Move nav to Locations (index 5: Sessions, Prep, Sources, NPCs, Characters, Locations)
+	model.setNavCursor(5)
 	if model.layout.Focus != prefs.PaneNav {
 		t.Fatalf("nav cursor move must keep nav focus, got %q", model.layout.Focus)
 	}
@@ -491,7 +515,7 @@ func TestCollectionFilterAddAndCreate(t *testing.T) {
 	model := New()
 	model.width = 100
 	model.height = 36
-	model.setNavCursor(2) // NPCs
+	model.setNavCursor(3) // NPCs
 	before := len(model.listRecords())
 	if before < 3 {
 		t.Fatalf("expected campaign NPCs including drafts, got %d", before)
@@ -1319,8 +1343,9 @@ func TestImportOpensDedicatedScreenAndLoadsMarkdown(t *testing.T) {
 		t.Fatalf("expected bst.md in file list: %#v", model.importFiles)
 	}
 
-	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
+	model = flushCmd(t, model, cmd)
 	if !model.importing {
 		t.Fatal("import screen should stay open after a successful import")
 	}
@@ -1372,8 +1397,9 @@ func TestImportRemoveSourceAllowsReingest(t *testing.T) {
 			break
 		}
 	}
-	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
+	model = flushCmd(t, model, cmd)
 	if len(model.workspace.Sources) != 1 {
 		t.Fatalf("expected one source after ingest, got %d status=%s", len(model.workspace.Sources), model.status)
 	}
@@ -1409,8 +1435,9 @@ func TestImportRemoveSourceAllowsReingest(t *testing.T) {
 			break
 		}
 	}
-	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	updated, cmd = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
+	model = flushCmd(t, model, cmd)
 	if len(model.workspace.Sources) != 1 {
 		t.Fatalf("re-ingest should restore the source, got %d status=%s", len(model.workspace.Sources), model.status)
 	}
@@ -1426,7 +1453,7 @@ func TestImportRemoveSourceAllowsReingest(t *testing.T) {
 	}
 }
 
-func TestImportHarnessCyclesAndCleansWithoutDump(t *testing.T) {
+func TestImportShowsProgressWhileBusy(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bst.md")
 	if err := os.WriteFile(path, []byte("# Test Bestiary (2025)\n\n## Cave Rascals\n\nRaiders in packs.\n"), 0o600); err != nil {
@@ -1438,18 +1465,6 @@ func TestImportHarnessCyclesAndCleansWithoutDump(t *testing.T) {
 	model.store = storage.NewJSON(filepath.Join(dir, "workspace.json"))
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'I', Text: "I"}))
 	model = updated.(Model)
-	if !strings.Contains(model.View().Content, "harness off") {
-		t.Fatalf("expected harness off by default: %q", model.View().Content)
-	}
-	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'H', Text: "H"}))
-	model = updated.(Model)
-	if model.importHarness() != "on" {
-		t.Fatalf("H should select on, got %q status=%s", model.importHarness(), model.status)
-	}
-	if !strings.Contains(model.View().Content, "harness on") {
-		t.Fatalf("expected harness on in header: %q", model.View().Content)
-	}
-
 	model.importDir = dir
 	model.reloadImportFiles()
 	model.importFocus = "files"
@@ -1459,23 +1474,21 @@ func TestImportHarnessCyclesAndCleansWithoutDump(t *testing.T) {
 			break
 		}
 	}
-	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
-	if _, err := os.Stat(filepath.Join(dir, "ingest-dump.json")); err == nil {
-		t.Fatal("harness must not write ingest-dump.json")
+	if !model.importBusy {
+		t.Fatal("expected ingest to mark the import screen busy")
 	}
-	found := false
-	for _, record := range model.workspace.Records {
-		if record.Title == "Cave Rascals" && record.Type == domain.Creature {
-			found = true
-			break
-		}
+	view := model.View().Content
+	if !strings.Contains(view, "INGESTING") || !strings.Contains(view, "bst.md") {
+		t.Fatalf("expected live ingest progress, got %q", view)
 	}
-	if !found {
-		t.Fatalf("expected cleaned ingest to land Cave Rascals; status=%s records=%d", model.status, len(model.workspace.Records))
+	model = flushCmd(t, model, cmd)
+	if model.importBusy {
+		t.Fatal("ingest should finish")
 	}
-	if !strings.Contains(model.status, "harness on") {
-		t.Fatalf("status should mention harness: %s", model.status)
+	if !strings.Contains(model.status, "Imported") && !strings.Contains(model.status, "records") {
+		t.Fatalf("expected finished import status, got %q", model.status)
 	}
 }
 
@@ -1503,13 +1516,7 @@ func TestImportFiveEToolsCatalogIngestsSelectedBook(t *testing.T) {
 	model := New()
 	model.width = 120
 	model.height = 32
-	model.toolsFetcher = fivetools.MapFetcher{
-		"data/adventures.json":            []byte(`{"adventure":[]}`),
-		"data/books.json":                 []byte(`{"book":[{"id":"BST","name":"Test Bestiary (2025)","group":"core","published":"2025-02-18"}]}`),
-		"data/bestiary/index.json":        []byte(`{"BST":"bestiary-bst.json"}`),
-		"data/spells/index.json":          []byte(`{}`),
-		"data/bestiary/bestiary-bst.json": []byte(`{"monster":[{"name":"Cave Rascal","source":"BST","ac":[12],"hp":{"average":9,"formula":"2d6"},"str":9,"dex":13,"con":11,"int":8,"wis":10,"cha":7}]}`),
-	}
+	model.toolsFetcher = adventureTestFetcher()
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: 'I', Text: "I"}))
 	model = updated.(Model)
 	if cmd == nil {
@@ -1518,39 +1525,71 @@ func TestImportFiveEToolsCatalogIngestsSelectedBook(t *testing.T) {
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
 	view := model.View().Content
-	if !strings.Contains(view, "Test Bestiary (2025)") || !strings.Contains(view, "5E.TOOLS") {
+	if !strings.Contains(view, "The Hollow Crown") || !strings.Contains(view, "5E.TOOLS") {
 		t.Fatalf("expected 5e.tools catalog: %q", view)
+	}
+	if strings.Contains(view, "Test Bestiary") || strings.Contains(view, "harness") {
+		t.Fatalf("catalog should list adventures only, no harness chrome: %q", view)
 	}
 	model.importFocus = "tools"
 	found := false
 	for index, entry := range model.filteredTools() {
-		if entry.ID == "BST" {
+		if entry.ID == "ADV" {
 			model.importToolsCursor = index
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("expected BST in catalog")
+		t.Fatal("expected ADV in catalog")
 	}
 	updated, cmd = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected ingest command")
 	}
-	updated, _ = model.Update(cmd())
-	model = updated.(Model)
+	model = flushCmd(t, model, cmd)
 	for _, record := range model.workspace.Records {
-		if record.Title == "Cave Rascal" {
-			t.Fatalf("plugin book leaked into wiki: %#v", record)
+		if record.SourceID == "src-5e-adv" {
+			t.Fatalf("adventure leaked into wiki: %#v", record)
 		}
 	}
-	if !strings.Contains(model.status, "plugin") {
-		t.Fatalf("status should mention plugin: %s", model.status)
+	if !strings.Contains(model.status, "reference") {
+		t.Fatalf("status should mention reference: %s", model.status)
 	}
-	rec, ok := model.lookupRuleset("Cave Rascal")
-	if !ok || !strings.Contains(rec.Body, "**AC** 12") {
-		t.Fatalf("expected plugin lookup after ingest; status=%s ok=%v %#v", model.status, ok, rec)
+	enabled := false
+	for _, id := range model.workspace.EnabledSourceIDs(model.workspace.Scope) {
+		if id == "src-5e-adv" {
+			enabled = true
+			break
+		}
+	}
+	if !enabled {
+		t.Fatal("ingested adventure should be enabled for the campaign")
+	}
+	rec, ok := model.lookupReference("Mira Holt")
+	if !ok || rec.Title != "Mira Holt" || !fivetools.IsReferenceID(rec.ID) {
+		t.Fatalf("expected adventure lookup after ingest; status=%s ok=%v %#v", model.status, ok, rec)
+	}
+
+	model.setNavCursor(2)
+	reader := model.View().Content
+	if !strings.Contains(reader, "The Hollow Crown") || !strings.Contains(reader, "SOURCE") {
+		t.Fatalf("expected Sources reader: %q", reader)
+	}
+
+	model.refreshResults()
+	model.searchInput.SetValue("Mira")
+	model.refreshResults()
+	labeled := false
+	for _, result := range model.results {
+		if fivetools.IsReferenceID(result.Record.ID) && result.Record.Title == "Mira Holt" {
+			labeled = true
+			break
+		}
+	}
+	if !labeled {
+		t.Fatalf("search should include reference hit for Mira Holt: %#v", model.results)
 	}
 }
 
@@ -1574,7 +1613,7 @@ func TestImportedSourceRecordsCollapseIntoFolders(t *testing.T) {
 			Authority: domain.Canon,
 		})
 	}
-	model.setNavCursor(7) // Creatures
+	model.setNavCursor(8) // Creatures
 	view := model.View().Content
 	if !strings.Contains(view, "Test Bestiary (2025)") || !strings.Contains(view, "· 40") {
 		t.Fatalf("expected collapsed source folder, got %q", view)
@@ -1604,7 +1643,7 @@ func TestRecordTreeCursorMovesToNextCreature(t *testing.T) {
 			Authority: domain.Canon,
 		})
 	}
-	model.setNavCursor(7) // Creatures
+	model.setNavCursor(8) // Creatures
 	model.expandRecordFolderPath("Test Bestiary (2025)/Creatures")
 	model.setBrowserFocus(prefs.PaneList)
 

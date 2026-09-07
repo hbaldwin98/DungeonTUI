@@ -158,7 +158,7 @@ func (m Model) resolveReferenceAtCursor(line string, col int) *domain.Record {
 	if token == "" {
 		return nil
 	}
-	if rec, ok := m.lookupRuleset(token); ok {
+	if rec, ok := m.lookupReference(token); ok {
 		return &rec
 	}
 	return nil
@@ -171,16 +171,22 @@ func (m Model) renderPeekPanel(maxLines int) string {
 	record := m.peek
 	sessions := domain.CountSessionsTouching(m.workspace, record.ID)
 	var lines []string
-	lines = append(lines, sectionStyle.Render("PEEK")+"  "+typeStyle.Render(string(record.Type))+"  "+
+	kind := string(record.Type)
+	if fivetools.IsReferenceID(record.ID) {
+		kind = "reference"
+	}
+	lines = append(lines, sectionStyle.Render("PEEK")+"  "+typeStyle.Render(kind)+"  "+
 		authorityStyle(record.Authority).Render(record.Authority.Marker()+" "+record.Authority.Label()))
 	lines = append(lines, detailTitleStyle.Render(record.Title))
 	if record.Summary != "" {
 		lines = append(lines, strings.Split(m.renderMarkdown(record.Summary, max(24, m.width-16)), "\n")...)
 	}
-	if fivetools.IsPluginID(record.ID) {
+	if fivetools.IsReferenceID(record.ID) {
+		label := "reference"
 		if record.Source != "" {
-			lines = append(lines, mutedStyle.Render("5e · "+record.Source))
+			label += " · " + record.Source
 		}
+		lines = append(lines, mutedStyle.Render(label))
 		if strings.TrimSpace(record.Body) != "" {
 			lines = append(lines, strings.Split(m.renderMarkdown(record.Body, max(24, m.width-16)), "\n")...)
 		}

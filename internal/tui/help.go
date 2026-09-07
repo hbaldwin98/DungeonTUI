@@ -55,7 +55,7 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.importing:
 		return [][]string{
-			{"Import", "Tab sources / 5e.tools / files", "j/k move · Enter ingest (adventures → wiki, MM/PHB → plugin)", "H cycle cleanup harness (off / on)", "type to filter 5e.tools catalog", "Ctrl+T cycle markdown kind · Ctrl+R refresh catalog", "e enable/disable in campaign", "d remove source (y confirm)", "Esc or b back"},
+			{"Import", "Tab sources / 5e.tools / files", "j/k move · Enter caches a 5e.tools adventure (no wiki rows)", "FILES markdown still becomes owner wiki", "type to filter the adventure catalog", "Ctrl+T cycle markdown kind · Ctrl+R refresh catalog", "e enable/disable in campaign", "d remove source (y confirm)", "Esc or b back"},
 		}
 	case m.searching:
 		return [][]string{
@@ -63,7 +63,7 @@ func (m Model) helpSections() [][]string {
 		}
 	default:
 		return [][]string{
-			{"Browser", "j/k move", "←/→ or Tab panes", "detail PgUp/PgDn scroll · j/k hops", "Enter preview hop / playback / expand source folder", "n new · e edit · I import", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "@ peeks wiki then 5e plugin", "r reconcile · q quit"},
+			{"Browser", "j/k move", "←/→ or Tab panes", "detail PgUp/PgDn scroll · j/k hops", "Enter preview hop / playback / expand source folder", "n new · e edit · I import", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "Sources: j/k names in the list · detail shows that slice", "@ peeks wiki then enabled adventure reference", "r reconcile · q quit"},
 		}
 	}
 }

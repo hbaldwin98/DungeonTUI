@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/hbaldwin98/dungeon/internal/classify"
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
@@ -43,6 +44,7 @@ func (m Model) openImport() (tea.Model, tea.Cmd) {
 	m.importToolsCursor = 0
 	m.importToolsQuery = ""
 	m.importBusy = false
+	m.ingestJob = nil
 	m.clearDestructiveConfirm("")
 	if m.importDir == "" {
 		m.importDir = defaultImportDir(m.workspace)
@@ -108,17 +110,9 @@ func (m Model) updateImport(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t":
 		m.cycleImportKind()
 		return m, nil
-	case "ctrl+h", "H", "shift+h":
-		m.cycleImportHarness()
-		return m, nil
 	case "t":
 		if m.importFocus != "tools" {
 			m.cycleImportKind()
-			return m, nil
-		}
-	case "h":
-		if m.importFocus != "tools" {
-			m.cycleImportHarness()
 			return m, nil
 		}
 	case "ctrl+r":
@@ -168,27 +162,6 @@ func (m *Model) cycleImportKind() {
 	m.status = "Kind " + importKindLabel(m.importKind)
 }
 
-func (m Model) importHarness() classify.Harness {
-	h, _ := classify.ParseHarness(m.layout.ImportHarness)
-	return h
-}
-
-func (m *Model) cycleImportHarness() {
-	next := classify.NextHarness(m.importHarness())
-	m.layout.ImportHarness = string(next)
-	m.persistPreferences()
-	if next == classify.HarnessOn {
-		m.status = "Harness on · ingest, then import cleaned-up records"
-		return
-	}
-	m.status = "Harness off · ingest without extra cleanup"
-}
-
-func (m Model) withImportHarness(opts ingest.Options) ingest.Options {
-	opts.Harness = m.importHarness()
-	return opts
-}
-
 func (m *Model) moveImportCursor(delta int) {
 	if m.importFocus == "sources" {
 		n := len(m.workspace.Sources)
@@ -228,7 +201,7 @@ func (m Model) toggleImportSource() (tea.Model, tea.Cmd) {
 	}
 	m.persistWorkspace()
 	m.search = searchsvc.New(m.workspace.Records)
-	m.attachRules()
+	m.attachReferences()
 	m.refreshResults()
 	return m, nil
 }
@@ -260,7 +233,7 @@ func (m Model) confirmRemoveImportSource() (tea.Model, tea.Cmd) {
 		m.importSourceCursor = max(0, len(m.workspace.Sources)-1)
 	}
 	m.search = searchsvc.New(m.workspace.Records)
-	m.attachRules()
+	m.attachReferences()
 	m.persistWorkspace()
 	m.ensureBrowserSelection()
 	m.refreshResults()
@@ -289,34 +262,14 @@ func (m Model) activateImport() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) runImportFile(path string) (tea.Model, tea.Cmd) {
-	ws, report, err := ingest.ApplyFile(m.workspace, path, m.withImportHarness(ingest.Options{
+	ws := m.workspace
+	return m.startIngest(filepath.Base(path), ingest.Options{
 		Kind:  m.importKind,
-		Scope: m.workspace.Scope,
+		Scope: ws.Scope,
 		Path:  path,
-	}))
-	if err != nil {
-		m.status = "Import failed: " + err.Error()
-		return m, nil
-	}
-	m.workspace = ws
-	m.search = searchsvc.New(m.workspace.Records)
-	m.persistWorkspace()
-	m.ensureBrowserSelection()
-	m.refreshResults()
-	for index, source := range m.workspace.Sources {
-		if source.ID == report.SourceID {
-			m.importSourceCursor = index
-			m.importFocus = "sources"
-			break
-		}
-	}
-	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links%s",
-		report.Title, report.Kind, report.Records, report.Planned, report.Linked, harnessStatus(report))
-	if report.Plugin {
-		m.status = fmt.Sprintf("Primed D&D 5e plugin · %s · @ lookups · 0 wiki records%s",
-			report.Title, harnessStatus(report))
-	}
-	return m, nil
+	}, func(opts ingest.Options) (domain.Workspace, ingest.Report, error) {
+		return ingest.ApplyFile(ws, path, opts)
+	})
 }
 
 func (m *Model) reloadImportFiles() {
@@ -410,16 +363,15 @@ func (m Model) renderImport() string {
 	width := max(1, m.width)
 	height := max(1, m.height)
 	kind := "kind " + importKindLabel(m.importKind)
-	harness := "harness " + m.importHarness().Label()
 	header := headerStyle.Width(width).Render(
 		titleStyle.Render("IMPORT") + "  " +
-			mutedStyle.Render(harness+" · library sources · "+m.workspace.Scope.Label()),
+			mutedStyle.Render("library sources · "+m.workspace.Scope.Label()),
 	)
 	bodyHeight := max(1, height-2)
 	body := m.renderImportBody(width, bodyHeight)
-	help := "j/k move  Tab pane  Enter ingest  d remove source  e enable  Ctrl+T kind (" + kind + ")  H " + harness + "  Esc back  q quit"
+	help := "j/k move  Tab pane  Enter ingest adventure  d remove source  e enable  Ctrl+T kind (" + kind + ")  Esc back  q quit"
 	if m.importBusy {
-		help = "Importing…  q quit"
+		help = "Ingesting…  q quit"
 	}
 	if m.status != "" {
 		help = m.status + "  ·  " + help
@@ -430,6 +382,9 @@ func (m Model) renderImport() string {
 }
 
 func (m Model) renderImportBody(width, height int) string {
+	if m.importBusy {
+		return m.renderImportProgress(width, height)
+	}
 	leftWidth := max(22, width/4)
 	midWidth := max(28, width/3)
 	rightWidth := max(20, width-leftWidth-midWidth)
@@ -437,6 +392,42 @@ func (m Model) renderImportBody(width, height int) string {
 	mid := m.renderImportTools(max(1, midWidth), height)
 	right := m.renderImportFiles(max(1, rightWidth), height)
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, mid, right)
+}
+
+func (m Model) renderImportProgress(width, height int) string {
+	snap := ingestSnapshot{title: "import", message: "Starting…"}
+	if m.ingestJob != nil {
+		snap = m.ingestJob.snapshot()
+	}
+	inner := max(20, width-6)
+	barWidth := min(48, inner)
+	var builder strings.Builder
+	builder.WriteString(sectionStyle.Render("INGESTING"))
+	builder.WriteString("  ")
+	builder.WriteString(ingestSpinner(snap.elapsed))
+	builder.WriteString("\n")
+	builder.WriteString(titleStyle.Render(truncateImportLine(snap.title, inner)))
+	builder.WriteString("\n\n")
+	builder.WriteString(snap.message)
+	builder.WriteString("\n")
+	meta := formatElapsed(snap.elapsed) + " elapsed"
+	if snap.current > 0 && snap.total == 0 {
+		meta += fmt.Sprintf(" · %d files", snap.current)
+	}
+	builder.WriteString(mutedStyle.Render(meta))
+	builder.WriteString("\n")
+	if snap.total > 0 {
+		builder.WriteString(progressBar(snap.current, snap.total, barWidth))
+		builder.WriteString("\n")
+	}
+	if len(snap.log) > 0 {
+		builder.WriteString("\n")
+		for _, line := range snap.log {
+			builder.WriteString(mutedStyle.Render("  " + truncateImportLine(line, inner-2)))
+			builder.WriteString("\n")
+		}
+	}
+	return focusedPanelStyle.Width(width).Height(height).MaxHeight(height).Render(builder.String())
 }
 
 func (m Model) renderImportSources(width, height int) string {
@@ -496,7 +487,7 @@ func (m Model) renderImportTools(width, height int) string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("5E.TOOLS"))
 	builder.WriteString("\n")
-	filter := "adventures → wiki · MM/PHB → plugin"
+	filter := "adventures → cached reference"
 	if m.importToolsQuery != "" {
 		filter = "/" + m.importToolsQuery
 	}
@@ -539,6 +530,8 @@ func (m Model) renderImportFiles(width, height int) string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("FILES"))
 	builder.WriteString("\n")
+	builder.WriteString(mutedStyle.Render("markdown → owner wiki"))
+	builder.WriteString("\n")
 	builder.WriteString(mutedStyle.Render(truncateImportLine(m.importDir, inner)))
 	builder.WriteString("\n\n")
 	if len(m.importFiles) == 0 {
@@ -578,11 +571,139 @@ func truncateImportLine(s string, width int) string {
 	return s[:width-1] + "…"
 }
 
-func harnessStatus(report ingest.Report) string {
-	if report.Harness == "" {
+func ingestStatus(name string) string {
+	return "Ingesting " + name + "…"
+}
+
+const ingestTickEvery = 200 * time.Millisecond
+
+type ingestTickMsg struct{}
+
+func tickIngestProgress() tea.Cmd {
+	return tea.Tick(ingestTickEvery, func(time.Time) tea.Msg {
+		return ingestTickMsg{}
+	})
+}
+
+type ingestJob struct {
+	mu      sync.Mutex
+	title   string
+	stage   ingest.Stage
+	message string
+	current int
+	total   int
+	started time.Time
+	log     []string
+	done    bool
+	ws      domain.Workspace
+	report  ingest.Report
+	err     error
+}
+
+type ingestSnapshot struct {
+	title   string
+	stage   ingest.Stage
+	message string
+	current int
+	total   int
+	elapsed time.Duration
+	log     []string
+	done    bool
+	ws      domain.Workspace
+	report  ingest.Report
+	err     error
+}
+
+func newIngestJob(title string) *ingestJob {
+	return &ingestJob{title: title, started: time.Now(), message: "Starting…"}
+}
+
+func (j *ingestJob) onProgress(p ingest.Progress) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.stage = p.Stage
+	j.message = p.Message
+	j.current = p.Current
+	j.total = p.Total
+	line := strings.TrimSpace(p.Message)
+	if line == "" {
+		return
+	}
+	if n := len(j.log); n == 0 || j.log[n-1] != line {
+		j.log = append(j.log, line)
+		if len(j.log) > 8 {
+			j.log = j.log[len(j.log)-8:]
+		}
+	}
+}
+
+func (j *ingestJob) finish(ws domain.Workspace, report ingest.Report, err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.ws = ws
+	j.report = report
+	j.err = err
+	j.done = true
+}
+
+func (j *ingestJob) snapshot() ingestSnapshot {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return ingestSnapshot{
+		title:   j.title,
+		stage:   j.stage,
+		message: j.message,
+		current: j.current,
+		total:   j.total,
+		elapsed: time.Since(j.started),
+		log:     append([]string(nil), j.log...),
+		done:    j.done,
+		ws:      j.ws,
+		report:  j.report,
+		err:     j.err,
+	}
+}
+
+func (s ingestSnapshot) statusLine() string {
+	elapsed := formatElapsed(s.elapsed)
+	if s.message != "" {
+		return s.title + " · " + s.message + " · " + elapsed
+	}
+	return "Ingesting " + s.title + " · " + elapsed
+}
+
+func formatElapsed(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	d = d.Truncate(time.Second)
+	return fmt.Sprintf("%d:%02d", int(d/time.Minute), int(d%time.Minute/time.Second))
+}
+
+func ingestSpinner(d time.Duration) string {
+	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	i := int(d / (120 * time.Millisecond))
+	if i < 0 {
+		i = 0
+	}
+	return frames[i%len(frames)]
+}
+
+func progressBar(cur, total, width int) string {
+	if width < 4 {
 		return ""
 	}
-	return fmt.Sprintf(" · harness %s · %d findings", report.Harness, report.Findings)
+	if total <= 0 {
+		total = 1
+	}
+	if cur < 0 {
+		cur = 0
+	}
+	if cur > total {
+		cur = total
+	}
+	fill := cur * width / total
+	return "[" + strings.Repeat("█", fill) + strings.Repeat("░", width-fill) + "]"
 }
 
 type toolsCatalogMsg struct {
@@ -628,22 +749,43 @@ func (m Model) runImportTools() (tea.Model, tea.Cmd) {
 	entry := entries[m.importToolsCursor]
 	ref := entry.PageURL()
 	ws := m.workspace
-	opts := m.withImportHarness(ingest.Options{
+	return m.startIngest(entry.Name+" from 5e.tools", ingest.Options{
 		Kind:    m.importKind,
 		Scope:   ws.Scope,
 		Path:    ref,
 		Fetcher: m.toolsFetcher,
+	}, func(opts ingest.Options) (domain.Workspace, ingest.Report, error) {
+		return ingest.ApplyFiveE(ws, ref, opts)
 	})
+}
+
+func (m Model) startIngest(name string, opts ingest.Options, run func(ingest.Options) (domain.Workspace, ingest.Report, error)) (tea.Model, tea.Cmd) {
+	job := newIngestJob(name)
+	opts.Progress = job.onProgress
 	m.importBusy = true
-	m.status = "Ingesting " + entry.Name + " from 5e.tools…"
-	return m, func() tea.Msg {
-		next, report, err := ingest.ApplyFiveE(ws, ref, opts)
-		return toolsIngestMsg{ws: next, report: report, err: err}
+	m.ingestJob = job
+	m.status = ingestStatus(name)
+	go func() {
+		job.finish(run(opts))
+	}()
+	return m, tickIngestProgress()
+}
+
+func (m Model) handleIngestTick() (tea.Model, tea.Cmd) {
+	if !m.importBusy || m.ingestJob == nil {
+		return m, nil
 	}
+	snap := m.ingestJob.snapshot()
+	m.status = snap.statusLine()
+	if snap.done {
+		return m.handleToolsIngest(toolsIngestMsg{ws: snap.ws, report: snap.report, err: snap.err})
+	}
+	return m, tickIngestProgress()
 }
 
 func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 	m.importBusy = false
+	m.ingestJob = nil
 	if !m.importing {
 		return m, nil
 	}
@@ -653,7 +795,7 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 	}
 	m.workspace = msg.ws
 	m.search = searchsvc.New(m.workspace.Records)
-	m.attachRules()
+	m.attachReferences()
 	m.persistWorkspace()
 	m.ensureBrowserSelection()
 	m.refreshResults()
@@ -664,11 +806,11 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links%s",
-		msg.report.Title, msg.report.Kind, msg.report.Records, msg.report.Planned, msg.report.Linked, harnessStatus(msg.report))
-	if msg.report.Plugin {
-		m.status = fmt.Sprintf("Primed D&D 5e plugin · %s · @ lookups · 0 wiki records%s",
-			msg.report.Title, harnessStatus(msg.report))
+	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links",
+		msg.report.Title, msg.report.Kind, msg.report.Records, msg.report.Planned, msg.report.Linked)
+	if msg.report.Reference {
+		m.status = fmt.Sprintf("Cached %s as reference · enable it on Sources to read and @ peek",
+			msg.report.Title)
 	}
 	return m, nil
 }

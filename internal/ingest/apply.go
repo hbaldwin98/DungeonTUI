@@ -12,25 +12,23 @@ import (
 
 // Options control where ingested content lands.
 type Options struct {
-	Kind    domain.SourceKind
-	Scope   domain.Scope
-	Path    string
-	Fetcher fivetools.Fetcher // tests; live import uses HTTP or DataDir
-	DataDir string            // optional local 5e.tools checkout (contains data/)
-	Harness classify.Harness  // optional cleanup of ingested records before they land
+	Kind     domain.SourceKind
+	Scope    domain.Scope
+	Path     string
+	Fetcher  fivetools.Fetcher // tests; live import uses HTTP or DataDir
+	DataDir  string            // optional local 5e.tools checkout (contains data/)
+	Progress func(Progress)    // optional live status for the TUI or CLI
 }
 
 // Report is a short digest of what Apply wrote.
 type Report struct {
-	SourceID string
-	Kind     domain.SourceKind
-	Title    string
-	Records  int
-	Planned  int
-	Linked   int
-	Plugin   bool
-	Harness  string
-	Findings int
+	SourceID  string
+	Kind      domain.SourceKind
+	Title     string
+	Records   int
+	Planned   int
+	Linked    int
+	Reference bool
 }
 
 // Apply parses markdown and upserts a source document plus records into ws.
@@ -53,6 +51,7 @@ func Apply(ws domain.Workspace, markdown string, opts Options) (domain.Workspace
 		return ws, Report{}, err
 	}
 
+	opts.report(StageConvert, "Parsing "+doc.Title, 0, 0)
 	ws.EnsureLibrary()
 	ws.StripSourceContent(doc.ID)
 	ws.UpsertSource(doc)
@@ -82,7 +81,9 @@ func Apply(ws domain.Workspace, markdown string, opts Options) (domain.Workspace
 			return ws, Report{}, err
 		}
 	}
+	opts.report(StageClassify, fmt.Sprintf("Classifying %d records", len(records)), len(records), len(records))
 	classify.OrganizeRecords(records)
+	opts.report(StageWrite, "Writing wiki", len(records), len(records))
 	ws.Records = append(ws.Records, records...)
 	ws.PlannedNotes = append(ws.PlannedNotes, plans...)
 
@@ -97,14 +98,14 @@ func Apply(ws domain.Workspace, markdown string, opts Options) (domain.Workspace
 		ws.EnableSource(campaignScope.WorldID, campaignScope.CampaignID, doc.ID)
 	}
 
-	return applyHarness(ws, Report{
+	return ws, Report{
 		SourceID: doc.ID,
 		Kind:     book.Kind,
 		Title:    doc.Title,
 		Records:  len(records),
 		Planned:  len(plans),
 		Linked:   linked,
-	}, opts)
+	}, nil
 }
 
 func bestiaryRecords(book ParsedBook, doc domain.SourceDocument, scope domain.Scope) []domain.Record {
@@ -528,14 +529,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func applyHarness(ws domain.Workspace, report Report, opts Options) (domain.Workspace, Report, error) {
-	if opts.Harness == classify.HarnessOff {
-		return ws, report, nil
-	}
-	classify.OrganizeRecords(ws.Records)
-	report.Harness = classify.HarnessOn.Label()
-	report.Findings = len(classify.Diagnose(ws.Records, report.SourceID))
-	return ws, report, nil
 }

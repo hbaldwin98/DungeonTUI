@@ -14,12 +14,12 @@ import (
 type hopKind string
 
 const (
-	hopWiki    hopKind = "wiki"
-	hopRuleset hopKind = "ruleset"
-	hopBroken  hopKind = "broken"
-	hopPrep    hopKind = "prep"
-	hopSession hopKind = "session"
-	hopHistory hopKind = "history"
+	hopWiki      hopKind = "wiki"
+	hopReference hopKind = "reference"
+	hopBroken    hopKind = "broken"
+	hopPrep      hopKind = "prep"
+	hopSession   hopKind = "session"
+	hopHistory   hopKind = "history"
 )
 
 type detailHop struct {
@@ -50,7 +50,7 @@ func (m Model) wikiDetailHops() []detailHop {
 	}
 	hops := make([]detailHop, 0)
 	resolved, broken := domain.EntityOutgoingRefs(*record, m.workspace.Records)
-	broken = m.bindRulesetMentions(broken)
+	broken = m.bindReferenceMentions(broken)
 	stillBroken := make([]domain.Mention, 0, len(broken))
 	for _, mention := range broken {
 		if mention.RecordID == "" {
@@ -66,9 +66,9 @@ func (m Model) wikiDetailHops() []detailHop {
 		prefix := "wiki · "
 		if rec, ok := m.lookupAny(mention.RecordID); ok {
 			title = rec.Title
-			if fivetools.IsPluginID(rec.ID) {
-				kind = hopRuleset
-				prefix = "5e · "
+			if fivetools.IsReferenceID(rec.ID) {
+				kind = hopReference
+				prefix = "reference · "
 			}
 		}
 		hops = append(hops, detailHop{Kind: kind, Section: "ref", Prefix: prefix, Label: title, RecordID: mention.RecordID})

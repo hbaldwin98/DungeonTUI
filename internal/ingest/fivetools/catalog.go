@@ -100,16 +100,6 @@ func LoadCatalog(fetcher Fetcher) ([]Entry, error) {
 		add(list)
 	}
 
-	if data, ok, err := getOptional(fetcher, "data/books.json"); err != nil {
-		return nil, err
-	} else if ok {
-		list, err := parseNamedList(data, "book", "book")
-		if err != nil {
-			return nil, fmt.Errorf("books: %w", err)
-		}
-		add(list)
-	}
-
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("5e.tools catalog was empty")
 	}

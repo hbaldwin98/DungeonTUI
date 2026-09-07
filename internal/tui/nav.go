@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 )
@@ -15,6 +16,7 @@ type NavKind string
 const (
 	NavSessions NavKind = "sessions"
 	NavPrep     NavKind = "prep"
+	NavSources  NavKind = "sources"
 	NavType     NavKind = "type"
 )
 
@@ -29,6 +31,7 @@ func campaignTreeEntries() []navEntry {
 	return []navEntry{
 		{Kind: NavSessions, Label: "Sessions"},
 		{Kind: NavPrep, Label: "Prep"},
+		{Kind: NavSources, Label: "Sources"},
 		{Kind: NavType, Type: domain.NPC, Label: "NPCs"},
 		{Kind: NavType, Type: domain.Character, Label: "Characters"},
 		{Kind: NavType, Type: domain.Location, Label: "Locations"},
@@ -68,6 +71,8 @@ func (m *Model) setNavCursor(index int) {
 	m.selectedSessionID = ""
 	m.selectedPlanID = ""
 	m.selectedFolderPath = ""
+	m.selectedSourceID = ""
+	m.selectedHitName = ""
 	switch entry.Kind {
 	case NavType:
 		m.typeFilter = entry.Type
@@ -84,6 +89,9 @@ func (m *Model) setNavCursor(index int) {
 		if len(plans) > 0 {
 			m.selectedPlanID = plans[0].ID
 		}
+	case NavSources:
+		m.typeFilter = ""
+		m.selectFirstSourceRow()
 	}
 }
 
@@ -125,6 +133,87 @@ func (m Model) listRecords() []domain.Record {
 		}
 	}
 	return out
+}
+
+type sourceListRow struct {
+	Doc   domain.SourceDocument
+	IsHit bool
+	Hit   fivetools.AdventureHit
+}
+
+func (m Model) sourceListRows() []sourceListRow {
+	docs := m.scopedReferenceSources()
+	out := make([]sourceListRow, 0, len(docs))
+	for _, doc := range docs {
+		out = append(out, sourceListRow{Doc: doc})
+		book, ok := m.adventureBookBySource(doc.ID)
+		if !ok {
+			continue
+		}
+		for _, hit := range book.Hits {
+			out = append(out, sourceListRow{Doc: doc, IsHit: true, Hit: hit})
+		}
+	}
+	return out
+}
+
+func (m *Model) bindSourceListRow(row sourceListRow) {
+	m.selectedSourceID = row.Doc.ID
+	if row.IsHit {
+		m.selectedHitName = row.Hit.Name
+	} else {
+		m.selectedHitName = ""
+	}
+	m.selectedID = ""
+	m.selectedSessionID = ""
+	m.selectedPlanID = ""
+}
+
+func (m *Model) selectFirstSourceRow() {
+	rows := m.sourceListRows()
+	if len(rows) == 0 {
+		return
+	}
+	if len(rows) > 1 && rows[1].IsHit && rows[1].Doc.ID == rows[0].Doc.ID {
+		m.bindSourceListRow(rows[1])
+		m.cursor = 1
+		return
+	}
+	m.bindSourceListRow(rows[0])
+	m.cursor = 0
+}
+
+func (m *Model) syncSourceListCursor() {
+	rows := m.sourceListRows()
+	if len(rows) == 0 {
+		return
+	}
+	for index, row := range rows {
+		if row.Doc.ID != m.selectedSourceID {
+			continue
+		}
+		if m.selectedHitName == "" && !row.IsHit {
+			m.cursor = index
+			return
+		}
+		if row.IsHit && strings.EqualFold(row.Hit.Name, m.selectedHitName) {
+			m.cursor = index
+			return
+		}
+	}
+	m.cursor = clamp(m.cursor, 0, len(rows)-1)
+	m.bindSourceListRow(rows[m.cursor])
+}
+
+func (m Model) selectedSourceHit() (fivetools.AdventureHit, bool) {
+	if m.selectedHitName == "" {
+		return fivetools.AdventureHit{}, false
+	}
+	book, ok := m.adventureBookBySource(m.selectedSourceID)
+	if !ok {
+		return fivetools.AdventureHit{}, false
+	}
+	return book.Lookup(m.selectedHitName)
 }
 
 func (m Model) usesCampaignTree() bool {
@@ -233,6 +322,47 @@ func (m Model) renderListPane(maxRows int) string {
 			}
 			line := fmt.Sprintf("%s%s", cursor, plan.Title)
 			builder.WriteString(style.Render(line))
+			builder.WriteRune('\n')
+		}
+	case NavSources:
+		rows := m.sourceListRows()
+		if len(rows) == 0 {
+			builder.WriteString(mutedStyle.Render("  — no adventures enabled · I to import"))
+			return builder.String()
+		}
+		visible := max(1, maxRows-2)
+		start, end := visibleWindow(len(rows), m.cursor, visible)
+		for index := start; index < end; index++ {
+			row := rows[index]
+			cursor := "  "
+			style := normalItemStyle
+			selected := m.layout.Focus == prefs.PaneList && index == m.cursor
+			if !selected {
+				if row.IsHit {
+					selected = row.Doc.ID == m.selectedSourceID && strings.EqualFold(row.Hit.Name, m.selectedHitName)
+				} else {
+					selected = row.Doc.ID == m.selectedSourceID && m.selectedHitName == ""
+				}
+			}
+			if selected {
+				cursor = "▸ "
+				style = selectedItemStyle
+			}
+			if row.IsHit {
+				heading := row.Hit.Heading
+				line := cursor + row.Hit.Name
+				if heading != "" && !strings.EqualFold(heading, row.Hit.Name) {
+					line += "  ·  " + heading
+				}
+				builder.WriteString(style.PaddingLeft(2).Render(line))
+			} else {
+				book, ok := m.adventureBookBySource(row.Doc.ID)
+				meta := row.Doc.Title
+				if ok && len(book.Hits) > 0 {
+					meta = fmt.Sprintf("%s · %d names", row.Doc.Title, len(book.Hits))
+				}
+				builder.WriteString(style.Render(cursor + meta))
+			}
 			builder.WriteRune('\n')
 		}
 	default:
@@ -346,10 +476,68 @@ func (m Model) renderTreeDetailWidth(width int) string {
 			return builder.String()
 		}
 		return mutedStyle.Render("Select prep notes · p to draft")
+	case NavSources:
+		return m.renderAdventureReader(width)
 	default:
 		if m.selectedID == "" && m.selectedFolderPath != "" {
 			return m.renderWikiFolderDetail(m.selectedFolderPath)
 		}
 		return m.renderDetailWidth(width)
 	}
+}
+
+func (m Model) renderAdventureReader(width int) string {
+	if m.selectedSourceID == "" {
+		return mutedStyle.Render("Select an adventure")
+	}
+	title := m.selectedSourceID
+	for _, doc := range m.scopedReferenceSources() {
+		if doc.ID == m.selectedSourceID {
+			title = doc.Title
+			break
+		}
+	}
+	var builder strings.Builder
+	builder.WriteString(sectionStyle.Render("SOURCE"))
+	builder.WriteString("  ")
+	builder.WriteString(mutedStyle.Render("reference"))
+	builder.WriteString("\n\n")
+	book, ok := m.adventureBookBySource(m.selectedSourceID)
+	if !ok {
+		builder.WriteString(titleStyle.Render(title))
+		builder.WriteString("\n\n")
+		builder.WriteString(mutedStyle.Render("Cached adventure text is missing · import it again from 5e.tools"))
+		return builder.String()
+	}
+	hit, hitOK := m.selectedSourceHit()
+	if hitOK {
+		builder.WriteString(titleStyle.Render(hit.Name))
+		builder.WriteString("\n")
+		loc := title
+		if hit.Heading != "" && !strings.EqualFold(hit.Heading, hit.Name) {
+			loc += " · " + hit.Heading
+		}
+		builder.WriteString(mutedStyle.Render(loc))
+		builder.WriteString("\n\n")
+		body := strings.TrimSpace(hit.Body)
+		if body == "" {
+			builder.WriteString(mutedStyle.Render("(empty)"))
+		} else {
+			builder.WriteString(m.renderMarkdown(body, width))
+		}
+		return builder.String()
+	}
+	builder.WriteString(titleStyle.Render(title))
+	builder.WriteString("\n")
+	builder.WriteString(mutedStyle.Render(fmt.Sprintf("%d names · j/k the list to read one", len(book.Hits))))
+	builder.WriteString("\n\n")
+	if len(book.TOC) > 0 {
+		builder.WriteString(labelStyle.Render("CONTENTS"))
+		builder.WriteString("\n")
+		for _, name := range book.TOC {
+			builder.WriteString(mutedStyle.Render("  " + name))
+			builder.WriteRune('\n')
+		}
+	}
+	return builder.String()
 }

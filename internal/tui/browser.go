@@ -20,6 +20,7 @@ type browserRegion struct {
 	NavEntries  []navEntry
 	SessionTree []domain.SessionTreeRow
 	PlanRows    []domain.PlannedNotes
+	SourceRows  []sourceListRow
 	Offset      int // Y offset of first record row within the pane content
 	WindowStart int
 	RecordTree  []domain.RecordTreeRow
@@ -166,7 +167,13 @@ func (m *Model) focusNavType(entityType domain.EntityType) {
 func (m *Model) ensureBrowserSelection() {
 	if m.usesCampaignTree() {
 		if m.navKind == "" {
-			chosen := 2 // NPCs after Sessions / Prep
+			chosen := 0
+			for index, entry := range m.navEntries() {
+				if entry.Kind == NavType && entry.Type == domain.NPC {
+					chosen = index
+					break
+				}
+			}
 			for index, entry := range m.navEntries() {
 				if entry.Kind != NavType {
 					continue
@@ -229,6 +236,12 @@ func (m *Model) setBrowserFocus(pane prefs.Pane) {
 			}
 			m.cursor = clamp(m.cursor, 0, len(plans)-1)
 			m.selectedPlanID = plans[m.cursor].ID
+		case NavSources:
+			rows := m.sourceListRows()
+			if len(rows) == 0 {
+				return
+			}
+			m.syncSourceListCursor()
 		default:
 			rows := m.recordTreeRows()
 			if len(rows) == 0 {
@@ -443,6 +456,11 @@ func (m Model) renderBrowserLeaf(pane prefs.Pane, width, height, originX, origin
 				region.SessionTree = m.sessionTreeRows()
 			case NavPrep:
 				region.PlanRows = m.scopedPlannedNotes()
+			case NavSources:
+				rows := m.sourceListRows()
+				start, _ := visibleWindow(len(rows), m.cursor, max(1, innerHeight-2))
+				region.SourceRows = rows
+				region.WindowStart = start
 			default:
 				rows := m.recordTreeRows()
 				start, _ := visibleWindow(len(rows), m.cursor, max(1, innerHeight-2))

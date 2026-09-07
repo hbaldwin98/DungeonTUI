@@ -8,22 +8,20 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/domain"
 )
 
-// Bundle is one chosen 5e.tools book converted into domain records.
-// A later SQLite FTS5 / vector index should consume these wiki records and
-// the persisted plugin corpus rather than re-fetching 5e.tools JSON.
+// Bundle is one chosen 5e.tools adventure. CacheOnly books write no wiki rows;
+// JSON stays in the local 5e.tools cache for the Sources reader and @ peeks.
 type Bundle struct {
 	Entry      Entry
 	Doc        domain.SourceDocument
 	Records    []draft
 	Plans      []planDraft
-	PluginOnly bool // mechanical books stay in the 5e plugin, not wiki rows
+	PluginOnly bool // unused: mechanical books are not imported
+	CacheOnly  bool // adventure JSON is cached for the reader; no wiki rows
 }
 
 // Catalog reads a local 5e.tools corpus. The durable copy is JSON pulled at
-// ingest onto the owner's machine (CacheFetcher); parsed maps are a process
-// cache rebuilt from that disk store. Ingest converts a chosen book into wiki
-// records; the dnd5e plugin uses the same files to display creatures and items
-// without copying them into Workspace.Records. Later SQLite FTS5 indexes both.
+// ingest onto the owner's machine (CacheFetcher). Adventure ingest caches that
+// JSON for the reader; it does not copy published prose into Workspace.Records.
 type Catalog struct {
 	fetcher       Fetcher
 	cache         map[string][]byte
@@ -132,107 +130,23 @@ func Build(fetcher Fetcher, raw string) (Bundle, error) {
 		Kind:    kind,
 		Path:    firstNonEmpty(ref.Raw, entry.PageURL()),
 	}
-	if entry.PluginCorpus() {
-		if err := Prime(fetcher, entry); err != nil {
-			return Bundle{}, err
-		}
-		return Bundle{Entry: entry, Doc: doc, PluginOnly: true}, nil
+	if entry.Kind != "adventure" {
+		return Bundle{}, fmt.Errorf("Dungeon stores 5e.tools adventures for reference, not rules books (%s)", entry.ID)
 	}
 	s := NewCatalog(fetcher)
-	if err := s.loadIndexes(); err != nil {
+	path := AdventureJSONPath(entry.ID)
+	data, ok, err := s.get(path)
+	if err != nil {
 		return Bundle{}, err
 	}
-	_ = s.LoadCompose()
-	records := make([]draft, 0)
-	plans := make([]planDraft, 0)
-
-	code := entry.ID
-	lower := strings.ToLower(code)
-
-	if file := indexLookup(s.bestiaryIndex, code); file != "" {
-		if drafts, err := s.convertBestiaryFile(file, code, entry.Kind == "adventure"); err != nil {
-			return Bundle{}, err
-		} else {
-			records = append(records, drafts...)
-		}
+	if !ok {
+		return Bundle{}, fmt.Errorf("no 5e.tools adventure published as %s", entry.ID)
 	}
-
-	if file := indexLookup(s.spellIndex, code); file != "" {
-		if drafts, err := s.convertSpellFile(file, code); err != nil {
-			return Bundle{}, err
-		} else {
-			records = append(records, drafts...)
-		}
+	if _, err := ParseAdventure(data); err != nil {
+		return Bundle{}, err
 	}
-
-	if entry.Kind == "adventure" {
-		path := "data/adventure/adventure-" + lower + ".json"
-		if data, ok, err := s.get(path); err != nil {
-			return Bundle{}, err
-		} else if ok {
-			d, p := convertAdventure(data)
-			records = append(records, d...)
-			plans = append(plans, p...)
-		}
-	} else {
-		path := "data/book/book-" + lower + ".json"
-		if data, ok, err := s.get(path); err != nil {
-			return Bundle{}, err
-		} else if ok {
-			records = append(records, convertBook(data)...)
-		}
-	}
-
-	if wantsClasses(entry) {
-		if data, ok, err := s.get("data/class/index.json"); err != nil {
-			return Bundle{}, err
-		} else if ok {
-			idx, err := jsonIndex(data)
-			if err != nil {
-				return Bundle{}, fmt.Errorf("class index: %w", err)
-			}
-			for _, file := range idx {
-				raw, found, err := s.get("data/class/" + file)
-				if err != nil {
-					return Bundle{}, err
-				}
-				if found {
-					records = append(records, convertClasses(raw, code)...)
-				}
-			}
-		}
-	}
-
-	for _, spec := range sharedFiles {
-		if !wantsShared(entry, spec) {
-			continue
-		}
-		data, ok, err := s.get(spec.path)
-		if err != nil {
-			return Bundle{}, err
-		}
-		if !ok {
-			continue
-		}
-		for _, key := range spec.keys {
-			items, err := jsonObjects(data, key)
-			if err != nil || len(items) == 0 {
-				continue
-			}
-			switch spec.kind {
-			case "item":
-				records = append(records, convertItems(items, code)...)
-			default:
-				records = append(records, convertNamedRules(items, code, spec.tag, spec.prefix, spec.title)...)
-			}
-		}
-	}
-
-	if len(records) == 0 && len(plans) == 0 {
-		return Bundle{}, fmt.Errorf("no 5e.tools content published as %s", code)
-	}
-
-	return Bundle{Entry: entry, Doc: doc, Records: records, Plans: plans}, nil
+	doc.Kind = domain.SourceAdventure
+	return Bundle{Entry: entry, Doc: doc, CacheOnly: true}, nil
 }
 
 func wantsClasses(entry Entry) bool {

@@ -50,7 +50,7 @@ func (m *Model) enterScope(scope domain.Scope) {
 	m.planID = ""
 	m.ensureBrowserSelection()
 	m.search = searchsvc.New(m.workspace.Records)
-	m.attachRules()
+	m.attachReferences()
 	m.refreshResults()
 	m.persistPreferences()
 	m.status = "Opened " + scope.Campaign + " · b back to library"

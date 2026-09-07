@@ -63,9 +63,9 @@ func (m Model) followDetailHop() (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 	}
-	if hop.Kind == hopRuleset {
+	if hop.Kind == hopReference {
 		if _, ok := m.lookupAny(hop.RecordID); !ok {
-			m.status = "Missing 5e entry · ingest the source again to refresh the plugin cache"
+			m.status = "Missing reference · import the adventure again"
 			return m, nil, true
 		}
 	}
@@ -84,16 +84,25 @@ func (m Model) jumpToHop(hop detailHop) (tea.Model, tea.Cmd) {
 			m.status = "Missing @" + hop.Label + " · e to edit and fix"
 			return m, nil
 		}
-		if fivetools.IsPluginID(target.ID) {
-			m.status = "5e plugin entry · preview only"
+		if fivetools.IsReferenceID(target.ID) {
+			m.status = "Adventure reference · preview only"
 			return m, nil
 		}
 		m.selectRecord(target)
 		m.layout.Focus = prefs.PaneDetail
 		m.status = "Opened " + target.Title
 		return m, nil
-	case hopRuleset:
-		m.status = "5e plugin entry · preview only"
+	case hopReference:
+		if target, ok := m.lookupAny(hop.RecordID); ok && target.SourceID != "" {
+			m.focusNavKind(NavSources)
+			m.selectedSourceID = target.SourceID
+			m.selectedHitName = target.Title
+			m.syncSourceListCursor()
+			m.layout.Focus = prefs.PaneDetail
+			m.status = "Opened source · " + target.Source
+			return m, nil
+		}
+		m.status = "Adventure reference · preview only"
 		return m, nil
 	case hopPrep:
 		m.focusPrep(hop.PlanID)
@@ -171,7 +180,7 @@ func (m Model) previewBody(width int) string {
 	}
 	hop := m.preview.Hop
 	switch hop.Kind {
-	case hopWiki, hopRuleset:
+	case hopWiki, hopReference:
 		return m.previewWikiBody(hop, width)
 	case hopPrep:
 		return m.previewPrepBody(hop, width)
@@ -189,7 +198,11 @@ func (m Model) previewWikiBody(hop detailHop, width int) string {
 	}
 	fill := previewFill()
 	var builder strings.Builder
-	builder.WriteString(surface(typeStyle).Render(string(record.Type)))
+	kind := string(record.Type)
+	if fivetools.IsReferenceID(record.ID) {
+		kind = "reference"
+	}
+	builder.WriteString(surface(typeStyle).Render(kind))
 	builder.WriteString(fill.Render("  "))
 	builder.WriteString(surface(authorityStyle(record.Authority)).Render(record.Authority.Marker() + " " + record.Authority.Label()))
 	builder.WriteString("\n")

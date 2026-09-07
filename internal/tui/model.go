@@ -15,7 +15,6 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
 	"github.com/hbaldwin98/dungeon/internal/prefs"
-	"github.com/hbaldwin98/dungeon/internal/ruleset"
 	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 	"github.com/hbaldwin98/dungeon/internal/storage"
 )
@@ -107,8 +106,11 @@ type Model struct {
 	importToolsCursor  int
 	importToolsQuery   string
 	importBusy         bool
+	ingestJob          *ingestJob
 	toolsFetcher       fivetools.Fetcher
-	rules              *ruleset.Registry
+	adventures         []fivetools.AdventureBook
+	selectedSourceID   string
+	selectedHitName    string
 }
 
 func New() Model {
@@ -186,7 +188,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	model.layout = prefs.DefaultLayout()
 	model.rollRNG = dice.DefaultRNG()
 	model.workspace.EnsureLibrary()
-	model.attachRules()
+	model.attachReferences()
 	model.refreshResults()
 	model.ensureBrowserSelection()
 	return model
@@ -202,6 +204,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleToolsCatalog(msg)
 	case toolsIngestMsg:
 		return m.handleToolsIngest(msg)
+	case ingestTickMsg:
+		return m.handleIngestTick()
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -1207,6 +1211,8 @@ func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
 			return m.openPlayback()
 		}
 		return m.startSession()
+	case NavSources:
+		return m, nil
 	default:
 		if m.selectedRecord() != nil {
 			return m.openEditor(false)
@@ -1246,6 +1252,14 @@ func (m *Model) moveBrowserCursor(delta int) {
 			m.selectedPlanID = plans[m.cursor].ID
 			m.selectedID = ""
 			m.selectedSessionID = ""
+			return
+		case NavSources:
+			rows := m.sourceListRows()
+			if len(rows) == 0 {
+				return
+			}
+			m.cursor = clamp(m.cursor+delta, 0, len(rows)-1)
+			m.bindSourceListRow(rows[m.cursor])
 			return
 		default:
 			rows := m.recordTreeRows()
@@ -1527,7 +1541,7 @@ func (m Model) resolveReference(text string) *domain.Record {
 	if best != nil {
 		return best
 	}
-	if rec, ok := m.lookupRuleset(query); ok {
+	if rec, ok := m.lookupReference(query); ok {
 		return &rec
 	}
 	return nil
@@ -1563,7 +1577,7 @@ func (m Model) resolveLinks(text string) []domain.EntityLink {
 		if best != nil {
 			links = append(links, domain.EntityLink{Text: remaining[:bestLen], RecordID: best.ID})
 		} else if token := domain.ScanMentionName(remaining); token != "" {
-			if rec, ok := m.lookupRuleset(token); ok {
+			if rec, ok := m.lookupReference(token); ok {
 				links = append(links, domain.EntityLink{Text: token, RecordID: rec.ID})
 			}
 		}
@@ -1606,8 +1620,8 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(m.results) > 0 {
 			id := m.results[m.selected].Record.ID
 			if rec, ok := m.lookupAny(id); ok {
-				if fivetools.IsPluginID(rec.ID) {
-					m.openPreview(detailHop{Kind: hopRuleset, Label: rec.Title, RecordID: rec.ID})
+				if fivetools.IsReferenceID(rec.ID) {
+					m.openPreview(detailHop{Kind: hopReference, Label: rec.Title, RecordID: rec.ID})
 				} else {
 					m.selectRecord(rec)
 				}
@@ -1690,6 +1704,15 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 					m.selectedPlanID = region.PlanRows[index].ID
 					m.selectedID = ""
 					m.selectedSessionID = ""
+				}
+				return m, nil
+			}
+			if len(region.SourceRows) > 0 {
+				index = msg.Y - region.Offset + region.WindowStart
+				if index >= 0 && index < len(region.SourceRows) {
+					m.cursor = index
+					m.bindSourceListRow(region.SourceRows[index])
+					m.layout.Focus = prefs.PaneList
 				}
 				return m, nil
 			}
@@ -1912,8 +1935,8 @@ func (m Model) updateSearchClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		m.selected = start + index
 		selectedID := m.results[m.selected].Record.ID
 		if rec, ok := m.lookupAny(selectedID); ok {
-			if fivetools.IsPluginID(rec.ID) {
-				m.openPreview(detailHop{Kind: hopRuleset, Label: rec.Title, RecordID: rec.ID})
+			if fivetools.IsReferenceID(rec.ID) {
+				m.openPreview(detailHop{Kind: hopReference, Label: rec.Title, RecordID: rec.ID})
 			} else {
 				m.selectRecord(rec)
 			}
@@ -2065,18 +2088,18 @@ func (m *Model) refreshResults() {
 		IncludeProposals: m.includeIdeas,
 	})
 	query := strings.TrimSpace(m.searchInput.Value())
-	if m.rules == nil || query == "" {
+	if query == "" {
 		return
 	}
 	seen := map[string]bool{}
 	for _, result := range m.results {
 		seen[result.Record.ID] = true
 	}
-	for _, ent := range m.rules.Search(query, 8) {
-		if seen[ent.Record.ID] {
+	for _, rec := range m.searchReferenceHits(query, 8) {
+		if seen[rec.ID] {
 			continue
 		}
-		m.results = append(m.results, searchsvc.Result{Record: ent.Record, Score: 1})
+		m.results = append(m.results, searchsvc.Result{Record: rec, Score: 1})
 	}
 }
 
@@ -2560,9 +2583,13 @@ func (m Model) renderSearchOverlay() string {
 				cursor = "▸ "
 				style = selectedSearchResultStyle
 			}
+			kind := string(result.Record.Type)
+			if fivetools.IsReferenceID(result.Record.ID) {
+				kind = "reference"
+			}
 			line := fmt.Sprintf("%s%-9s %s  %-12s %s",
 				cursor,
-				result.Record.Type,
+				kind,
 				result.Record.Authority.Marker(),
 				result.Record.Authority.Label(),
 				result.Record.Title,
@@ -2795,7 +2822,7 @@ func fitPanelBodyScroll(content string, innerWidth, maxLines, scroll int) string
 }
 
 func (m Model) detailSelectionKey() string {
-	return m.selectedID + "\x1f" + m.selectedSessionID + "\x1f" + m.selectedPlanID + "\x1f" + m.selectedFolderPath
+	return m.selectedID + "\x1f" + m.selectedSessionID + "\x1f" + m.selectedPlanID + "\x1f" + m.selectedFolderPath + "\x1f" + m.selectedSourceID + "\x1f" + m.selectedHitName
 }
 
 func (m *Model) ensureDetailView() *paneScroll {

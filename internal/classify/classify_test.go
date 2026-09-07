@@ -64,20 +64,6 @@ func TestOrganizeRecordsRetypesFrontMatter(t *testing.T) {
 	}
 }
 
-func TestParseHarnessCyclesOffAndOn(t *testing.T) {
-	h, err := ParseHarness("on")
-	if err != nil || h != HarnessOn {
-		t.Fatalf("on -> %q %v", h, err)
-	}
-	dump, err := ParseHarness("dump")
-	if err != nil || dump != HarnessOn {
-		t.Fatalf("legacy dump alias -> %q %v", dump, err)
-	}
-	if NextHarness(HarnessOff) != HarnessOn || NextHarness(HarnessOn) != HarnessOff {
-		t.Fatal("cycle should be off → on → off")
-	}
-}
-
 func TestWriteDumpInspectsWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "inspect.json")

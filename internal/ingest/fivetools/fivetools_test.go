@@ -146,125 +146,64 @@ func testFetcher() MapFetcher {
 	}
 }
 
-func TestBuildBSTPrimesPluginWithoutWikiRecords(t *testing.T) {
-	fetcher := testFetcher()
-	bundle, err := Build(fetcher, "https://5e.tools/book.html#bst,-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bundle.PluginOnly || bundle.Doc.ID != "src-5e-bst" || bundle.Doc.Kind != domain.SourceBestiary {
-		t.Fatalf("doc=%#v plugin=%v", bundle.Doc, bundle.PluginOnly)
-	}
-	if len(bundle.Records) != 0 {
-		t.Fatalf("mechanical books must not create wiki rows: %#v", titles(bundle))
-	}
-	c := NewCatalog(fetcher)
-	if err := c.LoadBestiary("BST"); err != nil {
-		t.Fatal(err)
-	}
-	hit, ok := c.LookupName("Cave Rascal")
-	if !ok || hit.Kind != KindCreature || !strings.Contains(hit.Body, "**AC** 12") {
-		t.Fatalf("plugin lookup=%#v ok=%v", hit, ok)
+func TestBuildRejectsMechanicalBooks(t *testing.T) {
+	_, err := Build(testFetcher(), "https://5e.tools/book.html#bst,-1")
+	if err == nil || !strings.Contains(err.Error(), "adventures") {
+		t.Fatalf("expected rules-book rejection, got %v", err)
 	}
 }
 
-func TestBuildADVCreatesAdventureMentionsAndPrep(t *testing.T) {
+func TestBuildADVCachesAdventureWithoutWikiRows(t *testing.T) {
 	bundle, err := Build(testFetcher(), "https://5e.tools/adventure.html#adv,-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bundle.Doc.Kind != domain.SourceAdventure {
-		t.Fatalf("kind=%s", bundle.Doc.Kind)
+	if bundle.Doc.Kind != domain.SourceAdventure || !bundle.CacheOnly {
+		t.Fatalf("doc=%#v cache=%v", bundle.Doc, bundle.CacheOnly)
 	}
-	var cave string
-	for _, d := range bundle.Records {
-		if strings.Contains(d.Title, "Cave Mouth") {
-			cave = d.Body
-		}
+	if len(bundle.Records) != 0 || len(bundle.Plans) != 0 {
+		t.Fatalf("adventure must not become wiki rows: records=%d plans=%d", len(bundle.Records), len(bundle.Plans))
 	}
-	if !strings.Contains(cave, "@Cave Rascal") {
-		t.Fatalf("expected @ mention in room text: %q", cave)
-	}
-	if len(bundle.Plans) == 0 {
-		t.Fatal("expected prep notes for adventure parts")
-	}
-}
-
-func TestConvertAdventureNestsRoomsAndDedupsNPCs(t *testing.T) {
-	bundle, err := Build(testFetcher(), "https://5e.tools/adventure.html#adv,-1")
+	book, err := LoadAdventure(testFetcher(), "ADV", bundle.Doc.Title)
 	if err != nil {
 		t.Fatal(err)
 	}
-	type hit struct {
-		typ   domain.EntityType
-		group string
-		body  string
-		count int
+	if !strings.Contains(book.Body, "Millhaven") || !strings.Contains(book.Body, "@Cave Rascal") {
+		t.Fatalf("reader body missing reference text:\n%s", book.Body)
 	}
-	found := map[string]*hit{}
-	for _, d := range bundle.Records {
-		item := found[d.Title]
-		if item == nil {
-			item = &hit{}
-			found[d.Title] = item
-		}
-		item.typ = d.Type
-		item.group = d.Group
-		item.body = d.Body
-		item.count++
+	if len(book.TOC) == 0 {
+		t.Fatal("expected table of contents")
 	}
-	if found["Millhaven"] == nil || found["Millhaven"].typ != domain.Location {
-		t.Fatalf("expected Millhaven location, got %#v", titles(bundle))
-	}
-	if strings.Contains(found["Millhaven"].body, "A stout inn") {
-		t.Fatalf("parent should not copy child rooms: %q", found["Millhaven"].body)
-	}
-	if found["1. The Mill Inn"] == nil || found["1. The Mill Inn"].group != "Millhaven" {
-		t.Fatalf("room should nest under Millhaven, got %#v", found["1. The Mill Inn"])
-	}
-	if found["10. Mill Shrine"] == nil || found["10. Mill Shrine"].group != "Millhaven" {
-		t.Fatalf("shrine should nest under Millhaven")
-	}
-	if found["Millhaven — 1. The Mill Inn"] != nil || found["Millhaven - 1"] != nil {
-		t.Fatalf("prefixed sibling titles still present: %#v", titles(bundle))
-	}
-	mira := found["Mira Holt"]
-	if mira == nil || mira.typ != domain.NPC {
-		t.Fatalf("expected one Mira NPC, got %#v", found["Mira Holt"])
-	}
-	if mira.count != 1 {
-		t.Fatalf("Mira duplicated %d times", mira.count)
-	}
-	if strings.Contains(mira.body, "Captain Reed") {
-		t.Fatalf("NPC should not copy the whole table: %q", mira.body)
-	}
-	if !strings.Contains(mira.body, "greets guests") && !strings.Contains(mira.body, "Innkeeper") {
-		t.Fatalf("Mira should keep her own text: %q", mira.body)
-	}
-	if found["1. Cave Mouth"] == nil || found["1. Cave Mouth"].group != "The Ambush/The Hideout" {
-		t.Fatalf("cave group=%#v", found["1. Cave Mouth"])
-	}
-	intro := found["Introduction"]
-	if intro == nil || intro.typ != domain.Note {
-		t.Fatalf("introduction should be a note, got %#v", found["Introduction"])
-	}
-	if found["The Hollow Crown"] != nil {
-		t.Fatalf("intro should not clone the adventure as a location: %#v", titles(bundle))
-	}
-	if run := found["Running the Adventure"]; run != nil && run.typ == domain.Location {
-		t.Fatalf("intro advice should stay a note, got %#v", run)
-	}
-	if found["1. The Mill Inn"] != nil && found["1. The Mill Inn"].count != 1 {
-		t.Fatalf("The Mill Inn duplicated %d times", found["1. The Mill Inn"].count)
+	hit, ok := book.Lookup("Mira Holt")
+	if !ok || hit.Name != "Mira Holt" {
+		t.Fatalf("lookup Mira Holt: %#v ok=%v", hit, ok)
 	}
 }
 
-func TestConvertGenericAdventureUsesStructureNotTitleLists(t *testing.T) {
+func TestParseAdventureIndexesHeadingsAndCreatures(t *testing.T) {
+	data, err := testFetcher().Get("data/adventure/adventure-adv.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	book, err := ParseAdventure(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(book.TOC, "\n")
+	if !strings.Contains(joined, "Millhaven") || !strings.Contains(joined, "The Ambush") {
+		t.Fatalf("toc=%q", joined)
+	}
+	if _, ok := book.Lookup("1. Cave Mouth"); !ok {
+		t.Fatal("expected cave mouth heading")
+	}
+	if _, ok := book.Lookup("Cave Rascal"); !ok {
+		t.Fatal("expected creature mention")
+	}
+}
+
+func TestConvertGenericAdventureIsReadableReference(t *testing.T) {
 	fetcher := MapFetcher{
-		"data/adventures.json":     []byte(`{"adventure":[{"id":"Gate","name":"The Gatehouse Run","published":"2020-01-01"}]}`),
-		"data/books.json":          []byte(`{"book":[]}`),
-		"data/bestiary/index.json": []byte(`{}`),
-		"data/spells/index.json":   []byte(`{}`),
+		"data/adventures.json": []byte(`{"adventure":[{"id":"Gate","name":"The Gatehouse Run","published":"2020-01-01"}]}`),
 		"data/adventure/adventure-gate.json": []byte(`{"data":[{
 			"type":"section","name":"Introduction",
 			"entries":[
@@ -291,68 +230,31 @@ func TestConvertGenericAdventureUsesStructureNotTitleLists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]domain.EntityType{}
-	group := map[string]string{}
-	for _, d := range bundle.Records {
-		got[d.Title] = d.Type
-		group[d.Title] = d.Group
+	if !bundle.CacheOnly || len(bundle.Records) != 0 {
+		t.Fatalf("expected cache-only adventure, records=%d", len(bundle.Records))
 	}
-	if got["Introduction"] != domain.Note {
-		t.Fatalf("intro=%s titles=%v", got["Introduction"], got)
+	book, err := LoadAdventure(fetcher, "Gate", "The Gatehouse Run")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got["The Village"] != domain.Location {
-		t.Fatalf("village=%s", got["The Village"])
+	if _, ok := book.Lookup("Nilo Voss"); !ok {
+		t.Fatalf("expected Nilo in index: %#v", names(book))
 	}
-	if got["1. The Inn"] != domain.Location || group["1. The Inn"] != "The Village" {
-		t.Fatalf("inn type=%s group=%s", got["1. The Inn"], group["1. The Inn"])
-	}
-	if got["Nilo Voss"] != domain.NPC {
-		t.Fatalf("npc table should yield Nilo Voss, got %v", got)
-	}
-	if got["1. Portcullis"] != domain.Location || group["1. Portcullis"] != "The Citadel/The Gatehouse" {
-		t.Fatalf("portcullis type=%s group=%s", got["1. Portcullis"], group["1. Portcullis"])
-	}
-	if got["The Village"] == domain.Location && bundleHasDuplicateLocation(bundle, "The Village") {
-		t.Fatal("intro reprint of The Village should not be a second location")
-	}
-	if got["Using This Adventure"] == domain.Location {
-		t.Fatal("intro-only advice must not become a location")
+	if _, ok := book.Lookup("1. Portcullis"); !ok {
+		t.Fatal("expected portcullis heading")
 	}
 }
 
-func bundleHasDuplicateLocation(b Bundle, title string) bool {
-	n := 0
-	for _, d := range b.Records {
-		if d.Title == title && d.Type == domain.Location {
-			n++
-		}
-	}
-	return n > 1
-}
-
-func titles(b Bundle) []string {
-	out := make([]string, 0, len(b.Records))
-	for _, d := range b.Records {
-		out = append(out, d.Title)
+func names(b AdventureBook) []string {
+	out := make([]string, 0, len(b.Hits))
+	for _, h := range b.Hits {
+		out = append(out, h.Name)
 	}
 	return out
 }
 
-func TestBuildBSTSkipsUnrelatedSharedFiles(t *testing.T) {
-	inner := testFetcher()
-	rec := &recordingFetcher{inner: inner}
-	if _, err := Build(rec, "https://5e.tools/book.html#bst,-1"); err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range rec.paths {
-		if strings.HasPrefix(path, "data/class/") {
-			t.Fatalf("plugin ingest should not fetch %s; got %v", path, rec.paths)
-		}
-	}
-}
-
 type recordingFetcher struct {
-	inner MapFetcher
+	inner Fetcher
 	paths []string
 }
 
@@ -361,12 +263,15 @@ func (r *recordingFetcher) Get(path string) ([]byte, error) {
 	return r.inner.Get(path)
 }
 
-func TestLoadCatalog(t *testing.T) {
+func TestLoadCatalogListsAdventuresOnly(t *testing.T) {
 	entries, err := LoadCatalog(testFetcher())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(FilterCatalog(entries, "hollow")) != 1 {
 		t.Fatalf("filter=%#v", entries)
+	}
+	if len(FilterCatalog(entries, "bestiary")) != 0 {
+		t.Fatalf("catalog should not list rules books: %#v", entries)
 	}
 }

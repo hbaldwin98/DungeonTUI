@@ -3,6 +3,7 @@ package ingest
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
@@ -10,6 +11,7 @@ import (
 
 // ApplyFile reads markdown from path and Apply it.
 func ApplyFile(ws domain.Workspace, path string, opts Options) (domain.Workspace, Report, error) {
+	opts.report(StageRead, "Reading "+filepath.Base(path), 0, 0)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ws, Report{}, fmt.Errorf("read %s: %w", path, err)

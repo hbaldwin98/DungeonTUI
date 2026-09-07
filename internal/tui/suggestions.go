@@ -191,7 +191,7 @@ func (m Model) entitySuggestions(query string) []Suggestion {
 		for _, item := range out {
 			seen[strings.ToLower(item.Insert)] = true
 		}
-		for _, item := range m.pluginSuggestions(query, 5-len(out)) {
+		for _, item := range m.referenceSuggestions(query, 5-len(out)) {
 			if seen[strings.ToLower(item.Insert)] {
 				continue
 			}

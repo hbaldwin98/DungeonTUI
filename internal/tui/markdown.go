@@ -13,10 +13,13 @@ import (
 )
 
 var (
-	markdownMu     sync.Mutex
-	markdownWidth  int
-	markdownTerm   *glamour.TermRenderer
-	markdownFailed bool
+	markdownMu         sync.Mutex
+	markdownWidth      int
+	markdownTerm       *glamour.TermRenderer
+	markdownFailed     bool
+	markdownCacheText  string
+	markdownCacheWidth int
+	markdownCacheOut   string
 )
 
 func paneMarkdownStyle() ansi.StyleConfig {
@@ -348,6 +351,9 @@ func renderMarkdownANSI(text string, width int) (string, error) {
 	if markdownFailed {
 		return "", fmt.Errorf("markdown renderer unavailable")
 	}
+	if markdownCacheText == text && markdownCacheWidth == width && markdownCacheOut != "" {
+		return markdownCacheOut, nil
+	}
 	if markdownTerm == nil || markdownWidth != width {
 		renderer, err := glamour.NewTermRenderer(
 			glamour.WithStyles(paneMarkdownStyle()),
@@ -365,5 +371,8 @@ func renderMarkdownANSI(text string, width int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(out), nil
+	markdownCacheText = text
+	markdownCacheWidth = width
+	markdownCacheOut = strings.TrimSpace(out)
+	return markdownCacheOut, nil
 }
