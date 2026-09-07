@@ -678,10 +678,11 @@ These tokens should complement interactive filters rather than replace them.
 ### Search implementation direction
 
 Use a common search service returning typed results regardless of UI. The
-current backend is an in-memory fuzzy/full-text scan over wiki records, prep
-notes, sessions, transcripts, reconciliation items, and labeled adventure
-references. SQLite FTS5 remains a later store (D-024) and should not change
-the result contract.
+backend is SQLite FTS5 over wiki records, prep notes, sessions, transcripts,
+reconciliation items, and labeled adventure references, with the same fuzzy
+title match (`cptvl` → Captain Vale). JSON workspace remains the inspectable
+campaign store; the index is derived (D-024). The result contract stays the
+same.
 
 The search result contract should contain enough metadata for any client:
 
@@ -723,15 +724,15 @@ Domain services --+-- future HTTP/API -- web UI
 
 SQLite is a pragmatic eventual system of record: transactional, local,
 portable, easy to back up, and capable of structured queries plus FTS5.
-The first persisted vertical slice uses a documented JSON workspace because it
+The persisted campaign slice is a documented JSON workspace because it
 keeps the data inspectable while the entity model is still changing. Owner
 markdown FILES become wiki `Record`s. Published 5e.tools adventures cache as
 read-only reference books, never campaign canon. There is no mechanical 5e
-ruleset plugin in this app (D-029). The storage boundary must
-allow that implementation to move to SQLite with FTS5 (and optional embeddings
-for AI retrieval) without changing domain or TUI code. Cached embeddings are
-derived operational data and are not required to reconstruct canon. Portability does not require every internal record
-to be a Markdown file.
+ruleset plugin in this app (D-029). Search already uses a derived SQLite FTS5
+index (D-024); a later move of the *operational* store to SQLite (and optional
+embeddings for AI retrieval) must not change domain or TUI code. Cached
+embeddings are derived operational data and are not required to reconstruct
+canon. Portability does not require every internal record to be a Markdown file.
 
 The application should provide versioned, documented export and import formats.
 A useful export bundle may contain:
@@ -842,7 +843,7 @@ The workflow should be solid manually before AI automates extraction.
 - Distinguish rules, interpretations, and house-rule overrides.
 - Enable campaign-specific source selection.
 - Mechanical 5e lookup is out of this app (D-029); adventure caches stay
-  reference. SQLite FTS5 later indexes wiki and those caches (D-024).
+  reference. SQLite FTS5 indexes wiki and those caches (D-024).
 
 This validates the sourcebook architecture without making commercial PDF parsing
 a prerequisite for the core campaign tool.

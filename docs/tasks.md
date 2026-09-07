@@ -68,8 +68,9 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   `SourceDocument`s, campaign enablement, and `@` association (Argus #47–#54;
   D-021–D-023). Dedicated Import screen with a 5e.tools catalog (`I`)
   (Argus #51; D-022). `d` then `y` on SOURCES removes a book so it can be
-  ingested again (Argus #61). SQLite FTS5 / vectors later over wiki records
-  and cached adventure text (Argus #55; D-024, D-032).
+  ingested again (Argus #61). SQLite FTS5 indexes wiki, prep, sessions,
+  recon, and cached adventure references; JSON stays the campaign store
+  (Argus #55; D-024, D-032).
   Imported records file under source/type folders, collapsed by default
   (Argus #56–#57; D-025).
 - Wiki/prep detail, link previews, and `@` peeks render markdown with
@@ -89,7 +90,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   structure **before** wiki rows are written (Argus #64, #67; D-030, D-033).
   The `classify` CLI and import-agent harness are removed (Argus #99).
 - Campaign search covers wiki, prep, sessions, transcripts, reconciliation, and
-  labeled adventure references (Argus #94).
+  labeled adventure references (Argus #94). SQLite FTS5 is the search backend;
+  `search.sqlite` is rebuildable and must not block workspace save (Argus #55).
 - Reconciliation applies editable, source-linked wiki mutations; the transcript
   stays immutable (Argus #95).
 - Session and record transactions live in `internal/app` (Argus #97).
@@ -107,7 +109,7 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 
 ## Deferred
 
-- SQLite operational store and FTS5 migration over wiki records and cached
-  adventure text (Argus #55; D-024, D-032).
+- SQLite operational store for campaign data (JSON remains SoT; FTS5 search
+  already shipped, Argus #55; D-024, D-032). Optional embeddings later.
 - Context-aware AI generators.
 - Web/API client over the shared domain services.

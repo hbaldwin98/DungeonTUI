@@ -179,6 +179,46 @@ func TestFindSkipsExtrasWhenQueryEmpty(t *testing.T) {
 	}
 }
 
+func TestFindReturnsMatchingAdventureReferences(t *testing.T) {
+	mira := domain.Record{
+		ID: "ref:src-adv:mira-holt", Type: domain.Note, Title: "Mira Holt",
+		Summary: "A scout from Greywatch.", Body: "Mira watches the east road.",
+		Authority: domain.Canon, Source: "The Hollow Crown", SourceID: "src-adv",
+		Aliases: []string{"Mira Holt"}, Tags: []string{"reference", "adventure"},
+	}
+	service := FromDocuments(append(
+		DocumentsFromWorkspace(domain.Workspace{
+			Records: []domain.Record{{ID: "npc-vale", Type: domain.NPC, Title: "Captain Vale", Authority: domain.Canon, Scope: testScope}},
+		}),
+		DocumentFromReference(mira),
+	))
+
+	found := service.Find(Filter{
+		Query: "Mira", Scope: CurrentCampaign,
+		WorldID: testScope.WorldID, CampaignID: testScope.CampaignID,
+		EnabledSourceIDs: []string{"src-adv"},
+	})
+	if !hasKind(found, KindReference, mira.ID) {
+		t.Fatalf("expected enabled reference hit, got %#v", found)
+	}
+	if found[0].TypeLabel() != "reference" {
+		t.Fatalf("expected reference label, got %q", found[0].TypeLabel())
+	}
+
+	hidden := service.Find(campaignFilter("Mira"))
+	if hasKind(hidden, KindReference, mira.ID) {
+		t.Fatal("disabled adventure reference should be hidden")
+	}
+
+	empty := service.Find(Filter{
+		Scope: CurrentCampaign, WorldID: testScope.WorldID, CampaignID: testScope.CampaignID,
+		EnabledSourceIDs: []string{"src-adv"},
+	})
+	if hasKind(empty, KindReference, mira.ID) {
+		t.Fatal("empty query should stay wiki-only")
+	}
+}
+
 func hasKind(results []Result, kind Kind, id string) bool {
 	for _, result := range results {
 		if result.Kind == kind && result.TargetID() == id {

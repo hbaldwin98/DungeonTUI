@@ -203,8 +203,8 @@ func (m Model) toggleImportSource() (tea.Model, tea.Cmd) {
 		m.workspace = before
 		return m, nil
 	}
-	m.rebuildSearch()
 	m.attachReferences()
+	m.rebuildSearch()
 	m.refreshResults()
 	return m, nil
 }
@@ -236,12 +236,12 @@ func (m Model) confirmRemoveImportSource() (tea.Model, tea.Cmd) {
 	if m.importSourceCursor >= len(m.workspace.Sources) {
 		m.importSourceCursor = max(0, len(m.workspace.Sources)-1)
 	}
-	m.rebuildSearch()
 	m.attachReferences()
+	m.rebuildSearch()
 	if err := m.persistWorkspace(); err != nil {
 		m.workspace = before
-		m.rebuildSearch()
 		m.attachReferences()
+		m.rebuildSearch()
 		return m, nil
 	}
 	m.ensureBrowserSelection()
@@ -804,12 +804,12 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 	}
 	before := m.workspace
 	m.workspace = msg.ws
-	m.rebuildSearch()
 	m.attachReferences()
+	m.rebuildSearch()
 	if err := m.persistWorkspace(); err != nil {
 		m.workspace = before
-		m.rebuildSearch()
 		m.attachReferences()
+		m.rebuildSearch()
 		return m, nil
 	}
 	m.ensureBrowserSelection()

@@ -106,6 +106,7 @@ func (r Result) Authority() domain.Authority {
 
 type Service struct {
 	workspace domain.Workspace
+	index     *Index
 }
 
 func New(records []domain.Record) Service {
@@ -113,10 +114,68 @@ func New(records []domain.Record) Service {
 }
 
 func FromWorkspace(workspace domain.Workspace) Service {
-	return Service{workspace: workspace}
+	svc := FromDocuments(DocumentsFromWorkspace(workspace))
+	svc.workspace = workspace
+	return svc
+}
+
+func FromDocuments(docs []Document) Service {
+	idx, err := Open("", docs)
+	if err != nil {
+		return Service{}
+	}
+	return Service{index: idx}
+}
+
+func OpenPath(path string, docs []Document) (Service, error) {
+	idx, err := Open(path, docs)
+	if err != nil {
+		return FromDocuments(docs), err
+	}
+	return Service{index: idx}, nil
+}
+
+func (s Service) Close() {
+	s.index.Close()
 }
 
 func (s Service) Find(filter Filter) []Result {
+	if s.index != nil {
+		if results, err := s.index.Query(filter); err == nil {
+			sortResults(results)
+			return capReferences(results)
+		}
+	}
+	results := s.findScan(filter)
+	sortResults(results)
+	return capReferences(results)
+}
+
+func sortResults(results []Result) {
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score == results[j].Score {
+			return results[i].DisplayTitle() < results[j].DisplayTitle()
+		}
+		return results[i].Score > results[j].Score
+	})
+}
+
+func capReferences(results []Result) []Result {
+	n := 0
+	out := make([]Result, 0, len(results))
+	for _, result := range results {
+		if result.Kind == KindReference {
+			if n >= maxReferenceHits {
+				continue
+			}
+			n++
+		}
+		out = append(out, result)
+	}
+	return out
+}
+
+func (s Service) findScan(filter Filter) []Result {
 	query := normalize(filter.Query)
 	results := s.findRecords(filter, query)
 	if includeExtras(filter) {
@@ -125,14 +184,6 @@ func (s Service) Find(filter Filter) []Result {
 		results = append(results, s.findTranscripts(filter, query)...)
 		results = append(results, s.findRecons(filter, query)...)
 	}
-
-	sort.SliceStable(results, func(i, j int) bool {
-		if results[i].Score == results[j].Score {
-			return results[i].DisplayTitle() < results[j].DisplayTitle()
-		}
-		return results[i].Score > results[j].Score
-	})
-
 	return results
 }
 

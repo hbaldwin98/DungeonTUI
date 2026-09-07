@@ -120,6 +120,7 @@ type Model struct {
 	selectedSourceID   string
 	selectedHitName    string
 	selectedChapter    string
+	searchPath         string
 }
 
 func New() Model {
@@ -193,7 +194,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 		app:              app.New(store),
 		store:            store,
 		prefs:            prefStore,
-		search:           searchsvc.FromWorkspace(workspace),
+		searchPath:       indexPathFromStore(store),
 		searchInput:      input,
 		searchScope:      searchsvc.CurrentCampaign,
 		includeIdeas:     false,
@@ -214,9 +215,18 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	model.rollRNG = dice.DefaultRNG()
 	model.workspace.EnsureLibrary()
 	model.attachReferences()
+	model.rebuildSearch()
 	model.refreshResults()
 	model.ensureBrowserSelection()
 	return model
+}
+
+func indexPathFromStore(store storage.Store) string {
+	js, ok := store.(storage.JSONStore)
+	if !ok || js.Path == "" {
+		return ""
+	}
+	return searchsvc.IndexPath(js.Path)
 }
 
 func (m Model) Init() tea.Cmd {
@@ -2195,7 +2205,15 @@ func (m Model) suggestionsTitle(hit hitTarget) string {
 }
 
 func (m *Model) rebuildSearch() {
-	m.search = searchsvc.FromWorkspace(m.workspace)
+	m.search.Close()
+	docs := searchsvc.DocumentsFromWorkspace(m.workspace)
+	docs = append(docs, m.referenceDocuments()...)
+	if m.searchPath != "" {
+		svc, _ := searchsvc.OpenPath(m.searchPath, docs)
+		m.search = svc
+		return
+	}
+	m.search = searchsvc.FromDocuments(docs)
 }
 
 func (m *Model) refreshResults() {
@@ -2203,7 +2221,6 @@ func (m *Model) refreshResults() {
 		m.results = nil
 		return
 	}
-	m.rebuildSearch()
 	m.results = m.search.Find(searchsvc.Filter{
 		Query:            m.searchInput.Value(),
 		Scope:            m.searchScope,
@@ -2212,26 +2229,6 @@ func (m *Model) refreshResults() {
 		EnabledSourceIDs: m.workspace.EnabledSourceIDs(m.workspace.Scope),
 		IncludeProposals: m.includeIdeas,
 	})
-	query := strings.TrimSpace(m.searchInput.Value())
-	if query == "" {
-		return
-	}
-	seen := map[string]bool{}
-	for _, result := range m.results {
-		seen[result.TargetID()] = true
-	}
-	for _, rec := range m.searchReferenceHits(query, 8) {
-		if seen[rec.ID] {
-			continue
-		}
-		m.results = append(m.results, searchsvc.Result{
-			Kind:   searchsvc.KindReference,
-			ID:     rec.ID,
-			Title:  rec.Title,
-			Record: rec,
-			Score:  1,
-		})
-	}
 }
 
 func (m Model) openSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {

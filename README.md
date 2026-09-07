@@ -62,9 +62,10 @@ owner's wiki wins on a name collision. `@` peeks stay the small overlay.
 Adventure sites from **markdown FILES** are classified from structure (front
 matter, numbered rooms) **before** wiki rows are written.
 
-SQLite FTS5 and embeddings are a later search backend over wiki records and
-cached adventure text (see D-024, D-032). The workspace JSON is still the
-inspectable campaign store; adventure JSON lives in the local 5e.tools cache.
+Search is SQLite FTS5 over wiki, prep, sessions, transcripts, recon, and
+enabled adventure **reference** caches (D-024, D-032). The workspace JSON is
+still the inspectable campaign store; `search.sqlite` is a rebuildable index.
+Adventure JSON lives in the local 5e.tools cache. Embeddings stay out.
 
 
 ## Validate / screencap

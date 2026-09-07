@@ -504,6 +504,7 @@ func TestSearchFindsPrepAndOpensIt(t *testing.T) {
 		Body:  "Vale waits at the east gate.",
 		Scope: model.workspace.Scope,
 	})
+	model.rebuildSearch()
 	model.searching = true
 	model.searchInput.SetValue("ambush")
 	model.refreshResults()
@@ -543,6 +544,7 @@ func TestSearchFindsSessionTranscriptAndRecon(t *testing.T) {
 		ID: "recon-sit-17", SessionID: "sit-17", Title: "Reconcile Greywatch Watch",
 		Items: []domain.ReconciliationItem{{Summary: "Promote draft: Sister Elayne"}},
 	})
+	model.rebuildSearch()
 
 	model.searching = true
 	model.searchInput.SetValue("greywatch watch")
@@ -574,6 +576,30 @@ func TestSearchFindsSessionTranscriptAndRecon(t *testing.T) {
 	model = updated.(Model)
 	if !model.reconciling || model.workspace.Reconciliations[model.reconIndex].ID != "recon-sit-17" {
 		t.Fatalf("expected recon overlay, reconciling=%v index=%d", model.reconciling, model.reconIndex)
+	}
+}
+
+func TestPersistSucceedsWhenSearchIndexCannotWrite(t *testing.T) {
+	dir := t.TempDir()
+	wsPath := filepath.Join(dir, "workspace.json")
+	blocked := filepath.Join(dir, "blocked")
+	if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := newModel(demoWorkspace(), storage.NewJSON(wsPath), nil)
+	model.searchPath = filepath.Join(blocked, "search.sqlite")
+	model.rebuildSearch()
+	if err := model.persistWorkspace(); err != nil {
+		t.Fatalf("workspace save should ignore index failure: %v", err)
+	}
+	if _, err := os.Stat(wsPath); err != nil {
+		t.Fatalf("expected workspace.json: %v", err)
+	}
+	model.searching = true
+	model.searchInput.SetValue("vale")
+	model.refreshResults()
+	if len(model.results) == 0 {
+		t.Fatal("memory fallback should still find campaign records")
 	}
 }
 

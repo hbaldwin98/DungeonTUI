@@ -22,7 +22,7 @@ func DefaultCacheDir() string {
 
 // CacheFetcher reads a site-relative path from Dir, then from Inner, and
 // writes successful Inner fetches back to Dir. That directory is the durable
-// 5e plugin store until SQLite FTS5. JSON is never committed to git.
+// adventure JSON cache. FTS5 indexes hits from it; JSON is never committed to git.
 type CacheFetcher struct {
 	Inner Fetcher
 	Dir   string

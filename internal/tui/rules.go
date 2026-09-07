@@ -5,6 +5,7 @@ import (
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
 	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
+	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
 )
 
 func (m *Model) attachReferences() {
@@ -134,26 +135,14 @@ func (m Model) referenceSuggestions(query string, limit int) []Suggestion {
 	return out
 }
 
-func (m Model) searchReferenceHits(query string, limit int) []domain.Record {
-	if strings.TrimSpace(query) == "" || limit < 1 {
-		return nil
-	}
-	out := make([]domain.Record, 0, limit)
-	seen := map[string]bool{}
+func (m Model) referenceDocuments() []searchsvc.Document {
+	docs := make([]searchsvc.Document, 0)
 	for _, book := range m.adventures {
-		for _, hit := range book.Search(query, limit) {
-			rec := book.Record(hit, book.ID)
-			if seen[rec.ID] {
-				continue
-			}
-			seen[rec.ID] = true
-			out = append(out, rec)
-			if len(out) >= limit {
-				return out
-			}
+		for _, hit := range book.Hits {
+			docs = append(docs, searchsvc.DocumentFromReference(book.Record(hit, book.ID)))
 		}
 	}
-	return out
+	return docs
 }
 
 func (m Model) adventureBookBySource(id string) (fivetools.AdventureBook, bool) {

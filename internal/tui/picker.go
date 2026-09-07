@@ -51,8 +51,8 @@ func (m *Model) enterScope(scope domain.Scope) {
 	m.navKind = ""
 	m.planID = ""
 	m.ensureBrowserSelection()
-	m.rebuildSearch()
 	m.attachReferences()
+	m.rebuildSearch()
 	m.refreshResults()
 	m.persistPreferences()
 	if m.resumeUnfinishedSession(scope) {
