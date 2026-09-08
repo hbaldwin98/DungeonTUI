@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -8,6 +9,16 @@ import (
 
 	"github.com/hbaldwin98/dungeon/internal/domain"
 )
+
+func largeDetailMarkdown() string {
+	var builder strings.Builder
+	for index := 0; index < 240; index++ {
+		fmt.Fprintf(&builder, "### Chapter %d\n\n", index+1)
+		builder.WriteString("The lantern burns low while the party crosses the ruined causeway. ")
+		builder.WriteString("A careful scout checks every arch, every loose stone, and every shadow before moving on.\n\n")
+	}
+	return strings.TrimSpace(builder.String())
+}
 
 func complexCreatureMarkdown() string {
 	return strings.TrimSpace(`
@@ -141,5 +152,112 @@ func TestComplexEntityViewKeepsAlignedPanes(t *testing.T) {
 	}
 	if errs := frame.FillErrors(); len(errs) > 0 {
 		t.Fatalf("layout fill failed: %s\n%s", strings.Join(errs, "; "), frame.Plain)
+	}
+}
+
+func TestRenderMarkdownRetainsFinalOutputsAndCurrentMentionStyle(t *testing.T) {
+	resetMarkdownCacheForTest()
+	defer resetMarkdownCacheForTest()
+
+	model := New()
+	firstSource := "A first cached fragment."
+	secondSource := "A second cached fragment."
+	first := model.renderMarkdown(firstSource, 48)
+	_ = model.renderMarkdown(secondSource, 48)
+
+	markdownMu.Lock()
+	markdownFailed = true
+	markdownMu.Unlock()
+	if got := model.renderMarkdown(firstSource, 48); got != first {
+		t.Fatalf("expected the first fragment to survive a second cache entry")
+	}
+
+	resetMarkdownCacheForTest()
+	brokenModel := New()
+	mentionSource := "See @Cache Target."
+	broken := brokenModel.renderMarkdown(mentionSource, 48)
+	resolvedModel := New()
+	resolvedModel.workspace.Records = append(resolvedModel.workspace.Records, domain.Record{
+		ID:        "cache-target",
+		Title:     "Cache Target",
+		Authority: domain.Canon,
+	})
+	resolved := resolvedModel.renderMarkdown(mentionSource, 48)
+	if broken == resolved {
+		t.Fatalf("resolved and broken mentions should retain distinct styles")
+	}
+}
+
+func resetMarkdownCacheForTest() {
+	markdownMu.Lock()
+	defer markdownMu.Unlock()
+	markdownWidth = 0
+	markdownTerm = nil
+	markdownFailed = false
+	markdownCache = [markdownCacheCapacity]markdownCacheEntry{}
+	markdownNext = 0
+}
+
+func BenchmarkRenderDetailLargeBody(b *testing.B) {
+	model := New()
+	model.width = 120
+	model.height = 36
+	record := domain.Record{
+		ID:        "large-detail-benchmark",
+		Type:      domain.Note,
+		Title:     "Long Field Notes",
+		Summary:   "*A long-running expedition log*",
+		Body:      largeDetailMarkdown(),
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+		Source:    "Benchmark Notes",
+	}
+	model.workspace.Records = append(model.workspace.Records, record)
+	model.selectRecord(record)
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(record.Body)))
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		_ = model.renderDetailWidth(56)
+	}
+}
+
+func BenchmarkRenderMarkdownLargeBody(b *testing.B) {
+	model := New()
+	body := largeDetailMarkdown()
+
+	_ = model.renderMarkdown(body, 56)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(body)))
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		_ = model.renderMarkdown(body, 56)
+	}
+}
+
+func BenchmarkViewLargeDetail(b *testing.B) {
+	model := New()
+	model.width = 120
+	model.height = 36
+	body := largeDetailMarkdown()
+	record := domain.Record{
+		ID:        "large-view-benchmark",
+		Type:      domain.Note,
+		Title:     "Long Field Notes",
+		Summary:   "*A long-running expedition log*",
+		Body:      body,
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+		Source:    "Benchmark Notes",
+	}
+	model.workspace.Records = append(model.workspace.Records, record)
+	model.selectRecord(record)
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(body)))
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		_ = model.View()
 	}
 }

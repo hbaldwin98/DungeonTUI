@@ -13,14 +13,23 @@ import (
 )
 
 var (
-	markdownMu         sync.Mutex
-	markdownWidth      int
-	markdownTerm       *glamour.TermRenderer
-	markdownFailed     bool
-	markdownCacheText  string
-	markdownCacheWidth int
-	markdownCacheOut   string
+	markdownMu     sync.Mutex
+	markdownWidth  int
+	markdownTerm   *glamour.TermRenderer
+	markdownFailed bool
+	markdownCache  [markdownCacheCapacity]markdownCacheEntry
+	markdownNext   int
 )
+
+const markdownCacheCapacity = 16
+
+type markdownCacheEntry struct {
+	text          string
+	mentionStyles string
+	width         int
+	output        string
+	valid         bool
+}
 
 func paneMarkdownStyle() ansi.StyleConfig {
 	style := styles.TokyoNightStyleConfig
@@ -301,18 +310,23 @@ func (m Model) renderMarkdown(text string, width int) string {
 	if width < 16 {
 		width = 16
 	}
-	prepared, restore := m.protectMentions(flattenWideMarkdownTables(isolateMarkdownTables(text), width))
+	prepared, restore, mentionStyles := m.protectMentions(flattenWideMarkdownTables(isolateMarkdownTables(text), width))
+	if rendered, ok := cachedMarkdown(prepared, mentionStyles, width); ok {
+		return rendered
+	}
 	rendered, err := renderMarkdownANSI(prepared, width)
 	if err != nil {
 		return clampANSIWidth(m.renderProseWithMentions(text), width)
 	}
-	return clampANSIWidth(restore(rendered), width)
+	rendered = clampANSIWidth(restore(rendered), width)
+	storeMarkdownCache(prepared, mentionStyles, width, rendered)
+	return rendered
 }
 
-func (m Model) protectMentions(text string) (string, func(string) string) {
+func (m Model) protectMentions(text string) (string, func(string) string, string) {
 	mentions := m.resolveMentions(text)
 	if len(mentions) == 0 {
-		return text, func(s string) string { return s }
+		return text, func(s string) string { return s }, ""
 	}
 	type slot struct {
 		token  string
@@ -320,6 +334,7 @@ func (m Model) protectMentions(text string) (string, func(string) string) {
 	}
 	slots := make([]slot, 0, len(mentions))
 	var builder strings.Builder
+	var styleKey strings.Builder
 	last := 0
 	for index, mention := range mentions {
 		if mention.Start < last || mention.End > len(text) {
@@ -333,6 +348,10 @@ func (m Model) protectMentions(text string) (string, func(string) string) {
 			styled = brokenRefStyle.Render(raw)
 		}
 		slots = append(slots, slot{token: token, styled: styled})
+		styleKey.WriteString(token)
+		styleKey.WriteByte(0)
+		styleKey.WriteString(styled)
+		styleKey.WriteByte(0)
 		builder.WriteString(token)
 		last = mention.End
 	}
@@ -342,7 +361,7 @@ func (m Model) protectMentions(text string) (string, func(string) string) {
 			rendered = strings.ReplaceAll(rendered, item.token, item.styled)
 		}
 		return rendered
-	}
+	}, styleKey.String()
 }
 
 func renderMarkdownANSI(text string, width int) (string, error) {
@@ -350,9 +369,6 @@ func renderMarkdownANSI(text string, width int) (string, error) {
 	defer markdownMu.Unlock()
 	if markdownFailed {
 		return "", fmt.Errorf("markdown renderer unavailable")
-	}
-	if markdownCacheText == text && markdownCacheWidth == width && markdownCacheOut != "" {
-		return markdownCacheOut, nil
 	}
 	if markdownTerm == nil || markdownWidth != width {
 		renderer, err := glamour.NewTermRenderer(
@@ -371,8 +387,29 @@ func renderMarkdownANSI(text string, width int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	markdownCacheText = text
-	markdownCacheWidth = width
-	markdownCacheOut = strings.TrimSpace(out)
-	return markdownCacheOut, nil
+	return strings.TrimSpace(out), nil
+}
+
+func cachedMarkdown(text, mentionStyles string, width int) (string, bool) {
+	markdownMu.Lock()
+	defer markdownMu.Unlock()
+	for _, entry := range markdownCache {
+		if entry.valid && entry.text == text && entry.mentionStyles == mentionStyles && entry.width == width {
+			return entry.output, true
+		}
+	}
+	return "", false
+}
+
+func storeMarkdownCache(text, mentionStyles string, width int, output string) {
+	markdownMu.Lock()
+	defer markdownMu.Unlock()
+	markdownCache[markdownNext] = markdownCacheEntry{
+		text:          text,
+		mentionStyles: mentionStyles,
+		width:         width,
+		output:        output,
+		valid:         true,
+	}
+	markdownNext = (markdownNext + 1) % len(markdownCache)
 }
