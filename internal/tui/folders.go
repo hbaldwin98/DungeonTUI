@@ -332,7 +332,7 @@ func (m Model) saveSessionFolder() (tea.Model, tea.Cmd) {
 	m.workspace.Sessions = domain.ApplySessionFolder(m.workspace.Sessions, ids, folder)
 	m.closeFolderName()
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		m.syncSessionTreeCursor()
 		return m, nil
 	}

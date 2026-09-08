@@ -188,6 +188,44 @@ func TestRenderMarkdownRetainsFinalOutputsAndCurrentMentionStyle(t *testing.T) {
 	}
 }
 
+func TestPreviewBodyViewCachesLinesAndInvalidatesOnWorkspaceChange(t *testing.T) {
+	model := New()
+	record := domain.Record{
+		ID:        "preview-cache-record",
+		Type:      domain.Note,
+		Title:     "Preview Cache",
+		Body:      "CACHE_HEAD",
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+	}
+	model.workspace.Records = append(model.workspace.Records, record)
+	model.rebuildSearch()
+	model.openPreview(detailHop{Kind: hopWiki, Label: record.Title, RecordID: record.ID})
+
+	width := model.previewWidth()
+	first := model.previewBodyLines(width)
+	second := model.previewBodyLines(width)
+	if len(first) == 0 || &first[0] != &second[0] {
+		t.Fatal("preview body lines should be reused at the same width")
+	}
+	if !strings.Contains(testANSI.ReplaceAllString(strings.Join(first, "\n"), ""), "CACHE_HEAD") {
+		t.Fatalf("initial preview body missing marker: %q", first)
+	}
+	model.previewFrame()
+	afterFrame := model.previewBodyLines(width)
+	if !strings.Contains(testANSI.ReplaceAllString(strings.Join(afterFrame, "\n"), ""), "CACHE_HEAD") {
+		t.Fatalf("preview frame should not mutate cached body lines: %q", afterFrame)
+	}
+
+	model.workspace.Records[len(model.workspace.Records)-1].Body = "CACHE_UPDATED"
+	model.rebuildSearch()
+	updated := model.previewBodyLines(width)
+	plain := testANSI.ReplaceAllString(strings.Join(updated, "\n"), "")
+	if strings.Contains(plain, "CACHE_HEAD") || !strings.Contains(plain, "CACHE_UPDATED") {
+		t.Fatalf("preview body cache was not invalidated: %q", plain)
+	}
+}
+
 func resetMarkdownCacheForTest() {
 	markdownMu.Lock()
 	defer markdownMu.Unlock()
@@ -333,5 +371,29 @@ func BenchmarkPreviewFrameLargeBody(b *testing.B) {
 	b.ResetTimer()
 	for index := 0; index < b.N; index++ {
 		_ = model.previewFrame()
+	}
+}
+
+func BenchmarkPreviewFrameAndMaxScrollLargeBody(b *testing.B) {
+	model := New()
+	model.width = 120
+	model.height = 36
+	record := domain.Record{
+		ID:        "preview-cache-benchmark",
+		Type:      domain.Note,
+		Title:     "Preview Cache Notes",
+		Body:      largeDetailMarkdown(),
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+	}
+	model.workspace.Records = append(model.workspace.Records, record)
+	model.openPreview(detailHop{Kind: hopWiki, Label: record.Title, RecordID: record.ID})
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(record.Body)))
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		_ = model.previewFrame()
+		_ = model.previewMaxScroll()
 	}
 }

@@ -256,7 +256,7 @@ func (m Model) saveNamedCollection() (tea.Model, tea.Cmd) {
 	m.namingCollection = false
 	m.collectionName.Blur()
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		m.collectionFilter = ""
 		m.lastCollectionID = ""
 		return m, nil
@@ -285,7 +285,7 @@ func (m Model) toggleCollectionMembership() (tea.Model, tea.Cmd) {
 		}
 	}
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		return m, nil
 	}
 	if updated.Has(record.ID) {

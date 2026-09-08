@@ -27,6 +27,7 @@ import (
 
 type Model struct {
 	workspace          domain.Workspace
+	workspaceRevision  uint64
 	app                app.Service
 	search             searchsvc.Service
 	cursor             int
@@ -224,6 +225,15 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	model.refreshResults()
 	model.ensureBrowserSelection()
 	return model
+}
+
+func (m *Model) replaceWorkspace(workspace domain.Workspace) {
+	m.workspace = workspace
+	m.workspaceRevision++
+}
+
+func (m *Model) markWorkspaceChanged() {
+	m.workspaceRevision++
 }
 
 func indexPathFromStore(store storage.Store) string {
@@ -1094,7 +1104,7 @@ func (m Model) endSession() (tea.Model, tea.Cmd) {
 		m.status = "Saved in memory; persistence failed: " + err.Error()
 		return m, nil
 	}
-	m.workspace = next
+	m.replaceWorkspace(next)
 	m.sessionInput.Blur()
 	m.session = nil
 	recon := domain.ReconciliationRecord{}
@@ -1404,7 +1414,7 @@ func (m *Model) deleteSelected() {
 		m.status = "Saved in memory; persistence failed: " + err.Error()
 		return
 	}
-	m.workspace = next
+	m.replaceWorkspace(next)
 	m.rebuildSearch()
 	m.selectedID = ""
 	m.ensureBrowserSelection()
@@ -1437,7 +1447,7 @@ func (m *Model) deleteSelectedSession() {
 		m.status = "Saved in memory; persistence failed: " + err.Error()
 		return
 	}
-	m.workspace = next
+	m.replaceWorkspace(next)
 	if m.session != nil && m.session.ID == session.ID {
 		m.session = nil
 	}
@@ -1464,7 +1474,7 @@ func (m Model) supersedeSelected() (tea.Model, tea.Cmd) {
 		m.status = "Saved in memory; persistence failed: " + err.Error()
 		return m, nil
 	}
-	m.workspace = next
+	m.replaceWorkspace(next)
 	if updated := m.recordByID(record.ID); updated != nil {
 		m.selectRecord(*updated)
 	}
@@ -1566,7 +1576,7 @@ func (m Model) saveReconEdit() (tea.Model, tea.Cmd) {
 		m.status = "Mutation edit rolled back: " + err.Error()
 		return m, nil
 	}
-	m.workspace = next
+	m.replaceWorkspace(next)
 	m.reconciling = true
 	m.reconEditing = false
 	m.reconEdit.Blur()
@@ -1585,7 +1595,7 @@ func (m Model) approveReconciliationItem(recon *domain.ReconciliationRecord) (te
 		m.status = err.Error()
 		return m, nil
 	}
-	m.workspace = next
+	m.replaceWorkspace(next)
 	m.rebuildSearch()
 	m.status = "Applied to wiki · transcript unchanged"
 	return m, nil
@@ -1602,12 +1612,13 @@ func (m Model) rejectReconciliationItem(recon *domain.ReconciliationRecord) (tea
 		m.status = "Saved in memory; persistence failed: " + err.Error()
 		return m, nil
 	}
-	m.workspace = next
+	m.replaceWorkspace(next)
 	m.status = "Rejected · transcript unchanged"
 	return m, nil
 }
 
 func (m *Model) persistWorkspace() error {
+	m.markWorkspaceChanged()
 	if m.session != nil {
 		m.upsertSession(*m.session)
 	}
@@ -2235,6 +2246,7 @@ func (m Model) suggestionsTitle(hit hitTarget) string {
 }
 
 func (m *Model) rebuildSearch() {
+	m.markWorkspaceChanged()
 	docs := searchsvc.DocumentsFromWorkspace(m.workspace)
 	docs = append(docs, m.referenceDocuments()...)
 	if store := sqliteStore(m.store); store != nil {

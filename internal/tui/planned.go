@@ -212,7 +212,7 @@ func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
 	m.planning = false
 	m.suggestions = nil
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		return m, nil
 	}
 	m.status = "Saved planned notes · s starts another live sit from this prep"

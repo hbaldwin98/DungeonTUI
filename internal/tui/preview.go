@@ -13,8 +13,12 @@ import (
 )
 
 type previewBuf struct {
-	Hop    detailHop
-	Scroll int
+	Hop          detailHop
+	Scroll       int
+	bodyWidth    int
+	bodyRevision uint64
+	bodyLines    []string
+	bodyValid    bool
 }
 
 func surface(style lipgloss.Style) lipgloss.Style {
@@ -176,8 +180,23 @@ func (m Model) previewMaxScroll() int {
 	if m.preview == nil {
 		return 0
 	}
-	lines := strings.Split(m.previewBody(m.previewWidth()), "\n")
+	lines := m.previewBodyLines(m.previewWidth())
 	return max(0, len(lines)-m.previewBodyHeight())
+}
+
+func (m Model) previewBodyLines(width int) []string {
+	if m.preview == nil {
+		return nil
+	}
+	if m.preview.bodyValid && m.preview.bodyWidth == width && m.preview.bodyRevision == m.workspaceRevision {
+		return m.preview.bodyLines
+	}
+	lines := strings.Split(m.previewBody(width), "\n")
+	m.preview.bodyWidth = width
+	m.preview.bodyRevision = m.workspaceRevision
+	m.preview.bodyLines = lines
+	m.preview.bodyValid = true
+	return lines
 }
 
 func (m Model) previewBody(width int) string {
@@ -403,12 +422,15 @@ func (m Model) previewFrame() string {
 	builder.WriteString(surface(mutedStyle).Render(hop.Prefix + hop.Label))
 	builder.WriteString("\n\n")
 
-	bodyLines := strings.Split(m.previewBody(width), "\n")
+	bodyLines := m.previewBodyLines(width)
 	maxScroll := max(0, len(bodyLines)-bodyH)
 	scroll := clamp(m.preview.Scroll, 0, maxScroll)
 	end := min(len(bodyLines), scroll+bodyH)
 	visible := bodyLines[scroll:end]
 	for len(visible) < bodyH {
+		if len(visible) == end-scroll {
+			visible = append([]string(nil), visible...)
+		}
 		visible = append(visible, "")
 	}
 	for _, line := range visible {

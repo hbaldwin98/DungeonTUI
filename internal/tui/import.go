@@ -200,7 +200,7 @@ func (m Model) toggleImportSource() (tea.Model, tea.Cmd) {
 		m.status = "Enabled in " + scope.Campaign
 	}
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		return m, nil
 	}
 	m.attachReferences()
@@ -239,7 +239,7 @@ func (m Model) confirmRemoveImportSource() (tea.Model, tea.Cmd) {
 	m.attachReferences()
 	m.rebuildSearch()
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		m.attachReferences()
 		m.rebuildSearch()
 		return m, nil
@@ -803,11 +803,11 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	before := m.workspace
-	m.workspace = msg.ws
+	m.replaceWorkspace(msg.ws)
 	m.attachReferences()
 	m.rebuildSearch()
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		m.attachReferences()
 		m.rebuildSearch()
 		return m, nil

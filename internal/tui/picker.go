@@ -206,7 +206,7 @@ func (m Model) createPickerItem() (tea.Model, tea.Cmd) {
 		})
 		m.pickerCursor = len(m.workspace.Library) - 1
 		if err := m.persistWorkspace(); err != nil {
-			m.workspace = before
+			m.replaceWorkspace(before)
 			return m, nil
 		}
 		return m.openPickerRename()
@@ -237,7 +237,7 @@ func (m Model) createPickerItem() (tea.Model, tea.Cmd) {
 		break
 	}
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		return m, nil
 	}
 	return m.openPickerRename()
@@ -352,7 +352,7 @@ func (m Model) savePickerRename() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		return m, nil
 	}
 	m.status = "Renamed to “" + name + "”"
@@ -415,7 +415,7 @@ func (m Model) confirmPickerDelete() (tea.Model, tea.Cmd) {
 	m.pickerCursor = clamp(m.pickerCursor, 0, max(0, m.pickerItemCount()-1))
 	m.syncPickerLayout()
 	if err := m.persistWorkspace(); err != nil {
-		m.workspace = before
+		m.replaceWorkspace(before)
 		m.syncPickerLayout()
 		return m, nil
 	}
