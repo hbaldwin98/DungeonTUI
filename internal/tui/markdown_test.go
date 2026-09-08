@@ -226,6 +226,46 @@ func TestPreviewBodyViewCachesLinesAndInvalidatesOnWorkspaceChange(t *testing.T)
 	}
 }
 
+func TestPreviewFrameCachesRenderedPanelAndInvalidatesOnInputs(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	record := domain.Record{
+		ID:        "preview-frame-cache-record",
+		Type:      domain.Note,
+		Title:     "Preview Frame Cache",
+		Body:      strings.Repeat("FRAME_CACHE_HEAD\n", 40),
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+	}
+	model.workspace.Records = append(model.workspace.Records, record)
+	model.rebuildSearch()
+	model.openPreview(detailHop{Kind: hopWiki, Label: record.Title, RecordID: record.ID})
+
+	first := model.previewFrame()
+	if !model.preview.frameValid {
+		t.Fatal("preview frame should be cached after rendering")
+	}
+	second := model.previewFrame()
+	if first != second {
+		t.Fatal("cached preview frame changed without input changes")
+	}
+
+	model.preview.Scroll++
+	scrolled := model.previewFrame()
+	if scrolled == first {
+		t.Fatal("preview frame cache was not invalidated by scrolling")
+	}
+
+	model.workspace.Records[len(model.workspace.Records)-1].Body = strings.Repeat("FRAME_CACHE_UPDATED\n", 40)
+	model.rebuildSearch()
+	updated := model.previewFrame()
+	plain := testANSI.ReplaceAllString(updated, "")
+	if strings.Contains(plain, "FRAME_CACHE_HEAD") || !strings.Contains(plain, "FRAME_CACHE_UPDATED") {
+		t.Fatalf("preview frame cache was not invalidated: %q", plain)
+	}
+}
+
 func resetMarkdownCacheForTest() {
 	markdownMu.Lock()
 	defer markdownMu.Unlock()

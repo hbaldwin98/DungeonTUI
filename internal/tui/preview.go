@@ -13,12 +13,19 @@ import (
 )
 
 type previewBuf struct {
-	Hop          detailHop
-	Scroll       int
-	bodyWidth    int
-	bodyRevision uint64
-	bodyLines    []string
-	bodyValid    bool
+	Hop           detailHop
+	Scroll        int
+	bodyWidth     int
+	bodyRevision  uint64
+	bodyLines     []string
+	bodyValid     bool
+	frameHop      detailHop
+	frameWidth    int
+	frameHeight   int
+	frameScroll   int
+	frameRevision uint64
+	frame         string
+	frameValid    bool
 }
 
 func surface(style lipgloss.Style) lipgloss.Style {
@@ -408,6 +415,17 @@ func (m Model) previewFrame() string {
 	}
 	width := m.previewWidth()
 	bodyH := m.previewBodyHeight()
+	bodyLines := m.previewBodyLines(width)
+	maxScroll := max(0, len(bodyLines)-bodyH)
+	scroll := clamp(m.preview.Scroll, 0, maxScroll)
+	if m.preview.frameValid &&
+		m.preview.frameHop == m.preview.Hop &&
+		m.preview.frameWidth == width &&
+		m.preview.frameHeight == bodyH &&
+		m.preview.frameScroll == scroll &&
+		m.preview.frameRevision == m.workspaceRevision {
+		return m.preview.frame
+	}
 	hop := m.preview.Hop
 	kind := strings.ToUpper(string(hop.Kind))
 	if hop.Kind == hopHistory {
@@ -422,9 +440,6 @@ func (m Model) previewFrame() string {
 	builder.WriteString(surface(mutedStyle).Render(hop.Prefix + hop.Label))
 	builder.WriteString("\n\n")
 
-	bodyLines := m.previewBodyLines(width)
-	maxScroll := max(0, len(bodyLines)-bodyH)
-	scroll := clamp(m.preview.Scroll, 0, maxScroll)
 	end := min(len(bodyLines), scroll+bodyH)
 	visible := bodyLines[scroll:end]
 	for len(visible) < bodyH {
@@ -446,10 +461,18 @@ func (m Model) previewFrame() string {
 	builder.WriteString("\n")
 	builder.WriteString(surface(mutedStyle).Render("j/k scroll  Enter jump  Esc dismiss"))
 
-	return searchPanelStyle.
+	frame := searchPanelStyle.
 		BorderBackground(colorSurface).
 		Width(width).
 		Render(builder.String())
+	m.preview.frameHop = hop
+	m.preview.frameWidth = width
+	m.preview.frameHeight = bodyH
+	m.preview.frameScroll = scroll
+	m.preview.frameRevision = m.workspaceRevision
+	m.preview.frame = frame
+	m.preview.frameValid = true
+	return frame
 }
 
 func (m Model) renderPreviewOverlay(background string) string {
