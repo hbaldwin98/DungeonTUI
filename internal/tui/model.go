@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -3017,15 +3018,26 @@ func fitPanelBody(content string, innerWidth, maxLines int) string {
 }
 
 type paneScroll struct {
-	key    string
-	offset int
+	key          string
+	offset       int
+	contentWidth int
+	contentRaw   string
+	content      string
+	contentLines []string
+	contentValid bool
 }
 
 func windowLines(content string, maxLines, scroll int) (string, int) {
 	if maxLines <= 0 {
 		return "", 0
 	}
-	lines := strings.Split(content, "\n")
+	return windowLinesFromLines(content, strings.Split(content, "\n"), maxLines, scroll)
+}
+
+func windowLinesFromLines(content string, lines []string, maxLines, scroll int) (string, int) {
+	if maxLines <= 0 {
+		return "", 0
+	}
 	maxScroll := max(0, len(lines)-maxLines)
 	scroll = clamp(scroll, 0, maxScroll)
 	if len(lines) <= maxLines {
@@ -3040,7 +3052,7 @@ func fitPanelBodyScroll(content string, innerWidth, maxLines, scroll int) string
 }
 
 func (m Model) detailSelectionKey() string {
-	return m.selectedID + "\x1f" + m.selectedSessionID + "\x1f" + m.selectedPlanID + "\x1f" + m.selectedFolderPath + "\x1f" + m.selectedSourceID + "\x1f" + m.selectedHitName + "\x1f" + m.selectedChapter
+	return strconv.Itoa(m.navCursor) + "\x1f" + string(m.navKind) + "\x1f" + string(m.navType) + "\x1f" + m.selectedID + "\x1f" + m.selectedSessionID + "\x1f" + m.selectedPlanID + "\x1f" + m.selectedFolderPath + "\x1f" + m.selectedSourceID + "\x1f" + m.selectedHitName + "\x1f" + m.selectedChapter
 }
 
 func (m *Model) ensureDetailView() *paneScroll {
@@ -3051,6 +3063,10 @@ func (m *Model) ensureDetailView() *paneScroll {
 	if m.detailView.key != key {
 		m.detailView.key = key
 		m.detailView.offset = 0
+		m.detailView.contentValid = false
+		m.detailView.contentRaw = ""
+		m.detailView.content = ""
+		m.detailView.contentLines = nil
 	}
 	return m.detailView
 }
@@ -3063,6 +3079,10 @@ func (m Model) syncDetailView() *paneScroll {
 	if m.detailView.key != key {
 		m.detailView.key = key
 		m.detailView.offset = 0
+		m.detailView.contentValid = false
+		m.detailView.contentRaw = ""
+		m.detailView.content = ""
+		m.detailView.contentLines = nil
 	}
 	return m.detailView
 }
@@ -3086,9 +3106,27 @@ func (m Model) detailBodyContent(innerWidth int) string {
 	return m.renderDetailWidth(innerWidth)
 }
 
+func (m Model) detailBodyView(innerWidth int) (string, []string) {
+	view := m.syncDetailView()
+	content := m.detailBodyContent(innerWidth)
+	if view != nil && view.contentValid && view.contentWidth == innerWidth && view.contentRaw == content {
+		return view.content, view.contentLines
+	}
+	clamped := clampANSIWidth(content, innerWidth)
+	lines := strings.Split(clamped, "\n")
+	if view != nil {
+		view.contentWidth = innerWidth
+		view.contentRaw = content
+		view.content = clamped
+		view.contentLines = lines
+		view.contentValid = true
+	}
+	return clamped, lines
+}
+
 func (m Model) detailMaxScroll() int {
 	innerWidth, innerHeight := m.detailPaneSize()
-	lines := strings.Split(clampANSIWidth(m.detailBodyContent(innerWidth), innerWidth), "\n")
+	_, lines := m.detailBodyView(innerWidth)
 	return max(0, len(lines)-innerHeight)
 }
 

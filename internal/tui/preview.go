@@ -405,7 +405,8 @@ func (m Model) previewFrame() string {
 	builder.WriteString("\n\n")
 
 	bodyLines := strings.Split(m.previewBody(width), "\n")
-	scroll := clamp(m.preview.Scroll, 0, m.previewMaxScroll())
+	maxScroll := max(0, len(bodyLines)-bodyH)
+	scroll := clamp(m.preview.Scroll, 0, maxScroll)
 	end := min(len(bodyLines), scroll+bodyH)
 	visible := bodyLines[scroll:end]
 	for len(visible) < bodyH {
@@ -418,8 +419,8 @@ func (m Model) previewFrame() string {
 	builder.WriteString(surface(filterStyle).Render("[open]"))
 	builder.WriteString(fill.Render("  "))
 	builder.WriteString(surface(mutedStyle).Render("[close]"))
-	if m.previewMaxScroll() > 0 {
-		builder.WriteString(surface(mutedStyle).Render(fmt.Sprintf("  %d/%d", scroll+1, m.previewMaxScroll()+1)))
+	if maxScroll > 0 {
+		builder.WriteString(surface(mutedStyle).Render(fmt.Sprintf("  %d/%d", scroll+1, maxScroll+1)))
 	}
 	builder.WriteString("\n")
 	builder.WriteString(surface(mutedStyle).Render("j/k scroll  Enter jump  Esc dismiss"))
@@ -433,7 +434,10 @@ func (m Model) previewFrame() string {
 
 func (m Model) renderPreviewOverlay(background string) string {
 	overlay := m.previewFrame()
-	x, y, _, _ := m.previewHitBox()
+	w := lipgloss.Width(overlay)
+	h := lipgloss.Height(overlay)
+	x := max(0, (m.width-w)/2)
+	y := max(0, (m.height-h)/2)
 	if background == "" {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 			lipgloss.WithWhitespaceChars(" "),

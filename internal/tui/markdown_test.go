@@ -236,6 +236,21 @@ func BenchmarkRenderMarkdownLargeBody(b *testing.B) {
 	}
 }
 
+func BenchmarkRenderMarkdownLargeBodyCold(b *testing.B) {
+	model := New()
+	body := largeDetailMarkdown()
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(body)))
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		b.StopTimer()
+		resetMarkdownCacheForTest()
+		b.StartTimer()
+		_ = model.renderMarkdown(body, 56)
+	}
+}
+
 func BenchmarkViewLargeDetail(b *testing.B) {
 	model := New()
 	model.width = 120
@@ -259,5 +274,64 @@ func BenchmarkViewLargeDetail(b *testing.B) {
 	b.ResetTimer()
 	for index := 0; index < b.N; index++ {
 		_ = model.View()
+	}
+}
+
+func BenchmarkViewAlternatingLargeDetails(b *testing.B) {
+	model := New()
+	model.width = 120
+	model.height = 36
+	firstBody := largeDetailMarkdown()
+	secondBody := strings.ReplaceAll(firstBody, "lantern", "moonlight")
+	first := domain.Record{
+		ID:        "alternating-detail-a",
+		Type:      domain.Note,
+		Title:     "First Field Notes",
+		Body:      firstBody,
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+		Source:    "Benchmark Notes",
+	}
+	second := first
+	second.ID = "alternating-detail-b"
+	second.Title = "Second Field Notes"
+	second.Body = secondBody
+	model.workspace.Records = append(model.workspace.Records, first, second)
+	model.selectRecord(first)
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(firstBody)))
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		if index%2 == 0 {
+			model.selectRecord(first)
+		} else {
+			model.selectRecord(second)
+		}
+		_ = model.View()
+	}
+}
+
+func BenchmarkPreviewFrameLargeBody(b *testing.B) {
+	model := New()
+	model.width = 120
+	model.height = 36
+	record := domain.Record{
+		ID:        "preview-large-body",
+		Type:      domain.Note,
+		Title:     "Preview Field Notes",
+		Body:      largeDetailMarkdown(),
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+		Source:    "Benchmark Notes",
+	}
+	model.workspace.Records = append(model.workspace.Records, record)
+	model.openPreview(detailHop{Kind: hopWiki, Label: record.Title, RecordID: record.ID})
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(record.Body)))
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		_ = model.previewFrame()
 	}
 }

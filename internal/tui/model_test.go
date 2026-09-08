@@ -2313,6 +2313,51 @@ func TestDetailPaneScrollsWhenContentOverflows(t *testing.T) {
 	}
 }
 
+func TestDetailBodyViewInvalidatesWhenRecordChanges(t *testing.T) {
+	model := New()
+	model.width = 80
+	model.height = 24
+	record := domain.Record{
+		ID:        "detail-cache",
+		Type:      domain.Note,
+		Title:     "Cached Detail",
+		Body:      "CACHE_HEAD\n\nA long line that must still fit inside the detail pane.",
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+		Source:    "test",
+	}
+	model.workspace.Records = append(model.workspace.Records, record)
+	model.selectRecord(record)
+
+	first, firstLines := model.detailBodyView(36)
+	firstPlain := testANSI.ReplaceAllString(first, "")
+	if !strings.Contains(firstPlain, "CACHE_HEAD") {
+		t.Fatalf("expected initial detail body: %q", first)
+	}
+	for index, line := range firstLines {
+		if width := lipgloss.Width(line); width > 36 {
+			t.Fatalf("initial line %d width %d > 36: %q", index, width, line)
+		}
+	}
+
+	for index := range model.workspace.Records {
+		if model.workspace.Records[index].ID == record.ID {
+			model.workspace.Records[index].Body = "CACHE_UPDATED\n\nUpdated detail text."
+			break
+		}
+	}
+	updated, updatedLines := model.detailBodyView(36)
+	updatedPlain := testANSI.ReplaceAllString(updated, "")
+	if updated == first || strings.Contains(updatedPlain, "CACHE_HEAD") || !strings.Contains(updatedPlain, "CACHE_UPDATED") {
+		t.Fatalf("detail cache did not invalidate after body change: %q", updated)
+	}
+	for index, line := range updatedLines {
+		if width := lipgloss.Width(line); width > 36 {
+			t.Fatalf("updated line %d width %d > 36: %q", index, width, line)
+		}
+	}
+}
+
 func TestDetailPaneWheelScrollsWhenFocused(t *testing.T) {
 	model := New()
 	model.width = 80
