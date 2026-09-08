@@ -215,7 +215,7 @@ func (m Model) previewWikiBody(hop detailHop, width int) string {
 	builder.WriteString(surface(titleStyle).Render(record.Title))
 	builder.WriteString("\n")
 	if record.Summary != "" {
-		builder.WriteString(fill.Render(m.renderMarkdown(record.Summary, width)))
+		builder.WriteString(m.renderMarkdown(record.Summary, width))
 		builder.WriteString("\n")
 	}
 	if len(record.Tags) > 0 {
@@ -224,7 +224,7 @@ func (m Model) previewWikiBody(hop detailHop, width int) string {
 	}
 	if strings.TrimSpace(record.Body) != "" {
 		builder.WriteString("\n")
-		builder.WriteString(fill.Render(m.renderMarkdown(stripRedundantTitleHeading(strings.TrimSpace(record.Body), record.Title), width)))
+		builder.WriteString(m.renderMarkdown(stripRedundantTitleHeading(strings.TrimSpace(record.Body), record.Title), width))
 		builder.WriteString("\n")
 	}
 	return strings.TrimRight(builder.String(), "\n")
@@ -235,7 +235,6 @@ func (m Model) previewPrepBody(hop detailHop, width int) string {
 	if plan == nil {
 		return surface(mutedStyle).Render("Missing prep notes")
 	}
-	fill := previewFill()
 	var builder strings.Builder
 	builder.WriteString(surface(typeStyle).Render("PREP"))
 	builder.WriteString("\n")
@@ -259,7 +258,7 @@ func (m Model) previewPrepBody(hop detailHop, width int) string {
 	}
 	if strings.TrimSpace(plan.Body) != "" {
 		builder.WriteString("\n")
-		builder.WriteString(fill.Render(m.renderMarkdown(strings.TrimSpace(plan.Body), width)))
+		builder.WriteString(m.renderMarkdown(strings.TrimSpace(plan.Body), width))
 		builder.WriteString("\n")
 	}
 	return strings.TrimRight(builder.String(), "\n")
@@ -413,7 +412,7 @@ func (m Model) previewFrame() string {
 		visible = append(visible, "")
 	}
 	for _, line := range visible {
-		builder.WriteString(fill.Width(width).Render(line))
+		builder.WriteString(line)
 		builder.WriteString("\n")
 	}
 	builder.WriteString(surface(filterStyle).Render("[open]"))
@@ -425,11 +424,10 @@ func (m Model) previewFrame() string {
 	builder.WriteString("\n")
 	builder.WriteString(surface(mutedStyle).Render("j/k scroll  Enter jump  Esc dismiss"))
 
-	inner := fill.Width(width).Render(builder.String())
 	return searchPanelStyle.
 		BorderBackground(colorSurface).
 		Width(width).
-		Render(inner)
+		Render(builder.String())
 }
 
 func (m Model) renderPreviewOverlay(background string) string {
