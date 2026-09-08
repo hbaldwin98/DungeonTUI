@@ -27,6 +27,7 @@ type detailHop struct {
 	Section   string
 	Prefix    string
 	Label     string
+	Relation  string
 	RecordID  string
 	SessionID string
 	PlanID    string
@@ -64,35 +65,47 @@ func (m Model) wikiDetailHops() []detailHop {
 		title := mention.Text
 		kind := hopWiki
 		prefix := "wiki · "
+		relation := "outgoing @ mention"
 		if rec, ok := m.lookupAny(mention.RecordID); ok {
 			title = rec.Title
 			if fivetools.IsReferenceID(rec.ID) {
 				kind = hopReference
 				prefix = "reference · "
+				relation = "outgoing source reference"
 			}
 		}
-		hops = append(hops, detailHop{Kind: kind, Section: "ref", Prefix: prefix, Label: title, RecordID: mention.RecordID})
+		hops = append(hops, detailHop{Kind: kind, Section: "ref", Prefix: prefix, Label: title, Relation: relation, RecordID: mention.RecordID})
 	}
 	for _, mention := range broken {
-		hops = append(hops, detailHop{Kind: hopBroken, Section: "ref", Prefix: "missing · @", Label: mention.Text})
+		hops = append(hops, detailHop{Kind: hopBroken, Section: "ref", Prefix: "missing · @", Label: mention.Text, Relation: "unresolved @ mention"})
 	}
-	seenSession := map[string]bool{}
+	seenSession := map[string]int{}
 	for _, link := range domain.EntityBacklinks(m.workspace, record.ID) {
 		switch link.Kind {
 		case domain.BacklinkWiki:
-			hops = append(hops, detailHop{Kind: hopWiki, Section: "linked", Prefix: "wiki · ", Label: link.Title, RecordID: link.ID})
+			hops = append(hops, detailHop{Kind: hopWiki, Section: "linked", Prefix: "wiki · ", Label: link.Title, Relation: "backlink · mentions this", RecordID: link.ID})
 		case domain.BacklinkPrep:
-			hops = append(hops, detailHop{Kind: hopPrep, Section: "linked", Prefix: "prep · ", Label: link.Title, PlanID: link.ID})
+			hops = append(hops, detailHop{Kind: hopPrep, Section: "linked", Prefix: "prep · ", Label: link.Title, Relation: "backlink · prep cast", PlanID: link.ID})
 		case domain.BacklinkSessionAssoc, domain.BacklinkTranscript:
-			if seenSession[link.ID] {
+			relation := "backlink · session cast"
+			if link.Kind == domain.BacklinkTranscript {
+				relation = "backlink · session transcript"
+				if link.Count > 0 {
+					relation = fmt.Sprintf("%s · %d hits", relation, link.Count)
+				}
+			}
+			if index, ok := seenSession[link.ID]; ok {
+				if link.Kind == domain.BacklinkTranscript && !strings.Contains(hops[index].Relation, "transcript") {
+					hops[index].Relation += " + transcript"
+				}
 				continue
 			}
-			seenSession[link.ID] = true
-			hops = append(hops, detailHop{Kind: hopSession, Section: "linked", Prefix: "session · ", Label: link.Title, SessionID: link.ID})
+			seenSession[link.ID] = len(hops)
+			hops = append(hops, detailHop{Kind: hopSession, Section: "linked", Prefix: "session · ", Label: link.Title, Relation: relation, SessionID: link.ID})
 		}
 	}
 	for _, row := range domain.EntitySessionHistory(m.workspace, record.ID) {
-		hops = append(hops, detailHop{Kind: hopHistory, Section: "history", Label: row.Title, SessionID: row.SessionID})
+		hops = append(hops, detailHop{Kind: hopHistory, Section: "history", Label: row.Title, Relation: "session history", SessionID: row.SessionID})
 	}
 	return hops
 }
@@ -108,14 +121,14 @@ func (m Model) sessionDetailHops() []detailHop {
 		if title == "" {
 			title = session.LocationID
 		}
-		hops = append(hops, detailHop{Kind: hopWiki, Section: "cast", Prefix: "location · ", Label: title, RecordID: session.LocationID})
+		hops = append(hops, detailHop{Kind: hopWiki, Section: "cast", Prefix: "location · ", Label: title, Relation: "session context · location", RecordID: session.LocationID})
 	}
 	if session.PlannedNotesID != "" {
 		label := "Prep notes"
 		if plan := m.plannedByID(session.PlannedNotesID); plan != nil {
 			label = plan.Title
 		}
-		hops = append(hops, detailHop{Kind: hopPrep, Section: "cast", Prefix: "prep · ", Label: label, PlanID: session.PlannedNotesID})
+		hops = append(hops, detailHop{Kind: hopPrep, Section: "cast", Prefix: "prep · ", Label: label, Relation: "session context · planned prep", PlanID: session.PlannedNotesID})
 	}
 	for _, link := range session.Links {
 		title := link.Text
@@ -127,10 +140,12 @@ func (m Model) sessionDetailHops() []detailHop {
 			title = link.RecordID
 		}
 		prefix := "@ "
+		relation := "session cast"
 		if kind == hopBroken {
 			prefix = "missing · @"
+			relation = "unresolved session cast"
 		}
-		hops = append(hops, detailHop{Kind: kind, Section: "cast", Prefix: prefix, Label: title, RecordID: link.RecordID})
+		hops = append(hops, detailHop{Kind: kind, Section: "cast", Prefix: prefix, Label: title, Relation: relation, RecordID: link.RecordID})
 	}
 	return hops
 }
@@ -149,7 +164,7 @@ func (m Model) prepDetailHops() []detailHop {
 		if title == "" {
 			title = plan.LocationID
 		}
-		hops = append(hops, detailHop{Kind: hopWiki, Section: "cast", Prefix: "location · ", Label: title, RecordID: plan.LocationID})
+		hops = append(hops, detailHop{Kind: hopWiki, Section: "cast", Prefix: "location · ", Label: title, Relation: "prep context · location", RecordID: plan.LocationID})
 	}
 	for _, link := range plan.Links {
 		title := link.Text
@@ -159,16 +174,18 @@ func (m Model) prepDetailHops() []detailHop {
 			kind = hopWiki
 		}
 		prefix := "@ "
+		relation := "prep cast"
 		if kind == hopBroken {
 			prefix = "missing · @"
+			relation = "unresolved prep cast"
 		}
-		hops = append(hops, detailHop{Kind: kind, Section: "cast", Prefix: prefix, Label: title, RecordID: link.RecordID})
+		hops = append(hops, detailHop{Kind: kind, Section: "cast", Prefix: prefix, Label: title, Relation: relation, RecordID: link.RecordID})
 	}
 	for _, sit := range domain.ResolvePriorSits(m.workspace.Sessions, m.workspace.Records, plan.PriorSessionIDs) {
-		hops = append(hops, detailHop{Kind: hopSession, Section: "cast", Prefix: "prior · ", Label: sit.Title, SessionID: sit.ID})
+		hops = append(hops, detailHop{Kind: hopSession, Section: "cast", Prefix: "prior · ", Label: sit.Title, Relation: "linked session · prior", SessionID: sit.ID})
 	}
 	for _, sit := range domain.SessionsSeededFrom(m.workspace.Sessions, plan.ID) {
-		hops = append(hops, detailHop{Kind: hopSession, Section: "cast", Prefix: "live · ", Label: sit.Title, SessionID: sit.ID})
+		hops = append(hops, detailHop{Kind: hopSession, Section: "cast", Prefix: "live · ", Label: sit.Title, Relation: "linked session · seeded from prep", SessionID: sit.ID})
 	}
 	return hops
 }
@@ -257,6 +274,10 @@ func (m Model) renderProseWithMentions(text string) string {
 }
 
 func (m Model) renderHopLine(index int, prefix, label string, broken bool) string {
+	return m.renderHopLineWithRelation(index, prefix, label, "", broken)
+}
+
+func (m Model) renderHopLineWithRelation(index int, prefix, label, relation string, broken bool) string {
 	cursor, style := m.hopMarker(index)
 	if broken {
 		style = brokenRefStyle
@@ -264,7 +285,11 @@ func (m Model) renderHopLine(index int, prefix, label string, broken bool) strin
 			style = selectedItemStyle
 		}
 	}
-	return style.Render(fmt.Sprintf("%s%s%s", cursor, prefix, label))
+	line := style.Render(fmt.Sprintf("%s%s%s", cursor, prefix, label))
+	if relation != "" {
+		line += "  " + mutedStyle.Render("("+relation+")")
+	}
+	return line
 }
 
 func (m Model) renderCastHops() string {
@@ -278,7 +303,7 @@ func (m Model) renderCastHops() string {
 			continue
 		}
 		wrote = true
-		builder.WriteString(m.renderHopLine(index, hop.Prefix, hop.Label, hop.Kind == hopBroken))
+		builder.WriteString(m.renderHopLineWithRelation(index, hop.Prefix, hop.Label, hop.Relation, hop.Kind == hopBroken))
 		builder.WriteRune('\n')
 	}
 	if !wrote {
@@ -286,7 +311,7 @@ func (m Model) renderCastHops() string {
 		builder.WriteRune('\n')
 	}
 	if m.layout.Focus == prefs.PaneDetail {
-		builder.WriteString(mutedStyle.Render("j/k · Enter preview"))
+		builder.WriteString(mutedStyle.Render("j/k select · Enter preview · Enter again follow"))
 		builder.WriteRune('\n')
 	}
 	return builder.String()
@@ -318,9 +343,9 @@ func (m Model) renderEntityGraph(record domain.Record) string {
 		}
 		wroteRef = true
 		if hop.Kind == hopBroken {
-			builder.WriteString(m.renderHopLine(index, hop.Prefix, hop.Label, true))
+			builder.WriteString(m.renderHopLineWithRelation(index, hop.Prefix, hop.Label, hop.Relation, true))
 		} else {
-			builder.WriteString(m.renderHopLine(index, hop.Prefix, hop.Label, false))
+			builder.WriteString(m.renderHopLineWithRelation(index, hop.Prefix, hop.Label, hop.Relation, false))
 		}
 		builder.WriteRune('\n')
 	}
@@ -338,7 +363,7 @@ func (m Model) renderEntityGraph(record domain.Record) string {
 			continue
 		}
 		wroteLinked = true
-		builder.WriteString(m.renderHopLine(index, hop.Prefix, hop.Label, hop.Kind == hopBroken))
+		builder.WriteString(m.renderHopLineWithRelation(index, hop.Prefix, hop.Label, hop.Relation, hop.Kind == hopBroken))
 		builder.WriteRune('\n')
 	}
 	if !wroteLinked {
@@ -381,7 +406,7 @@ func (m Model) renderEntityGraph(record domain.Record) string {
 		if len(parts) > 0 {
 			meta += " · " + strings.Join(parts, ", ")
 		}
-		builder.WriteString(m.renderHopLine(index, stamp, meta+expand, false))
+		builder.WriteString(m.renderHopLineWithRelation(index, stamp, meta+expand, hop.Relation, false))
 		builder.WriteRune('\n')
 		if showEvents {
 			for _, event := range row.Events {
@@ -395,7 +420,7 @@ func (m Model) renderEntityGraph(record domain.Record) string {
 		builder.WriteRune('\n')
 	}
 	if m.layout.Focus == prefs.PaneDetail {
-		builder.WriteString(mutedStyle.Render("j/k followable rows · Enter preview"))
+		builder.WriteString(mutedStyle.Render("j/k select · Enter preview · Enter again follow"))
 		builder.WriteRune('\n')
 	}
 	return builder.String()

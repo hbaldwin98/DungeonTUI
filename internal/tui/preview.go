@@ -38,7 +38,7 @@ func previewFill() lipgloss.Style {
 
 func (m *Model) openPreview(hop detailHop) {
 	m.preview = &previewBuf{Hop: hop}
-	m.status = "Preview · " + hop.Label + " · Enter open · Esc close"
+	m.status = "Preview · " + hop.Label + " · Enter again follows · Esc returns"
 }
 
 func (m *Model) closePreview() {
@@ -438,6 +438,12 @@ func (m Model) previewFrame() string {
 	builder.WriteString(surface(filterStyle).Render(kind))
 	builder.WriteString(fill.Render("  "))
 	builder.WriteString(surface(mutedStyle).Render(hop.Prefix + hop.Label))
+	builder.WriteString("\n")
+	if hop.Relation != "" {
+		builder.WriteString(surface(mutedStyle).Render("Relation · " + hop.Relation))
+		builder.WriteString("\n")
+	}
+	builder.WriteString(surface(mutedStyle).Render("Enter again follows this row · Esc returns to the list"))
 	builder.WriteString("\n\n")
 
 	end := min(len(bodyLines), scroll+bodyH)
@@ -459,7 +465,7 @@ func (m Model) previewFrame() string {
 		builder.WriteString(surface(mutedStyle).Render(fmt.Sprintf("  %d/%d", scroll+1, maxScroll+1)))
 	}
 	builder.WriteString("\n")
-	builder.WriteString(surface(mutedStyle).Render("j/k scroll  Enter jump  Esc dismiss"))
+	builder.WriteString(surface(mutedStyle).Render("j/k scroll  Enter follow  Esc return"))
 
 	frame := searchPanelStyle.
 		BorderBackground(colorSurface).

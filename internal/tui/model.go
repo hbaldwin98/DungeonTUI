@@ -2706,6 +2706,26 @@ func (m Model) renderHeader(width int) string {
 		Render(left + strings.Repeat(" ", gap) + right)
 }
 
+func (m Model) renderDetailTrail(section, folder, title string) string {
+	parts := make([]string, 0, 5)
+	if campaign := strings.TrimSpace(m.workspace.Scope.Campaign); campaign != "" {
+		parts = append(parts, campaign)
+	}
+	if section = strings.TrimSpace(section); section != "" {
+		parts = append(parts, section)
+	}
+	if folder = domain.NormalizeFolder(folder); folder != "" {
+		parts = append(parts, strings.Split(folder, "/")...)
+	}
+	if title = strings.TrimSpace(title); title != "" {
+		parts = append(parts, title)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return mutedStyle.Render("PATH  " + strings.Join(parts, " / "))
+}
+
 func (m Model) renderDetail() string {
 	return m.renderDetailWidth(m.defaultMarkdownWidth())
 }
@@ -2720,6 +2740,8 @@ func (m Model) renderDetailWidth(width int) string {
 	}
 
 	var builder strings.Builder
+	builder.WriteString(m.renderDetailTrail(m.currentNav().Label, domain.RecordFolderPath(*record, m.workspace.Sources), record.Title))
+	builder.WriteString("\n")
 	builder.WriteString(typeStyle.Render(string(record.Type)))
 	builder.WriteString("  ")
 	builder.WriteString(authorityStyle(record.Authority).Render(record.Authority.Marker() + " " + record.Authority.Label()))

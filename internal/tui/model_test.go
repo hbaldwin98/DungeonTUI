@@ -1759,6 +1759,43 @@ func TestWikiMentionsFollowAndBreak(t *testing.T) {
 	}
 }
 
+func TestDetailTrailAndLinkRelationGuideFollowing(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	for _, record := range model.workspace.Records {
+		if record.ID == "npc-captain-vale" {
+			model.selectRecord(record)
+			break
+		}
+	}
+	model.layout.Focus = prefs.PaneDetail
+	detail := model.renderDetail()
+	for _, want := range []string{
+		"PATH  The Ashen Crown / NPCs / Captain Vale",
+		"(outgoing @ mention)",
+		"(backlink · mentions this)",
+		"j/k select · Enter preview · Enter again follow",
+	} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("detail should explain %q: %q", want, detail)
+		}
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+	frame := model.previewFrame()
+	for _, want := range []string{
+		"Relation · outgoing @ mention",
+		"Enter again follows this row",
+		"Enter follow",
+	} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("preview should explain %q: %q", want, frame)
+		}
+	}
+}
+
 func TestLinkPreviewClickOutsideDismisses(t *testing.T) {
 	model := New()
 	model.width = 100

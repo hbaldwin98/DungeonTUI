@@ -605,6 +605,8 @@ func (m Model) renderTreeDetailWidth(width int) string {
 			var builder strings.Builder
 			builder.WriteString(sectionStyle.Render("SESSION"))
 			builder.WriteString("\n\n")
+			builder.WriteString(m.renderDetailTrail("Sessions", domain.SessionFolderPath(session), session.Title))
+			builder.WriteString("\n")
 			builder.WriteString(titleStyle.Render(session.Title))
 			builder.WriteString("\n")
 			builder.WriteString(mutedStyle.Render(state))
@@ -627,7 +629,7 @@ func (m Model) renderTreeDetailWidth(width int) string {
 			builder.WriteString("\n\n")
 			builder.WriteString(m.renderCastHops())
 			builder.WriteString("\n")
-			builder.WriteString(mutedStyle.Render("List Enter playback · detail Enter previews · m files · s live · d deletes"))
+			builder.WriteString(mutedStyle.Render("List Enter playback · detail j/k select · Enter preview · Enter again follow · m files · s live · d deletes"))
 			return builder.String()
 		}
 		return mutedStyle.Render("Select a session")
@@ -639,6 +641,8 @@ func (m Model) renderTreeDetailWidth(width int) string {
 			var builder strings.Builder
 			builder.WriteString(sectionStyle.Render("PREP NOTES"))
 			builder.WriteString("\n\n")
+			builder.WriteString(m.renderDetailTrail("Prep", "", plan.Title))
+			builder.WriteString("\n")
 			builder.WriteString(titleStyle.Render(plan.Title))
 			if plan.LocationName != "" {
 				builder.WriteString("\n")
@@ -654,7 +658,7 @@ func (m Model) renderTreeDetailWidth(width int) string {
 				builder.WriteString(m.renderMarkdown(body, width))
 			}
 			builder.WriteString("\n\n")
-			builder.WriteString(mutedStyle.Render("List Enter/e edits · detail Enter previews · s starts another live sit"))
+			builder.WriteString(mutedStyle.Render("List Enter/e edits · detail j/k select · Enter preview · Enter again follow · s starts another live sit"))
 			return builder.String()
 		}
 		return mutedStyle.Render("Select prep notes · p to draft")
@@ -683,9 +687,11 @@ func (m Model) renderAdventureReader(width int) string {
 	builder.WriteString(sectionStyle.Render("SOURCE"))
 	builder.WriteString("  ")
 	builder.WriteString(mutedStyle.Render("reference"))
-	builder.WriteString("\n\n")
+	builder.WriteString("\n")
 	book, ok := m.adventureBookBySource(m.selectedSourceID)
 	if !ok {
+		builder.WriteString(m.renderDetailTrail("Sources", "", title))
+		builder.WriteString("\n\n")
 		builder.WriteString(titleStyle.Render(title))
 		builder.WriteString("\n\n")
 		builder.WriteString(mutedStyle.Render("Cached adventure text is missing · import it again from 5e.tools"))
@@ -693,6 +699,12 @@ func (m Model) renderAdventureReader(width int) string {
 	}
 	hit, hitOK := m.selectedSourceHit()
 	if hitOK {
+		folder := title
+		if hit.Chapter != "" {
+			folder += "/" + hit.Chapter
+		}
+		builder.WriteString(m.renderDetailTrail("Sources", folder, hit.Name))
+		builder.WriteString("\n\n")
 		builder.WriteString(titleStyle.Render(hit.Name))
 		builder.WriteString("\n")
 		loc := title
@@ -713,6 +725,8 @@ func (m Model) renderAdventureReader(width int) string {
 		}
 		return builder.String()
 	}
+	builder.WriteString(m.renderDetailTrail("Sources", "", title))
+	builder.WriteString("\n\n")
 	builder.WriteString(titleStyle.Render(title))
 	builder.WriteString("\n")
 	builder.WriteString(mutedStyle.Render(fmt.Sprintf("%d names · j/k the list to read one", len(book.Hits))))
