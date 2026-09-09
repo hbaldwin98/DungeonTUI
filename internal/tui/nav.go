@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
-	"github.com/hbaldwin98/dungeon/internal/prefs"
-	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/ingest/fivetools"
+	"github.com/hbaldwin98/DungeonTUI/internal/prefs"
+	searchsvc "github.com/hbaldwin98/DungeonTUI/internal/search"
 )
 
 // NavKind identifies a first-class branch in the in-campaign tree.

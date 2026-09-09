@@ -3,9 +3,9 @@ package tui
 import (
 	"reflect"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/prefs"
-	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/prefs"
+	searchsvc "github.com/hbaldwin98/DungeonTUI/internal/search"
 )
 
 const maxBrowserHistoryEntries = 32

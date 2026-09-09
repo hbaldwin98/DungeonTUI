@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/hbaldwin98/dungeon/internal/domain"
+import "github.com/hbaldwin98/DungeonTUI/internal/domain"
 
 func demoWorkspace() domain.Workspace {
 	scope := domain.Scope{

@@ -5,8 +5,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/hbaldwin98/dungeon/internal/storage"
-	"github.com/hbaldwin98/dungeon/internal/tui"
+	"github.com/hbaldwin98/DungeonTUI/internal/storage"
+	"github.com/hbaldwin98/DungeonTUI/internal/tui"
 )
 
 func main() {

@@ -3,7 +3,7 @@ package tui
 import (
 	"time"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 // ShowcaseWorkspace is a populated Ashen Crown library meant to exercise

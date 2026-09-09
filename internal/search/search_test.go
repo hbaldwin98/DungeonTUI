@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 var testScope = domain.Scope{

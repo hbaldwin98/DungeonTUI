@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 func TestJSONStoreLoadMissing(t *testing.T) {

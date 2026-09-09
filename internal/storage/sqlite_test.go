@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/search"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/search"
 )
 
 func TestSQLiteStoreRoundTrip(t *testing.T) {

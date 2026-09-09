@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 const MaxMarkdownBytes int64 = 16 << 20

@@ -10,11 +10,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/hbaldwin98/dungeon/internal/classify"
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/ingest"
-	"github.com/hbaldwin98/dungeon/internal/storage"
-	"github.com/hbaldwin98/dungeon/internal/tui"
+	"github.com/hbaldwin98/DungeonTUI/internal/classify"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/ingest"
+	"github.com/hbaldwin98/DungeonTUI/internal/storage"
+	"github.com/hbaldwin98/DungeonTUI/internal/tui"
 )
 
 func main() {

@@ -3,8 +3,8 @@ package app
 import (
 	"fmt"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/storage"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/storage"
 )
 
 // Service is the UI-independent transaction boundary for workspace writes.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hbaldwin98/dungeon/internal/classify"
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/classify"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 type draft struct {

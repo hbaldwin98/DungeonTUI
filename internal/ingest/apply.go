@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hbaldwin98/dungeon/internal/classify"
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
+	"github.com/hbaldwin98/DungeonTUI/internal/classify"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/ingest/fivetools"
 )
 
 // Options control where ingested content lands.

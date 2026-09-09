@@ -3,7 +3,7 @@ package tui
 import (
 	"charm.land/lipgloss/v2"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 var (

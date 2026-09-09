@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 // Entry is one ingestible 5e.tools book or adventure.

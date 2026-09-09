@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 func TestHTTPFetcherRejectsOversizedContentLength(t *testing.T) {

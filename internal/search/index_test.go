@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 func TestOpenPathPersistsAndReopens(t *testing.T) {

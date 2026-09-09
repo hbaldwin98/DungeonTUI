@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 	_ "modernc.org/sqlite"
 )
 

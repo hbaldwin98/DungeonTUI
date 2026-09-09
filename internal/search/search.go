@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 type Scope int

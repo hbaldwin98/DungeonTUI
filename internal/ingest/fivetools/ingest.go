@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 // Bundle is one chosen 5e.tools adventure. CacheOnly books write no wiki rows;

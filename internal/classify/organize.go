@@ -1,6 +1,6 @@
 package classify
 
-import "github.com/hbaldwin98/dungeon/internal/domain"
+import "github.com/hbaldwin98/DungeonTUI/internal/domain"
 
 // OrganizeRecords retypes outline records using Assign. NPC/item/creature/rule
 // rows are left alone. Folder paths are not rewritten here; callers stamp

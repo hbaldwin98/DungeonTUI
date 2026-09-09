@@ -13,11 +13,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
-	"github.com/hbaldwin98/dungeon/internal/prefs"
-	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
-	"github.com/hbaldwin98/dungeon/internal/storage"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/ingest/fivetools"
+	"github.com/hbaldwin98/DungeonTUI/internal/prefs"
+	searchsvc "github.com/hbaldwin98/DungeonTUI/internal/search"
+	"github.com/hbaldwin98/DungeonTUI/internal/storage"
 )
 
 type failingStore struct{}

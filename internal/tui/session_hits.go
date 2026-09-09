@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/prefs"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/prefs"
 )
 
 type hitAction int

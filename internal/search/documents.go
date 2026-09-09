@@ -3,7 +3,7 @@ package search
 import (
 	"strings"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
 
 // Document is one FTS row. JSON workspace stays the inspectable source of

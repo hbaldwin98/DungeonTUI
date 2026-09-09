@@ -9,8 +9,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	searchsvc "github.com/hbaldwin98/DungeonTUI/internal/search"
 )
 
 func (m Model) scopedRecords(applyTypeFilter bool) []domain.Record {

@@ -1,4 +1,4 @@
-module github.com/hbaldwin98/dungeon
+module github.com/hbaldwin98/DungeonTUI
 
 go 1.25.8
 

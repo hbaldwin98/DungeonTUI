@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/ingest/fivetools"
 )
 
 const fakeBestiary = `# Test Bestiary (2025)

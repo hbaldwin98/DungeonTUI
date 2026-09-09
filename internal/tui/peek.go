@@ -5,9 +5,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
-	"github.com/hbaldwin98/dungeon/internal/prefs"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/ingest/fivetools"
+	"github.com/hbaldwin98/DungeonTUI/internal/prefs"
 )
 
 // referenceAtCursor finds a simple @token (no spaces) containing the cursor.

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hbaldwin98/dungeon/internal/tui"
+	"github.com/hbaldwin98/DungeonTUI/internal/tui"
 )
 
 func main() {

@@ -8,18 +8,30 @@ The first implementation includes a persistent local workspace. A first run
 opens an empty library picker (`n` creates a world). Draft entities are saved
 as portable JSON in the platform user configuration directory after editing.
 
-## Run
+## Install
 
-Dungeon requires Go 1.25 or newer. On launch you choose a world and campaign
-(Obsidian-vault style); `b` returns to that library picker to switch context.
-There, `e` renames a world or campaign and `d` then `y` deletes it.
+Dungeon requires Go 1.25 or newer.
 
 ```sh
-go mod tidy
+go install github.com/hbaldwin98/DungeonTUI/cmd/dungeon@latest
+dungeon
+```
+
+Go installs `dungeon` into `GOBIN`, which defaults to `$(go env GOPATH)/bin`.
+Add that directory to `PATH` if your shell cannot find the command.
+
+To run or install from a source checkout:
+
+```sh
 go run ./cmd/dungeon
+make install
 make test
 make build
 ```
+
+On launch you choose a world and campaign (Obsidian-vault style); `b` returns
+to that library picker to switch context. There, `e` renames a world or
+campaign and `d` then `y` deletes it.
 
 ## Import a sourcebook or adventure
 

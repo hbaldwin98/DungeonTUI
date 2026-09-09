@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/ingest/fivetools"
-	searchsvc "github.com/hbaldwin98/dungeon/internal/search"
-	"github.com/hbaldwin98/dungeon/internal/storage"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/ingest/fivetools"
+	searchsvc "github.com/hbaldwin98/DungeonTUI/internal/search"
+	"github.com/hbaldwin98/DungeonTUI/internal/storage"
 )
 
 func (m *Model) attachReferences() {

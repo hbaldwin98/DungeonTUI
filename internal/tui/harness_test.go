@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hbaldwin98/dungeon/internal/dice"
-	"github.com/hbaldwin98/dungeon/internal/domain"
-	"github.com/hbaldwin98/dungeon/internal/prefs"
+	"github.com/hbaldwin98/DungeonTUI/internal/dice"
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
+	"github.com/hbaldwin98/DungeonTUI/internal/prefs"
 )
 
 func TestHarnessBrowserFillsCommonSizes(t *testing.T) {
