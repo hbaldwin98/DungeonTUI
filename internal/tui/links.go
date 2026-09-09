@@ -31,6 +31,7 @@ type detailHop struct {
 	RecordID  string
 	SessionID string
 	PlanID    string
+	EntryID   string
 }
 
 func (m Model) detailHops() []detailHop {
@@ -105,9 +106,23 @@ func (m Model) wikiDetailHops() []detailHop {
 		}
 	}
 	for _, row := range domain.EntitySessionHistory(m.workspace, record.ID) {
-		hops = append(hops, detailHop{Kind: hopHistory, Section: "history", Label: row.Title, Relation: "session history", SessionID: row.SessionID})
+		hops = append(hops, detailHop{Kind: hopHistory, Section: "history", Label: row.Title, Relation: "session history", SessionID: row.SessionID, EntryID: historyEntryID(row)})
 	}
 	return hops
+}
+
+func historyEntryID(row domain.SessionHistoryRow) string {
+	for _, event := range row.Events {
+		if event.Kind == domain.HistoryTranscript && event.EntryID != "" {
+			return event.EntryID
+		}
+	}
+	for _, event := range row.Events {
+		if event.EntryID != "" {
+			return event.EntryID
+		}
+	}
+	return ""
 }
 
 func (m Model) sessionDetailHops() []detailHop {
@@ -287,9 +302,49 @@ func (m Model) renderHopLineWithRelation(index int, prefix, label, relation stri
 	}
 	line := style.Render(fmt.Sprintf("%s%s%s", cursor, prefix, label))
 	if relation != "" {
-		line += "  " + mutedStyle.Render("("+relation+")")
+		line += "  " + mutedStyle.Render("("+m.detailRelation(relation)+")")
 	}
 	return line
+}
+
+func (m Model) detailRelation(relation string) string {
+	if m.width >= 120 {
+		return relation
+	}
+	switch {
+	case relation == "outgoing @ mention":
+		return "outgoing @"
+	case relation == "outgoing source reference":
+		return "source reference"
+	case relation == "unresolved @ mention":
+		return "unresolved @"
+	case relation == "backlink · mentions this":
+		return "backlink"
+	case relation == "backlink · prep cast":
+		return "prep backlink"
+	case strings.HasPrefix(relation, "backlink · session transcript"):
+		return "session transcript"
+	case relation == "backlink · session cast":
+		return "session cast"
+	case relation == "session history":
+		return "history"
+	case relation == "session context · location", relation == "prep context · location":
+		return "location context"
+	case relation == "session context · planned prep":
+		return "planned prep"
+	case relation == "unresolved session cast", relation == "unresolved prep cast":
+		return "unresolved cast"
+	case relation == "linked session · prior":
+		return "prior session"
+	case relation == "linked session · seeded from prep":
+		return "prep-linked session"
+	case relation == "inline @ reference":
+		return "inline @"
+	case relation == "inline source reference":
+		return "inline source"
+	default:
+		return truncateImportLine(relation, 20)
+	}
 }
 
 func (m Model) renderCastHops() string {

@@ -1773,8 +1773,8 @@ func TestDetailTrailAndLinkRelationGuideFollowing(t *testing.T) {
 	detail := model.renderDetail()
 	for _, want := range []string{
 		"PATH  The Ashen Crown / NPCs / Captain Vale",
-		"(outgoing @ mention)",
-		"(backlink · mentions this)",
+		"(outgoing @)",
+		"(backlink)",
 		"j/k select · Enter preview · Enter again follow",
 	} {
 		if !strings.Contains(detail, want) {
@@ -1793,6 +1793,205 @@ func TestDetailTrailAndLinkRelationGuideFollowing(t *testing.T) {
 		if !strings.Contains(frame, want) {
 			t.Fatalf("preview should explain %q: %q", want, frame)
 		}
+	}
+}
+
+func TestBrowserBackspaceRestoresPreviousLocation(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 36
+	var first, second domain.Record
+	for _, record := range model.workspace.Records {
+		if record.ID == "npc-captain-vale" {
+			first = record
+		}
+		if record.ID == "npc-father-merrow" {
+			second = record
+		}
+	}
+	if first.ID == "" || second.ID == "" {
+		t.Fatal("demo records should include both navigation targets")
+	}
+	model.selectRecord(first)
+	model.layout.Focus = prefs.PaneDetail
+	model.pushBrowserLocation()
+	model.selectRecord(second)
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	model = updated.(Model)
+	if model.selectedID != first.ID {
+		t.Fatalf("backspace should restore %q, selected=%q", first.ID, model.selectedID)
+	}
+	if len(model.browserHistory) != 0 {
+		t.Fatalf("backspace should consume the location, history=%d", len(model.browserHistory))
+	}
+	if !strings.Contains(model.status, "Back to "+first.Title) {
+		t.Fatalf("backspace status=%q", model.status)
+	}
+}
+
+func TestImportSourceStateGuidanceIsVisible(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 32
+	model.openImport()
+	sources := model.renderImportSources(80, 12)
+	if !strings.Contains(sources, "● enabled · ○ cached, not active · e toggles selected source") {
+		t.Fatalf("source pane should explain its states: %q", sources)
+	}
+	model.width = 180
+	view := model.renderImport()
+	if !strings.Contains(view, "e enable/disable selected source") {
+		t.Fatalf("import footer should explain source toggling: %q", view)
+	}
+	model.status = "Cached Tome as reference · Sources selected · press e to enable for this campaign"
+	if !strings.Contains(model.renderImport(), "press e to enable for this campaign") {
+		t.Fatalf("cached-source status should remain actionable: %q", model.renderImport())
+	}
+}
+
+func TestSearchResultsShowContextAndStaySingleLine(t *testing.T) {
+	model := New()
+	model.width = 64
+	model.height = 20
+	record := domain.Record{
+		ID:        "search-context-record",
+		Type:      domain.NPC,
+		Title:     "Contextual Search Target",
+		Authority: domain.Canon,
+		Scope:     model.workspace.Scope,
+		Folder:    "lore/deep",
+		Source:    "A source title that is long enough to be truncated",
+	}
+	result := searchsvc.Result{Kind: searchsvc.KindRecord, ID: record.ID, Title: record.Title, Record: record}
+	context := model.searchResultContext(result)
+	if !strings.Contains(context, "lore/deep") || !strings.Contains(context, "A source title") {
+		t.Fatalf("search context=%q", context)
+	}
+	model.searching = true
+	model.searchInput.SetValue("Contextual")
+	model.results = []searchsvc.Result{result}
+	view := testANSI.ReplaceAllString(model.renderSearchOverlay(), "")
+	var resultLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Contextual Search") {
+			resultLine = line
+			break
+		}
+	}
+	if resultLine == "" {
+		t.Fatalf("search result row missing: %q", view)
+	}
+	if !strings.Contains(resultLine, "…") {
+		t.Fatalf("search context should truncate on narrow terminals: %q", resultLine)
+	}
+}
+
+func TestCtrlOPeekPreviewPreservesActiveModes(t *testing.T) {
+	recordID := "npc-captain-vale"
+	setPeek := func(model *Model) {
+		record := model.workspace.Records[0]
+		for _, candidate := range model.workspace.Records {
+			if candidate.ID == recordID {
+				record = candidate
+				break
+			}
+		}
+		model.peek = &record
+	}
+	cases := []struct {
+		name   string
+		active func(*Model)
+		check  func(Model) bool
+	}{
+		{name: "editor", active: func(model *Model) {
+			model.selectRecord(*model.peek)
+			updated, _ := model.openEditor(false)
+			*model = updated.(Model)
+		}, check: func(model Model) bool { return model.editing }},
+		{name: "session", active: func(model *Model) {
+			session := domain.SessionRecord{ID: "test-session", Scope: model.workspace.Scope}
+			model.session = &session
+		}, check: func(model Model) bool { return model.session != nil }},
+		{name: "planned notes", active: func(model *Model) {
+			updated, _ := model.openPlannedNotes(false)
+			*model = updated.(Model)
+		}, check: func(model Model) bool { return model.planning }},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			model := New()
+			model.width = 100
+			model.height = 36
+			setPeek(&model)
+			test.active(&model)
+			updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+			model = updated.(Model)
+			if model.preview == nil || model.preview.Hop.RecordID != recordID {
+				t.Fatalf("ctrl+o should preview the peeked record: %#v", model.preview)
+			}
+			if !strings.Contains(model.View().Content, "PREVIEW") {
+				t.Fatalf("ctrl+o preview should be visible in %s mode: %q", test.name, model.View().Content)
+			}
+			if !test.check(model) {
+				t.Fatalf("ctrl+o should preserve %s mode", test.name)
+			}
+		})
+	}
+}
+
+func TestHistoryFollowTargetsPlaybackEntry(t *testing.T) {
+	model := newModel(ShowcaseWorkspace(), nil, nil)
+	model.enterDemoCampaign()
+	var sessionID, entryID string
+	targetIndex := -1
+	for _, session := range model.workspace.Sessions {
+		if session.EndedAt == nil {
+			continue
+		}
+		_, frames, ok := domain.SessionPlayback(model.workspace, session.ID)
+		if !ok {
+			continue
+		}
+		for index, frame := range frames {
+			if frame.EntryID == "" {
+				continue
+			}
+			sessionID = session.ID
+			entryID = frame.EntryID
+			targetIndex = index
+			break
+		}
+		if targetIndex >= 0 {
+			break
+		}
+	}
+	if targetIndex < 0 {
+		t.Fatal("demo should provide an ended session playback frame with an entry ID")
+	}
+	updated, _ := model.jumpToHop(detailHop{Kind: hopHistory, SessionID: sessionID, EntryID: entryID, Label: "history target"})
+	model = updated.(Model)
+	if !model.playingBack {
+		t.Fatalf("history follow should open playback, status=%q", model.status)
+	}
+	if model.playbackCursor != targetIndex {
+		t.Fatalf("history follow cursor=%d, want %d", model.playbackCursor, targetIndex)
+	}
+	if len(model.browserHistory) != 1 {
+		t.Fatalf("history follow should preserve the origin, history=%d", len(model.browserHistory))
+	}
+}
+
+func TestSourceBreadcrumbKeepsLiteralSegments(t *testing.T) {
+	model := New()
+	trail := testANSI.ReplaceAllString(model.renderDetailTrailParts(
+		"Sources",
+		[]string{"Guide/../Volume", "Chapter/One"},
+		"Hit/Name",
+	), "")
+	want := "PATH  The Ashen Crown / Sources / Guide/../Volume / Chapter/One / Hit/Name"
+	if !strings.Contains(trail, want) {
+		t.Fatalf("source breadcrumb should preserve literal segments: %q", trail)
 	}
 }
 

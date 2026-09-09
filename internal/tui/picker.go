@@ -14,6 +14,7 @@ import (
 
 func (m *Model) openPicker() {
 	m.workspace.EnsureLibrary()
+	m.clearBrowserHistory()
 	m.picking = true
 	m.pickerLevel = "world"
 	m.pickerCursor = 0
@@ -42,6 +43,7 @@ func (m *Model) openPicker() {
 
 func (m *Model) enterScope(scope domain.Scope) {
 	m.workspace.Scope = scope
+	m.clearBrowserHistory()
 	m.picking = false
 	m.layout.ActiveWorldID = scope.WorldID
 	m.layout.ActiveCampaignID = scope.CampaignID

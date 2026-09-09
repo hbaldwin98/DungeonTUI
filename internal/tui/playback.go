@@ -10,7 +10,7 @@ import (
 	"github.com/hbaldwin98/dungeon/internal/domain"
 )
 
-func (m Model) openPlayback() (tea.Model, tea.Cmd) {
+func (m Model) openPlayback(targetEntryID ...string) (tea.Model, tea.Cmd) {
 	session := m.selectedSession()
 	if session == nil {
 		m.status = "Select an ended session to play back"
@@ -27,12 +27,36 @@ func (m Model) openPlayback() (tea.Model, tea.Cmd) {
 	}
 	m.playingBack = true
 	m.playbackCursor = 0
+	if len(targetEntryID) > 0 && targetEntryID[0] != "" {
+		for index, frame := range frames {
+			if frame.EntryID == targetEntryID[0] {
+				m.playbackCursor = index
+				break
+			}
+		}
+	}
 	if len(frames) == 0 {
 		m.status = "Playback · no derived beats yet"
 	} else {
 		m.status = fmt.Sprintf("Playback · %d beats · ← rewind · → fast-forward", len(frames))
 	}
 	return m, nil
+}
+
+func (m Model) playbackCursorForEntry(entryID string) (int, bool) {
+	if entryID == "" {
+		return 0, false
+	}
+	_, frames, ok := domain.SessionPlayback(m.workspace, m.selectedSessionID)
+	if !ok {
+		return 0, false
+	}
+	for index, frame := range frames {
+		if frame.EntryID == entryID {
+			return index, true
+		}
+	}
+	return 0, false
 }
 
 func (m Model) updatePlayback(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

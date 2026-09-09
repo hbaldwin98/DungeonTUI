@@ -378,7 +378,7 @@ func (m Model) renderImport() string {
 	)
 	bodyHeight := max(1, height-2)
 	body := m.renderImportBody(width, bodyHeight)
-	help := "j/k move  Tab pane  Enter ingest adventure  d remove source  e enable  Ctrl+T kind (" + kind + ")  Esc back  q quit"
+	help := "j/k move  Tab pane  Enter ingest adventure  d remove source  e enable/disable selected source  Ctrl+T kind (" + kind + ")  Esc back  q quit"
 	if m.importBusy {
 		help = "Ingesting…  q quit"
 	}
@@ -448,7 +448,7 @@ func (m Model) renderImportSources(width, height int) string {
 	var builder strings.Builder
 	builder.WriteString(sectionStyle.Render("SOURCES"))
 	builder.WriteString("\n")
-	builder.WriteString(mutedStyle.Render("enabled for this campaign"))
+	builder.WriteString(mutedStyle.Render("● enabled · ○ cached, not active · e toggles selected source"))
 	builder.WriteString("\n\n")
 	if len(m.workspace.Sources) == 0 {
 		builder.WriteString(mutedStyle.Render("None yet · ingest a 5e.tools book or .md file"))
@@ -824,7 +824,7 @@ func (m Model) handleToolsIngest(msg toolsIngestMsg) (tea.Model, tea.Cmd) {
 	m.status = fmt.Sprintf("Imported %s (%s): %d records, %d prep, %d links",
 		msg.report.Title, msg.report.Kind, msg.report.Records, msg.report.Planned, msg.report.Linked)
 	if msg.report.Reference {
-		m.status = fmt.Sprintf("Cached %s as reference · enable it on Sources to read and @ peek",
+		m.status = fmt.Sprintf("Cached %s as reference · Sources selected · press e to enable for this campaign",
 			msg.report.Title)
 	}
 	return m, nil

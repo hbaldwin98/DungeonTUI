@@ -147,7 +147,7 @@ func renderSuggestionList(suggestions []Suggestion, selected int) string {
 		return ""
 	}
 	var builder strings.Builder
-	builder.WriteString(mutedStyle.Render("@ suggestions  ↑↓  Tab insert"))
+	builder.WriteString(mutedStyle.Render("@ suggestions  ↑↓  Tab insert  Ctrl+O preview"))
 	for index, item := range suggestions {
 		if index >= 5 {
 			break

@@ -99,12 +99,14 @@ func (m Model) jumpToHop(hop detailHop) (tea.Model, tea.Cmd) {
 			m.status = "Adventure reference · preview only"
 			return m, nil
 		}
+		m.pushBrowserLocation()
 		m.selectRecord(target)
 		m.layout.Focus = prefs.PaneDetail
 		m.status = "Opened " + target.Title
 		return m, nil
 	case hopReference:
 		if target, ok := m.lookupAny(hop.RecordID); ok && target.SourceID != "" {
+			m.pushBrowserLocation()
 			m.focusNavKind(NavSources)
 			m.selectedSourceID = target.SourceID
 			m.selectedHitName = target.Title
@@ -122,12 +124,26 @@ func (m Model) jumpToHop(hop detailHop) (tea.Model, tea.Cmd) {
 		m.status = "Adventure reference · preview only"
 		return m, nil
 	case hopPrep:
+		m.pushBrowserLocation()
 		m.focusPrep(hop.PlanID)
 		m.status = "Opened prep · " + hop.Label
 		return m, nil
-	case hopSession, hopHistory:
+	case hopSession:
+		m.pushBrowserLocation()
 		m.focusSession(hop.SessionID)
 		m.status = "Opened session · " + hop.Label
+		return m, nil
+	case hopHistory:
+		m.pushBrowserLocation()
+		m.focusSession(hop.SessionID)
+		if hop.EntryID != "" {
+			if session := m.selectedSession(); session != nil && session.EndedAt != nil {
+				if _, ok := m.playbackCursorForEntry(hop.EntryID); ok {
+					return m.openPlayback(hop.EntryID)
+				}
+			}
+		}
+		m.status = "Opened session history · " + hop.Label
 		return m, nil
 	}
 	return m, nil

@@ -94,6 +94,7 @@ type Model struct {
 	peekScroll         int
 	historyCursor      int
 	detailView         *paneScroll
+	browserHistory     []browserLocation
 	playingBack        bool
 	playbackCursor     int
 	collectionFilter   string
@@ -450,6 +451,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "tab":
 			m.cycleBrowserFocus()
+		case "backspace", "alt+left":
+			m.restoreBrowserLocation()
 		}
 	case tea.MouseClickMsg:
 		if m.session != nil {
@@ -581,6 +584,10 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		model.layout.CycleSessionUpperVisibility()
 		model.persistPreferences()
 		return model, nil
+	case "ctrl+o":
+		if model.openPeekPreview() {
+			return model, nil
+		}
 	case "-":
 		focus := model.sessionFocus()
 		switch focus {
@@ -1986,6 +1993,10 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		rewriteTypePreservingCursor(&model.editBody, model.editType)
 		model.status = "Type → " + string(model.editType)
 		return model, nil
+	case "ctrl+o":
+		if model.openPeekPreview() {
+			return model, nil
+		}
 	case "ctrl+s", "ctrl+enter":
 		return model.saveEditor()
 	case "tab":
@@ -2286,9 +2297,11 @@ func (m Model) openSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {
 	m.searchInput.Blur()
 	switch result.Kind {
 	case searchsvc.KindPrep:
+		m.pushBrowserLocation()
 		m.focusPrep(result.TargetID())
 		return m, nil
 	case searchsvc.KindSession, searchsvc.KindTranscript:
+		m.pushBrowserLocation()
 		id := result.SessionID
 		if id == "" {
 			id = result.TargetID()
@@ -2303,6 +2316,7 @@ func (m Model) openSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {
 		if fivetools.IsReferenceID(rec.ID) {
 			m.openPreview(detailHop{Kind: hopReference, Label: rec.Title, RecordID: rec.ID})
 		} else {
+			m.pushBrowserLocation()
 			m.selectRecord(rec)
 		}
 	}
@@ -2507,6 +2521,9 @@ func (m Model) View() tea.View {
 	bodyHeight := max(1, m.height-2)
 	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
 	help := "? help · j/k · Tab · f/o filters · Enter · n/e/p/s · d · b · / · q"
+	if len(m.browserHistory) > 0 {
+		help += " · Backspace back"
+	}
 	if m.status != "" {
 		help = m.status + "  ·  " + help
 	}
@@ -2536,6 +2553,9 @@ func (m Model) View() tea.View {
 		view = m.renderPlaybackOverlay()
 	} else if m.reconciling {
 		view = m.renderReconciliationOverlay()
+	}
+	if m.preview != nil {
+		view = m.renderPreviewOverlay(view)
 	}
 
 	result := tea.NewView(view)
@@ -2572,6 +2592,9 @@ func (m Model) sessionView() tea.View {
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
+	if m.preview != nil {
+		view = m.renderPreviewOverlay(view)
+	}
 	result := tea.NewView(view)
 	result.AltScreen = true
 	result.MouseMode = tea.MouseModeCellMotion
@@ -2707,15 +2730,25 @@ func (m Model) renderHeader(width int) string {
 }
 
 func (m Model) renderDetailTrail(section, folder, title string) string {
-	parts := make([]string, 0, 5)
+	folders := make([]string, 0, 4)
+	if folder = domain.NormalizeFolder(folder); folder != "" {
+		folders = strings.Split(folder, "/")
+	}
+	return m.renderDetailTrailParts(section, folders, title)
+}
+
+func (m Model) renderDetailTrailParts(section string, folders []string, title string) string {
+	parts := make([]string, 0, len(folders)+3)
 	if campaign := strings.TrimSpace(m.workspace.Scope.Campaign); campaign != "" {
 		parts = append(parts, campaign)
 	}
 	if section = strings.TrimSpace(section); section != "" {
 		parts = append(parts, section)
 	}
-	if folder = domain.NormalizeFolder(folder); folder != "" {
-		parts = append(parts, strings.Split(folder, "/")...)
+	for _, folder := range folders {
+		if folder = strings.TrimSpace(folder); folder != "" {
+			parts = append(parts, folder)
+		}
 	}
 	if title = strings.TrimSpace(title); title != "" {
 		parts = append(parts, title)
@@ -2724,6 +2757,48 @@ func (m Model) renderDetailTrail(section, folder, title string) string {
 		return ""
 	}
 	return mutedStyle.Render("PATH  " + strings.Join(parts, " / "))
+}
+
+func (m Model) searchResultContext(result searchsvc.Result) string {
+	parts := make([]string, 0, 3)
+	appendPart := func(value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			parts = append(parts, value)
+		}
+	}
+
+	switch result.Kind {
+	case searchsvc.KindRecord, searchsvc.KindReference:
+		record := result.Record
+		if record.ID == "" {
+			if found, ok := m.lookupAny(result.TargetID()); ok {
+				record = found
+			}
+		}
+		appendPart(domain.RecordFolderPath(record, m.workspace.Sources))
+		appendPart(record.Source)
+		if campaign := strings.TrimSpace(record.Scope.Campaign); campaign != "" && campaign != m.workspace.Scope.Campaign {
+			appendPart(campaign)
+		}
+	case searchsvc.KindPrep:
+		if plan := m.plannedByID(result.TargetID()); plan != nil {
+			appendPart(plan.LocationName)
+			appendPart(plan.SourceID)
+		}
+	case searchsvc.KindSession, searchsvc.KindTranscript:
+		sessionID := result.SessionID
+		if sessionID == "" {
+			sessionID = result.TargetID()
+		}
+		if session := m.sessionByID(sessionID); session != nil {
+			appendPart(domain.SessionFolderPath(*session))
+			if !session.StartedAt.IsZero() {
+				appendPart(session.StartedAt.Local().Format("2006-01-02"))
+			}
+			appendPart(session.LocationName)
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m Model) renderDetail() string {
@@ -2830,6 +2905,10 @@ func (m Model) renderSearchOverlay() string {
 				authority.Label(),
 				result.DisplayTitle(),
 			)
+			if context := m.searchResultContext(result); context != "" {
+				line += "  · " + context
+			}
+			line = truncateImportLine(line, max(1, width-4))
 			builder.WriteString(style.Render(line))
 			builder.WriteRune('\n')
 		}

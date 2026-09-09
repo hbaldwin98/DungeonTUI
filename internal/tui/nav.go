@@ -699,11 +699,11 @@ func (m Model) renderAdventureReader(width int) string {
 	}
 	hit, hitOK := m.selectedSourceHit()
 	if hitOK {
-		folder := title
+		folders := []string{title}
 		if hit.Chapter != "" {
-			folder += "/" + hit.Chapter
+			folders = append(folders, hit.Chapter)
 		}
-		builder.WriteString(m.renderDetailTrail("Sources", folder, hit.Name))
+		builder.WriteString(m.renderDetailTrailParts("Sources", folders, hit.Name))
 		builder.WriteString("\n\n")
 		builder.WriteString(titleStyle.Render(hit.Name))
 		builder.WriteString("\n")

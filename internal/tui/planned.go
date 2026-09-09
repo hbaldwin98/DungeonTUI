@@ -101,6 +101,10 @@ func (m Model) updatePlannedNotes(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.savePlannedNotes()
 	case "ctrl+p":
 		return m.cyclePlanPriorSits()
+	case "ctrl+o":
+		if m.openPeekPreview() {
+			return m, nil
+		}
 	case "up":
 		if m.planField == 1 && len(m.suggestions) > 0 {
 			m.suggestion = clamp(m.suggestion-1, 0, len(m.suggestions)-1)

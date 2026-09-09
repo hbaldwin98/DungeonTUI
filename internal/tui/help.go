@@ -27,15 +27,15 @@ func (m Model) helpSections() [][]string {
 	switch {
 	case m.editing:
 		return [][]string{
-			{"Markdown editor", "Ctrl+S save", "Ctrl+T cycle type", "@ reference · Tab insert", "↑↓ choose · peek PgUp/PgDn", "Esc cancel"},
+			{"Markdown editor", "Ctrl+S save", "Ctrl+T cycle type", "@ reference · Tab insert · Ctrl+O preview", "↑↓ choose · peek PgUp/PgDn", "Esc cancel"},
 		}
 	case m.planning:
 		return [][]string{
-			{"Planned notes", "Tab title/body", "Ctrl+S save", "Ctrl+P prior sits", "@ / #location · peek", "Esc cancel"},
+			{"Planned notes", "Tab title/body", "Ctrl+S save", "Ctrl+P prior sits", "@ / #location · peek · Ctrl+O preview", "Esc cancel"},
 		}
 	case m.session != nil:
 		return [][]string{
-			{"Session", "Enter capture", "Shift+Enter newline", "@ / $ / # suggest · peek", "Tab cycle panes", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
+			{"Session", "Enter capture", "Shift+Enter newline", "@ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
 		}
 	case m.preview != nil:
 		return [][]string{

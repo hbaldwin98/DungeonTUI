@@ -96,6 +96,27 @@ func (m *Model) refreshPeek() {
 	m.peek = m.resolveReferenceAtCursor(lines[line], col)
 }
 
+func (m *Model) openPeekPreview() bool {
+	if m.peek == nil {
+		return false
+	}
+	record := *m.peek
+	hop := detailHop{
+		Kind:     hopWiki,
+		Prefix:   "wiki · ",
+		Label:    record.Title,
+		Relation: "inline @ reference",
+		RecordID: record.ID,
+	}
+	if fivetools.IsReferenceID(record.ID) {
+		hop.Kind = hopReference
+		hop.Prefix = "reference · "
+		hop.Relation = "inline source reference"
+	}
+	m.openPreview(hop)
+	return true
+}
+
 // resolveReferenceAtCursor resolves a multi-word @ reference under the cursor.
 func (m Model) resolveReferenceAtCursor(line string, col int) *domain.Record {
 	if col < 0 {
