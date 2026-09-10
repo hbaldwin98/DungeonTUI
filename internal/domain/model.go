@@ -125,6 +125,9 @@ type Record struct {
 	Aliases     []string
 	Tags        []string
 	IsAIContent bool
+	// Capture holds quick-capture provenance when this record came from the
+	// capture inbox. It is nil for every other record.
+	Capture *CaptureContext `json:",omitempty"`
 }
 
 type EntityLink struct {

@@ -28,7 +28,7 @@ func TestCampaignEntryOpensHome(t *testing.T) {
 	}
 }
 
-func TestCampaignHomeKeyboardCaptureOpensDraft(t *testing.T) {
+func TestCampaignHomeKeyboardCaptureOpensQuickCapture(t *testing.T) {
 	model := newModel(demoWorkspace(), nil, nil)
 	model.enterScope(model.workspace.Scope)
 	model.setBrowserFocus(prefs.PaneList)
@@ -36,8 +36,8 @@ func TestCampaignHomeKeyboardCaptureOpensDraft(t *testing.T) {
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(Model)
-	if !model.editing || !model.creating {
-		t.Fatal("capture action should open a new draft editor")
+	if !model.capture.Open {
+		t.Fatal("capture action should open the quick capture overlay")
 	}
 }
 
@@ -62,8 +62,8 @@ func TestCampaignHomeMouseRunsClickedAction(t *testing.T) {
 	}
 	updated, _ := model.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 	model = updated.(Model)
-	if !model.editing || !model.creating {
-		t.Fatal("clicked capture action should open a new draft editor")
+	if !model.capture.Open {
+		t.Fatal("clicked capture action should open the quick capture overlay")
 	}
 }
 

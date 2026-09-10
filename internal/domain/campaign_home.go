@@ -16,6 +16,7 @@ type CampaignHomeSummary struct {
 	UnresolvedReviews int
 	NextReviewID      string
 	RecentChanges     []CampaignHomeChange
+	UnfiledCaptures   []Record
 }
 
 // CampaignHomeChange identifies a recent approved wiki mutation.
@@ -36,6 +37,7 @@ func DeriveCampaignHome(workspace Workspace, scope Scope) CampaignHomeSummary {
 	summary.OpenThreads = openCampaignThreads(workspace, scope)
 	summary.UnresolvedReviews, summary.NextReviewID = unresolvedCampaignReviews(workspace.Reconciliations, sessions)
 	summary.RecentChanges = recentCampaignChanges(workspace, sessions, 4)
+	summary.UnfiledCaptures = UnfiledCaptures(workspace, scope)
 	summary.Cast = campaignHomeCast(workspace, scope, summary.NextPlan, sessions, summary.LatestSession)
 	return summary
 }

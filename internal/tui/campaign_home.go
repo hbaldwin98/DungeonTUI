@@ -37,6 +37,10 @@ func (m Model) homeActions() []homeAction {
 		prep.Label = "Resume prep"
 		prep.Detail = home.NextPlan.Title
 	}
+	capture := homeAction{ID: homeCapture, Label: "Capture note", Detail: "Keep an unclassified thought", Enabled: true}
+	if unfiled := len(home.UnfiledCaptures); unfiled > 0 {
+		capture.Detail = fmt.Sprintf("%d unfiled · Ctrl+N anywhere", unfiled)
+	}
 	review := homeAction{ID: homeReview, Label: "Review changes", Detail: "Nothing waiting", Enabled: false}
 	if home.UnresolvedReviews > 0 {
 		review.Detail = fmt.Sprintf("%d items waiting", home.UnresolvedReviews)
@@ -46,7 +50,7 @@ func (m Model) homeActions() []homeAction {
 		prep,
 		{ID: homeStart, Label: "Start session", Detail: "Use the next prep and cast", Enabled: true},
 		review,
-		{ID: homeCapture, Label: "Capture note", Detail: "Keep an idea as a draft", Enabled: true},
+		capture,
 	}
 }
 
@@ -83,8 +87,7 @@ func (m Model) activateHomeAction(index int) (tea.Model, tea.Cmd) {
 		}
 		return m.openReconciliation()
 	case homeCapture:
-		m.typeFilter = domain.Note
-		return m.openEditor(true)
+		return m.openQuickCapture()
 	default:
 		return m, nil
 	}
@@ -160,6 +163,22 @@ func (m Model) renderCampaignHome() string {
 				break
 			}
 			builder.WriteString("  " + thread.Authority.Marker() + " " + thread.Title + "\n")
+		}
+	}
+	builder.WriteString("\n")
+	builder.WriteString(labelStyle.Render(fmt.Sprintf("UNFILED CAPTURES · %d", len(home.UnfiledCaptures))))
+	builder.WriteString("\n")
+	if len(home.UnfiledCaptures) == 0 {
+		builder.WriteString(mutedStyle.Render("Nothing waiting to be filed"))
+		builder.WriteString("\n")
+	} else {
+		for index, capture := range home.UnfiledCaptures {
+			if index == 5 {
+				builder.WriteString(mutedStyle.Render(fmt.Sprintf("  + %d more", len(home.UnfiledCaptures)-index)))
+				builder.WriteString("\n")
+				break
+			}
+			builder.WriteString("  " + capture.Authority.Marker() + " " + capture.Title + "\n")
 		}
 	}
 	builder.WriteString("\n")

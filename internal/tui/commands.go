@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"unicode"
@@ -8,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 	"github.com/hbaldwin98/DungeonTUI/internal/prefs"
 )
 
@@ -74,10 +76,12 @@ func (m *Model) closeCommandPalette(restoreHelp bool) {
 
 func (m Model) paletteCommands() []paletteCommand {
 	help := paletteCommand{ID: "help.open", Label: "Show keyboard reference", Aliases: "shortcuts keys"}
+	capture := paletteCommand{ID: "capture.new", Label: "Capture a quick note", Aliases: "inbox thought idea jot", Enabled: m.canQuickCapture(), Reason: "Open a world or campaign first"}
 	switch m.commandContext() {
 	case commandPicker:
 		return []paletteCommand{
 			help,
+			capture,
 			{ID: "picker.open", Label: "Open selected world or campaign", Aliases: "enter choose"},
 			{ID: "picker.new", Label: "Create world or campaign", Aliases: "new"},
 			{ID: "picker.rename", Label: "Rename selected world or campaign", Aliases: "edit"},
@@ -88,6 +92,7 @@ func (m Model) paletteCommands() []paletteCommand {
 	case commandPreview:
 		return []paletteCommand{
 			help,
+			capture,
 			{ID: "preview.open", Label: "Follow previewed link", Aliases: "open enter"},
 			{ID: "preview.close", Label: "Close preview", Aliases: "back escape"},
 			{ID: "preview.top", Label: "Scroll preview to top", Aliases: "first home"},
@@ -96,6 +101,7 @@ func (m Model) paletteCommands() []paletteCommand {
 	case commandPlayback:
 		return []paletteCommand{
 			help,
+			capture,
 			{ID: "playback.previous", Label: "Previous playback beat", Aliases: "rewind"},
 			{ID: "playback.next", Label: "Next playback beat", Aliases: "forward"},
 			{ID: "playback.first", Label: "First playback beat", Aliases: "home"},
@@ -107,6 +113,7 @@ func (m Model) paletteCommands() []paletteCommand {
 		reason := "Inbox complete"
 		return []paletteCommand{
 			help,
+			capture,
 			{ID: "recon.accept", Label: "Accept selected change", Aliases: "approve apply", Enabled: hasItem, Reason: reason},
 			{ID: "recon.edit", Label: "Edit selected change", Enabled: hasItem, Reason: reason},
 			{ID: "recon.defer", Label: "Defer selected change", Aliases: "later", Enabled: hasItem, Reason: reason},
@@ -120,8 +127,12 @@ func (m Model) paletteCommands() []paletteCommand {
 		hasRecord := record != nil
 		hasPlan := m.selectedPlanID != ""
 		hasRecon := len(m.workspace.Reconciliations) > 0
+		unfiled := len(domain.UnfiledCaptures(m.workspace, m.workspace.Scope))
+		selectedCapture := record != nil && domain.IsUnfiledCapture(*record)
 		return []paletteCommand{
 			help,
+			capture,
+			{ID: "capture.file", Label: fmt.Sprintf("File selected capture · %d unfiled", unfiled), Aliases: "inbox process classify", Enabled: selectedCapture, Reason: "Select an unfiled capture note"},
 			{ID: "browser.open", Label: "Open selected item", Aliases: "enter inspect"},
 			{ID: "search.open", Label: "Search campaign and library", Aliases: "find"},
 			{ID: "entity.new", Label: "Create entity", Aliases: "new wiki npc location"},
@@ -257,6 +268,8 @@ type paletteCommandExecutor func(Model) (tea.Model, tea.Cmd)
 func paletteCommandExecutors() map[string]paletteCommandExecutor {
 	return map[string]paletteCommandExecutor{
 		"help.open":    func(m Model) (tea.Model, tea.Cmd) { m.helping = true; return m, nil },
+		"capture.new":  func(m Model) (tea.Model, tea.Cmd) { return m.openQuickCapture() },
+		"capture.file": func(m Model) (tea.Model, tea.Cmd) { return m.fileSelectedCapture() },
 		"browser.open": func(m Model) (tea.Model, tea.Cmd) { return m.activateBrowserSelection() },
 		"search.open":  func(m Model) (tea.Model, tea.Cmd) { return m.openSearch() },
 		"entity.new":   func(m Model) (tea.Model, tea.Cmd) { return m.openEditor(true) },

@@ -172,5 +172,27 @@ func (m Model) updateReconciliationMouse(msg tea.MouseClickMsg) (tea.Model, tea.
 }
 
 func (m Model) reconciliationOverlayHeight() int {
-	return min(max(14, 10+len(m.unresolvedReconciliationItems())), max(14, m.height-2))
+	sessionID := ""
+	if m.reconIndex >= 0 && m.reconIndex < len(m.workspace.Reconciliations) {
+		sessionID = m.workspace.Reconciliations[m.reconIndex].SessionID
+	}
+	rows := 10 + len(m.unresolvedReconciliationItems()) + m.reconCaptureBlockHeight(sessionID)
+	return min(max(14, rows), max(14, m.height-2))
+}
+
+// reconCaptureBlockHeight is the line budget the read-only capture evidence
+// block occupies, so queue rows and mouse geometry stay in agreement.
+func (m Model) reconCaptureBlockHeight(sessionID string) int {
+	count := len(domain.SessionCaptures(m.workspace, sessionID))
+	if count == 0 {
+		return 0
+	}
+	return min(count, captureEvidenceRows) + overflowRows(count, captureEvidenceRows) + 3
+}
+
+func overflowRows(count, limit int) int {
+	if count > limit {
+		return 1
+	}
+	return 0
 }

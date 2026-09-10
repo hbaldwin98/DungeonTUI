@@ -136,6 +136,7 @@ type Model struct {
 	selectedChapter    string
 	searchPath         string
 	commands           commandPalette
+	capture            captureOverlay
 }
 
 func New() Model {
@@ -303,8 +304,17 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			sizeMarkdownTextArea(&m.planBody, m.width, m.height-4)
 			m.planTitle.SetWidth(max(20, m.width-10))
 		}
+		if m.capture.Open {
+			m.capture.Input.SetWidth(captureInputWidth(m.width))
+		}
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.capture.Open {
+			return m.updateQuickCapture(msg)
+		}
+		if msg.String() == "ctrl+n" {
+			return m.openQuickCapture()
+		}
 		if m.commands.Open {
 			return m.updateCommandPalette(msg)
 		}
@@ -498,6 +508,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.restoreBrowserLocation()
 		}
 	case tea.MouseClickMsg:
+		if m.capture.Open {
+			return m, nil
+		}
 		if m.commands.Open {
 			return m.updateCommandPaletteClick(msg)
 		}
@@ -2817,6 +2830,14 @@ func (m Model) View() tea.View {
 		view.MouseMode = tea.MouseModeCellMotion
 		return view
 	}
+	if m.capture.Open {
+		base := m
+		base.capture.Open = false
+		result := base.View()
+		result.Content = m.renderQuickCapture(result.Content)
+		result.WindowTitle = "Dungeon · Quick capture"
+		return result
+	}
 	if m.commands.Open {
 		base := m
 		base.commands.Open = false
@@ -2935,7 +2956,7 @@ func (m Model) sessionView() tea.View {
 	}
 	transcript := m.panelStyleFor(prefs.PaneTranscript).Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
 	input := m.panelStyleFor(prefs.PaneInput).Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitPanelBody(m.renderSessionInput(), panelInnerWidth(width), panelInnerHeight(inputHeight)))
-	help := "Enter capture   / search   Tab pane   ? commands"
+	help := "Enter capture   Ctrl+N note   / search   Tab pane   ? commands"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
@@ -3409,6 +3430,7 @@ func (m Model) renderReconciliationOverlay() string {
 				builder.WriteString(mutedStyle.Render("No proposed wiki write."))
 			}
 		}
+		builder.WriteString(m.renderSessionCaptures(recon.SessionID, width))
 	}
 	builder.WriteString("\n")
 	if m.reconEditing {

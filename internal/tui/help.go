@@ -29,11 +29,11 @@ func (m Model) helpSections() [][]string {
 	switch {
 	case m.editing:
 		return [][]string{
-			{"Markdown editor", "Ctrl+S save", "Ctrl+T cycle type", "@ reference · Tab insert · Ctrl+O preview", "↑↓ choose · peek PgUp/PgDn", "Esc cancel"},
+			{"Markdown editor", "Ctrl+N quick capture", "Ctrl+S save", "Ctrl+T cycle type", "@ reference · Tab insert · Ctrl+O preview", "↑↓ choose · peek PgUp/PgDn", "Esc cancel"},
 		}
 	case m.planning:
 		return [][]string{
-			{"Planned notes", "Tab title/body", "Ctrl+S save", "Ctrl+P prior sits", "@ / #location · peek · Ctrl+O preview", "Esc cancel"},
+			{"Planned notes", "Ctrl+N quick capture", "Tab title/body", "Ctrl+S save", "Ctrl+P prior sits", "@ / #location · peek · Ctrl+O preview", "Esc cancel"},
 		}
 	case m.preview != nil:
 		if m.session != nil {
@@ -46,7 +46,7 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.playingBack:
 		return [][]string{
-			{"Playback", "← / h rewind", "→ / l fast-forward", "Home first · End last", "Esc close"},
+			{"Playback", "Ctrl+N quick capture", "← / h rewind", "→ / l fast-forward", "Home first · End last", "Esc close"},
 		}
 	case m.namingPicker:
 		return [][]string{
@@ -75,7 +75,7 @@ func (m Model) helpSections() [][]string {
 			}
 		}
 		return [][]string{
-			{"Reconciliation", ": search commands", "j/k move", "e edit mutation", "a accept", "d defer", "x reject", "Esc close", "Transcript stays immutable"},
+			{"Reconciliation", ": search commands", "Ctrl+N quick capture", "j/k move", "e edit mutation", "a accept", "d defer", "x reject", "Esc close", "Transcript stays immutable"},
 		}
 	case m.settingsOpen:
 		return [][]string{
@@ -88,15 +88,15 @@ func (m Model) helpSections() [][]string {
 			}
 		}
 		return [][]string{
-			{"Search", "Type to filter wiki, prep, sessions, notes, recon", "↑↓ select", "Enter inspect", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},
+			{"Search", "Ctrl+N quick capture", "Type to filter wiki, prep, sessions, notes, recon", "↑↓ select", "Enter inspect", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},
 		}
 	case m.session != nil:
 		return [][]string{
-			{"Session", "Enter capture", "Shift+Enter newline", "/ search · @ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "context p pin · x clear", "prep pane j/k beats · ↑/↓ or PgUp/PgDn scroll · d done · x skip", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
+			{"Session", "Enter capture", "Ctrl+N unclassified quick capture", "Shift+Enter newline", "/ search · @ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "context p pin · x clear", "prep pane j/k beats · ↑/↓ or PgUp/PgDn scroll · d done · x skip", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
 		}
 	default:
 		return [][]string{
-			{"Browser", ": search commands", "j/k move", "←/→ or Tab panes", "detail PgUp/PgDn scroll · j/k select links", "Enter preview · Enter again follow / playback / expand source folder", "Link rows show why they appear", "n new · e edit · I import", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "Sources: chapters in the list · Enter expands names · detail shows that slice", "@ peeks wiki then enabled adventure reference", "r reconcile · q quit"},
+			{"Browser", ": search commands", "Ctrl+N quick capture (: files it)", "j/k move", "←/→ or Tab panes", "detail PgUp/PgDn scroll · j/k select links", "Enter preview · Enter again follow / playback / expand source folder", "Link rows show why they appear", "n new · e edit · I import", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "Sources: chapters in the list · Enter expands names · detail shows that slice", "@ peeks wiki then enabled adventure reference", "r reconcile · q quit"},
 		}
 	}
 }
