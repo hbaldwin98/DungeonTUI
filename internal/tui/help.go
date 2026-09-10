@@ -54,7 +54,7 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.picking:
 		return [][]string{
-			{"Library", "j/k move", "Enter open", "n new", "e rename", "d delete (y confirm)", "I import", "Esc back to worlds", "q quit"},
+			{"Library", ": search commands", "j/k move", "Enter open", "n new", "e rename", "d delete (y confirm)", "I import", "Esc back to worlds", "q quit"},
 		}
 	case m.namingFolder:
 		return [][]string{
@@ -75,7 +75,7 @@ func (m Model) helpSections() [][]string {
 			}
 		}
 		return [][]string{
-			{"Reconciliation", "j/k move", "e edit mutation", "a accept", "d defer", "x reject", "Esc close", "Transcript stays immutable"},
+			{"Reconciliation", ": search commands", "j/k move", "e edit mutation", "a accept", "d defer", "x reject", "Esc close", "Transcript stays immutable"},
 		}
 	case m.settingsOpen:
 		return [][]string{
@@ -96,7 +96,7 @@ func (m Model) helpSections() [][]string {
 		}
 	default:
 		return [][]string{
-			{"Browser", "j/k move", "←/→ or Tab panes", "detail PgUp/PgDn scroll · j/k select links", "Enter preview · Enter again follow / playback / expand source folder", "Link rows show why they appear", "n new · e edit · I import", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "Sources: chapters in the list · Enter expands names · detail shows that slice", "@ peeks wiki then enabled adventure reference", "r reconcile · q quit"},
+			{"Browser", ": search commands", "j/k move", "←/→ or Tab panes", "detail PgUp/PgDn scroll · j/k select links", "Enter preview · Enter again follow / playback / expand source folder", "Link rows show why they appear", "n new · e edit · I import", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search", "Sources: chapters in the list · Enter expands names · detail shows that slice", "@ peeks wiki then enabled adventure reference", "r reconcile · q quit"},
 		}
 	}
 }

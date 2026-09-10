@@ -135,6 +135,7 @@ type Model struct {
 	selectedHitName    string
 	selectedChapter    string
 	searchPath         string
+	commands           commandPalette
 }
 
 func New() Model {
@@ -304,6 +305,12 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.commands.Open {
+			return m.updateCommandPalette(msg)
+		}
+		if msg.String() == ":" && m.canOpenCommandPalette() {
+			return m.openCommandPalette()
+		}
 		if m.helping {
 			return m.updateHelp(msg)
 		}
@@ -491,6 +498,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.restoreBrowserLocation()
 		}
 	case tea.MouseClickMsg:
+		if m.commands.Open {
+			return m.updateCommandPaletteClick(msg)
+		}
 		if m.reconciling {
 			return m.updateReconciliationMouse(msg)
 		}
@@ -502,6 +512,14 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.updateMouseClick(msg)
 	case tea.MouseWheelMsg:
+		if m.commands.Open {
+			if msg.Button == tea.MouseWheelDown {
+				m.moveCommandPalette(1)
+			} else if msg.Button == tea.MouseWheelUp {
+				m.moveCommandPalette(-1)
+			}
+			return m, nil
+		}
 		if m.reconciling {
 			if msg.Button == tea.MouseWheelDown {
 				m.moveReconciliationCursor(1)
@@ -2799,6 +2817,14 @@ func (m Model) View() tea.View {
 		view.MouseMode = tea.MouseModeCellMotion
 		return view
 	}
+	if m.commands.Open {
+		base := m
+		base.commands.Open = false
+		result := base.View()
+		result.Content = m.renderCommandPalette(result.Content)
+		result.WindowTitle = "Dungeon · Command palette"
+		return result
+	}
 	if m.helping {
 		result := tea.NewView(m.renderHelpOverlay())
 		result.AltScreen = true
@@ -2841,7 +2867,7 @@ func (m Model) View() tea.View {
 		header := m.renderHeader(contentWidth)
 		bodyHeight := max(1, m.height-2)
 		body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-		help := "/ search   n new   Enter open   ? commands"
+		help := "/ search   n new   Enter open   : commands"
 		if len(m.browserHistory) > 0 {
 			help = "Backspace back   " + help
 		}
