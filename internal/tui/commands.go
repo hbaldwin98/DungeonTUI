@@ -129,6 +129,7 @@ func (m Model) paletteCommands() []paletteCommand {
 		hasRecon := len(m.workspace.Reconciliations) > 0
 		unfiled := len(domain.UnfiledCaptures(m.workspace, m.workspace.Scope))
 		selectedCapture := record != nil && domain.IsUnfiledCapture(*record)
+		_, threadReason := m.selectedThread()
 		return []paletteCommand{
 			help,
 			capture,
@@ -146,6 +147,10 @@ func (m Model) paletteCommands() []paletteCommand {
 			{ID: "settings.open", Label: "Open settings", Aliases: "5e path preferences"},
 			{ID: "record.delete", Label: "Delete selected item", Aliases: "remove", Enabled: hasRecord || m.selectedSession() != nil, Reason: "Select an entity or session"},
 			{ID: "record.supersede", Label: "Supersede selected entity", Aliases: "archive", Enabled: hasRecord, Reason: "Select a wiki entity"},
+			{ID: "thread.advancing", Label: "Mark thread advancing", Aliases: "thread state progress", Enabled: threadReason == "", Reason: threadReason},
+			{ID: "thread.open", Label: "Mark thread open", Aliases: "thread state reopen", Enabled: threadReason == "", Reason: threadReason},
+			{ID: "thread.dormant", Label: "Mark thread dormant", Aliases: "thread state park pause", Enabled: threadReason == "", Reason: threadReason},
+			{ID: "thread.resolved", Label: "Mark thread resolved", Aliases: "thread state close done", Enabled: threadReason == "", Reason: threadReason},
 			{ID: "browser.back", Label: "Go back", Aliases: "history previous", Enabled: len(m.browserHistory) > 0, Reason: "No earlier location"},
 			{ID: "browser.forward", Label: "Go forward", Aliases: "history next", Enabled: len(m.browserForward) > 0, Reason: "No later location"},
 		}
@@ -287,6 +292,10 @@ func paletteCommandExecutors() map[string]paletteCommandExecutor {
 		"settings.open":       func(m Model) (tea.Model, tea.Cmd) { return m.openSettings() },
 		"record.delete":       func(m Model) (tea.Model, tea.Cmd) { return m.armDestructiveConfirm("delete") },
 		"record.supersede":    func(m Model) (tea.Model, tea.Cmd) { return m.armDestructiveConfirm("supersede") },
+		"thread.advancing":    func(m Model) (tea.Model, tea.Cmd) { return m.setSelectedThreadState(domain.ThreadAdvancing) },
+		"thread.open":         func(m Model) (tea.Model, tea.Cmd) { return m.setSelectedThreadState(domain.ThreadOpen) },
+		"thread.dormant":      func(m Model) (tea.Model, tea.Cmd) { return m.setSelectedThreadState(domain.ThreadDormant) },
+		"thread.resolved":     func(m Model) (tea.Model, tea.Cmd) { return m.setSelectedThreadState(domain.ThreadResolved) },
 		"browser.back":        func(m Model) (tea.Model, tea.Cmd) { return m, m.restoreBrowserLocation() },
 		"browser.forward":     func(m Model) (tea.Model, tea.Cmd) { return m, m.advanceBrowserLocation() },
 		"picker.open":         func(m Model) (tea.Model, tea.Cmd) { return m.activatePickerItem() },

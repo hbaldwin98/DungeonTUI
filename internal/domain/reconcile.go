@@ -28,6 +28,9 @@ const (
 	ReconLinkReview     ReconciliationKind = "link_review"
 	ReconPromoteDraft   ReconciliationKind = "promote_draft"
 	ReconTranscriptNote ReconciliationKind = "transcript_note"
+	// ReconThreadAdvance proposes marking a thread advancing because play
+	// named it. Only the owner's accept changes the thread's state.
+	ReconThreadAdvance ReconciliationKind = "thread_advance"
 )
 
 // MutationOp is the factual wiki write an approved recon item will apply.
@@ -37,6 +40,8 @@ const (
 	MutationCite    MutationOp = "cite"
 	MutationPromote MutationOp = "promote"
 	MutationNote    MutationOp = "note"
+	// MutationThreadState sets a thread's state to Mutation.Text.
+	MutationThreadState MutationOp = "thread_state"
 )
 
 // Mutation is an editable, source-linked wiki change. The transcript is never
@@ -83,6 +88,7 @@ func BuildSessionReconciliation(session SessionRecord, records []Record) Reconci
 		CreatedAt: created,
 	}
 	seenDraft := map[string]bool{}
+	seenThread := map[string]bool{}
 	for _, entry := range session.Entries {
 		if entry.Undone {
 			continue
@@ -92,6 +98,10 @@ func BuildSessionReconciliation(session SessionRecord, records []Record) Reconci
 			if record, ok := findRecord(records, link.RecordID); ok && record.Authority == Draft {
 				seenDraft[record.ID] = true
 				out.Items = append(out.Items, promoteDraftItem(out.ID, session, entry.ID, record, created))
+			}
+			if record, ok := findRecord(records, link.RecordID); ok && !seenThread[record.ID] && threadCanAdvance(record) {
+				seenThread[record.ID] = true
+				out.Items = append(out.Items, threadAdvanceItem(out.ID, entry.ID, record, created))
 			}
 		}
 		if len(entry.Links) == 0 && strings.TrimSpace(entry.Text) != "" {
@@ -137,6 +147,30 @@ func promoteDraftItem(reconID string, session SessionRecord, entryID string, rec
 			RecordID: record.ID,
 			Text:     "Promoted to campaign canon from " + session.Title,
 		},
+		CreatedAt: created,
+	}
+}
+
+// threadCanAdvance reports whether play naming a thread is worth proposing as
+// progress: open and dormant threads can advance; advancing and resolved ones
+// already say what they are, and AI proposals are not tracked threads.
+func threadCanAdvance(record Record) bool {
+	if record.Type != Thread || record.Authority == Proposal || record.IsAIContent {
+		return false
+	}
+	state := EffectiveThreadState(record)
+	return state == ThreadOpen || state == ThreadDormant
+}
+
+func threadAdvanceItem(reconID, entryID string, record Record, created time.Time) ReconciliationItem {
+	return ReconciliationItem{
+		ID:        fmt.Sprintf("%s-thread-%s", reconID, record.ID),
+		EntryID:   entryID,
+		RecordID:  record.ID,
+		Kind:      ReconThreadAdvance,
+		Summary:   fmt.Sprintf("Mark thread advancing: %s (was %s)", record.Title, EffectiveThreadState(record)),
+		Status:    ReconPending,
+		Mutation:  Mutation{Op: MutationThreadState, RecordID: record.ID, Text: string(ThreadAdvancing)},
 		CreatedAt: created,
 	}
 }
@@ -191,6 +225,8 @@ func ApplyReconItem(item ReconciliationItem, records []Record, session SessionRe
 		out, err = applyPromote(out, item, session)
 	case MutationNote:
 		out, err = applyNote(out, item, session)
+	case MutationThreadState:
+		out, err = applyThreadState(out, item)
 	default:
 		err = fmt.Errorf("unknown mutation %q", op)
 	}
@@ -207,6 +243,8 @@ func mutationOpFor(kind ReconciliationKind) MutationOp {
 		return MutationPromote
 	case ReconTranscriptNote:
 		return MutationNote
+	case ReconThreadAdvance:
+		return MutationThreadState
 	default:
 		return MutationCite
 	}
@@ -275,6 +313,27 @@ func applyNote(records []Record, item ReconciliationItem, session SessionRecord)
 		note.Source = "session"
 	}
 	return append(records, note), nil
+}
+
+func applyThreadState(records []Record, item ReconciliationItem) ([]Record, error) {
+	id := item.Mutation.RecordID
+	if id == "" {
+		id = item.RecordID
+	}
+	index, err := recordIndex(records, id)
+	if err != nil {
+		return records, err
+	}
+	state, ok := ParseThreadState(item.Mutation.Text)
+	if !ok {
+		return records, fmt.Errorf("unknown thread state %q", item.Mutation.Text)
+	}
+	updated, err := SetThreadState(records[index], state)
+	if err != nil {
+		return records, err
+	}
+	records[index] = updated
+	return records, nil
 }
 
 func recordIndex(records []Record, id string) (int, error) {

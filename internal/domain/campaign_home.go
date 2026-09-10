@@ -8,11 +8,14 @@ import (
 
 // CampaignHomeSummary is a derived working set for one campaign.
 type CampaignHomeSummary struct {
-	NextPlan          *PlannedNotes
-	LatestSession     *SessionRecord
-	CurrentLocation   string
-	Cast              []Record
-	OpenThreads       []Record
+	NextPlan        *PlannedNotes
+	LatestSession   *SessionRecord
+	CurrentLocation string
+	Cast            []Record
+	OpenThreads     []Record
+	// Threads holds every active thread in urgency order with its derived
+	// state; OpenThreads is the same list as plain records.
+	Threads           []ThreadStatus
 	UnresolvedReviews int
 	NextReviewID      string
 	RecentChanges     []CampaignHomeChange
@@ -34,7 +37,10 @@ func DeriveCampaignHome(workspace Workspace, scope Scope) CampaignHomeSummary {
 	summary.NextPlan = nextUnusedPlan(workspace.PlannedNotes, sessions, scope)
 	summary.LatestSession = latestEndedSession(sessions)
 	summary.CurrentLocation = campaignHomeLocation(sessions, summary.LatestSession)
-	summary.OpenThreads = openCampaignThreads(workspace, scope)
+	summary.Threads = CampaignThreads(workspace, scope, false)
+	for _, thread := range summary.Threads {
+		summary.OpenThreads = append(summary.OpenThreads, thread.Record)
+	}
 	summary.UnresolvedReviews, summary.NextReviewID = unresolvedCampaignReviews(workspace.Reconciliations, sessions)
 	summary.RecentChanges = recentCampaignChanges(workspace, sessions, 4)
 	summary.UnfiledCaptures = UnfiledCaptures(workspace, scope)
@@ -102,19 +108,6 @@ func campaignHomeLocation(sessions []SessionRecord, latest *SessionRecord) strin
 		return latest.LocationName
 	}
 	return ""
-}
-
-func openCampaignThreads(workspace Workspace, scope Scope) []Record {
-	enabled := workspace.EnabledSourceIDs(scope)
-	var threads []Record
-	for _, record := range workspace.Records {
-		if record.Type != Thread || record.Authority == Proposal || record.Authority == Superseded || !RecordVisibleIn(record, scope, enabled) || !recordHasTag(record, "open") {
-			continue
-		}
-		threads = append(threads, record)
-	}
-	sort.SliceStable(threads, func(i, j int) bool { return threads[i].Title < threads[j].Title })
-	return threads
 }
 
 func recordHasTag(record Record, want string) bool {

@@ -151,18 +151,22 @@ func (m Model) renderCampaignHome() string {
 		}
 	}
 	builder.WriteString("\n")
-	builder.WriteString(labelStyle.Render(fmt.Sprintf("OPEN THREADS · %d", len(home.OpenThreads))))
+	builder.WriteString(labelStyle.Render(fmt.Sprintf("ACTIVE THREADS · %d", len(home.Threads))))
+	if neglected := neglectedThreads(home.Threads); neglected > 0 {
+		builder.WriteString(mutedStyle.Render(fmt.Sprintf(" · %d neglected", neglected)))
+	}
 	builder.WriteString("\n")
-	if len(home.OpenThreads) == 0 {
-		builder.WriteString(mutedStyle.Render("No threads tagged open"))
+	if len(home.Threads) == 0 {
+		builder.WriteString(mutedStyle.Render("No active threads · resolved ones stay in Threads"))
+		builder.WriteString("\n")
 	} else {
-		for index, thread := range home.OpenThreads {
+		for index, thread := range home.Threads {
 			if index == 5 {
-				builder.WriteString(mutedStyle.Render(fmt.Sprintf("  + %d more", len(home.OpenThreads)-index)))
+				builder.WriteString(mutedStyle.Render(fmt.Sprintf("  + %d more", len(home.Threads)-index)))
 				builder.WriteString("\n")
 				break
 			}
-			builder.WriteString("  " + thread.Authority.Marker() + " " + thread.Title + "\n")
+			builder.WriteString(renderThreadRow(thread))
 		}
 	}
 	builder.WriteString("\n")

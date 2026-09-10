@@ -2335,6 +2335,9 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 		Scope:     scope,
 		Source:    "DM-authored",
 		Tags:      parsed.Record.Tags,
+		// Set from the editor's state: line, so a transition is always an
+		// explicit owner edit.
+		ThreadState: parsed.Record.ThreadState,
 	}
 	if !m.creating {
 		found := false
@@ -2347,6 +2350,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 				record.Body = parsed.Record.Body
 				record.Authority = parsed.Record.Authority
 				record.Tags = parsed.Record.Tags
+				record.ThreadState = parsed.Record.ThreadState
 				wasWorldScoped := record.Scope.CampaignID == ""
 				if parsed.ScopeLevel == domain.WorldScope {
 					record.Scope.CampaignID = ""
@@ -2792,18 +2796,42 @@ func (m Model) sessionPlannedNotes() *domain.PlannedNotes {
 	return m.plannedByID(m.session.PlannedNotesID)
 }
 
+// sessionThreads lists up to five active threads for live play: first the
+// ones the current scene carries through its location and cast, then the most
+// urgent of the rest. Resolved threads and AI proposals never appear.
 func (m Model) sessionThreads() []domain.Record {
-	threads := make([]domain.Record, 0)
-	for _, record := range m.operationalRecords() {
-		if record.Type != domain.Thread || record.Authority == domain.Proposal {
-			continue
-		}
-		threads = append(threads, record)
-		if len(threads) == 5 {
-			break
-		}
+	statuses := m.sessionThreadStatuses()
+	threads := make([]domain.Record, 0, len(statuses))
+	for _, status := range statuses {
+		threads = append(threads, status.Record)
 	}
 	return threads
+}
+
+func (m Model) sessionThreadStatuses() []domain.ThreadStatus {
+	if m.session == nil {
+		return nil
+	}
+	ids := []string{m.session.LocationID}
+	for _, link := range m.session.Links {
+		ids = append(ids, link.RecordID)
+	}
+	scene := domain.ThreadsTouching(m.workspace, m.workspace.Scope, ids)
+	out := make([]domain.ThreadStatus, 0, 5)
+	seen := map[string]bool{}
+	for _, group := range [][]domain.ThreadStatus{scene, domain.CampaignThreads(m.workspace, m.workspace.Scope, false)} {
+		for _, status := range group {
+			if len(out) == 5 {
+				return out
+			}
+			if seen[status.Record.ID] {
+				continue
+			}
+			seen[status.Record.ID] = true
+			out = append(out, status)
+		}
+	}
+	return out
 }
 
 func (m Model) sessionContextItems() []domain.Record {
@@ -3200,6 +3228,9 @@ func (m Model) renderDetailWidth(width int) string {
 	builder.WriteString(typeStyle.Render(string(record.Type)))
 	builder.WriteString("  ")
 	builder.WriteString(authorityStyle(record.Authority).Render(record.Authority.Marker() + " " + record.Authority.Label()))
+	if record.Type == domain.Thread && record.Authority != domain.Proposal && !record.IsAIContent {
+		builder.WriteString(mutedStyle.Render("  · " + string(domain.EffectiveThreadState(*record))))
+	}
 	builder.WriteString("\n")
 	builder.WriteString(detailTitleStyle.Render(record.Title))
 	builder.WriteString("\n")

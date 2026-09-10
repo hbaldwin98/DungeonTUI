@@ -133,7 +133,11 @@ func (m Model) reconciliationProvenance(item domain.ReconciliationItem) string {
 		}
 		for _, record := range m.workspace.Records {
 			if record.ID == item.RecordID {
-				parts = append(parts, fmt.Sprintf("Target: %s · %s · %s", record.Title, record.Type, record.Authority))
+				target := fmt.Sprintf("Target: %s · %s · %s", record.Title, record.Type, record.Authority)
+				if record.Type == domain.Thread {
+					target += " · thread " + string(domain.EffectiveThreadState(record))
+				}
+				parts = append(parts, target)
 				break
 			}
 		}

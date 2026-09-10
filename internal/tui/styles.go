@@ -66,6 +66,9 @@ var (
 
 	brokenRefStyle = lipgloss.NewStyle().Foreground(colorProposal)
 	refStyle       = lipgloss.NewStyle().Foreground(colorAccent)
+	// neglectStyle marks a thread that has gone quiet. It is a warning under
+	// decision #27, so it is foreground-only and never a filled surface.
+	neglectStyle = lipgloss.NewStyle().Foreground(colorDraft)
 
 	searchResultStyle         = lipgloss.NewStyle().Foreground(colorText)
 	selectedSearchResultStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)

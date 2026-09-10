@@ -128,6 +128,9 @@ type Record struct {
 	// Capture holds quick-capture provenance when this record came from the
 	// capture inbox. It is nil for every other record.
 	Capture *CaptureContext `json:",omitempty"`
+	// ThreadState is the owner-set lifecycle of a THREAD record. Empty means
+	// the thread predates states; see EffectiveThreadState.
+	ThreadState ThreadState `json:",omitempty"`
 }
 
 type EntityLink struct {

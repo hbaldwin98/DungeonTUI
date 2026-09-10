@@ -659,6 +659,8 @@ func (m Model) renderTreeDetailWidth(width int) string {
 			builder.WriteString("\n\n")
 			builder.WriteString(m.renderCastHops())
 			builder.WriteString("\n")
+			builder.WriteString(m.renderPrepThreads(plan))
+			builder.WriteString("\n")
 			builder.WriteString(m.renderRunSheet(plan, width))
 			builder.WriteString("\n\n")
 			builder.WriteString(mutedStyle.Render("List Enter/e edits · detail j/k select · Enter preview · Enter again follow · s starts another live sit"))

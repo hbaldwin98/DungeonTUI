@@ -324,6 +324,7 @@ func (m Model) contextContentLines() []contentLine {
 	lines = append(lines, contentLine{Text: "", PinX: -1, ClearX: -1})
 	lines = append(lines, contentLine{Text: "ACTIVE THREADS", PinX: -1, ClearX: -1})
 	threads := m.sessionThreads()
+	statuses := m.sessionThreadStatuses()
 	if len(threads) == 0 {
 		lines = append(lines, contentLine{Text: "  —", PinX: -1, ClearX: -1})
 	} else {
@@ -340,8 +341,12 @@ func (m Model) contextContentLines() []contentLine {
 				marker = "▸ "
 			}
 			candidate := record
+			text := marker + record.Title
+			if index < len(statuses) {
+				text += " · " + string(statuses[index].State)
+			}
 			lines = append(lines, contentLine{
-				Text:   marker + record.Title,
+				Text:   text,
 				Action: hitSelectRecord,
 				Record: &candidate,
 				PinX:   -1,

@@ -114,7 +114,7 @@ func TestEntityBriefMarksLiveSitAsInPlayNow(t *testing.T) {
 	if !strings.Contains(brief.LastSeen.Label(), "in play now") {
 		t.Fatalf("label = %q", brief.LastSeen.Label())
 	}
-	if !strings.Contains(strings.Join(brief.WhyNow, " | "), "Open thread") {
+	if !strings.Contains(strings.Join(brief.WhyNow, " | "), "Thread · open") {
 		t.Fatalf("open-tagged thread should say so: %#v", brief.WhyNow)
 	}
 }

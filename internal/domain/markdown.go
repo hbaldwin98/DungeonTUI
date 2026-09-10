@@ -37,6 +37,11 @@ func FormatEntityMarkdown(record Record) string {
 		builder.WriteString(string(CampaignScope))
 	}
 	builder.WriteString("\n")
+	if record.Type == Thread && record.ThreadState != "" {
+		builder.WriteString("state: ")
+		builder.WriteString(string(record.ThreadState))
+		builder.WriteString("\n")
+	}
 	if len(record.Tags) > 0 {
 		builder.WriteString("tags: ")
 		builder.WriteString(strings.Join(record.Tags, ", "))
@@ -68,6 +73,7 @@ func ParseEntityMarkdown(text string, fallbackType EntityType) (ParsedEntityMark
 	authority := Draft
 	scopeLevel := CampaignScope
 	var tags []string
+	var threadState ThreadState
 	index := 0
 	for index < len(lines) {
 		trimmed := strings.TrimSpace(lines[index])
@@ -103,6 +109,15 @@ func ParseEntityMarkdown(text string, fallbackType EntityType) (ParsedEntityMark
 			default:
 				return ParsedEntityMarkdown{}, fmt.Errorf("unknown scope %q; use campaign or world", value)
 			}
+			index++
+			continue
+		case strings.HasPrefix(lower, "state:"):
+			value := strings.TrimSpace(trimmed[len("state:"):])
+			parsed, ok := ParseThreadState(value)
+			if !ok {
+				return ParsedEntityMarkdown{}, fmt.Errorf("unknown thread state %q; use open, advancing, dormant, or resolved", value)
+			}
+			threadState = parsed
 			index++
 			continue
 		case strings.HasPrefix(lower, "tags:"):
@@ -161,14 +176,20 @@ func ParseEntityMarkdown(text string, fallbackType EntityType) (ParsedEntityMark
 		body += "\n"
 	}
 
+	if entityType != Thread {
+		// State is thread vocabulary; on any other type it would be invisible
+		// data, so it is dropped rather than stored.
+		threadState = ""
+	}
 	return ParsedEntityMarkdown{
 		Record: Record{
-			Type:      entityType,
-			Title:     title,
-			Summary:   summary,
-			Body:      body,
-			Authority: authority,
-			Tags:      tags,
+			ThreadState: threadState,
+			Type:        entityType,
+			Title:       title,
+			Summary:     summary,
+			Body:        body,
+			Authority:   authority,
+			Tags:        tags,
 		},
 		ScopeLevel: scopeLevel,
 	}, nil

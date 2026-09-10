@@ -271,8 +271,11 @@ func entityWhyNow(workspace Workspace, record Record, scope Scope, brief EntityB
 		}
 		break
 	}
-	if record.Type == Thread && recordHasTag(record, "open") {
-		reasons = append(reasons, "Open thread")
+	if record.Type == Thread && record.Authority != Proposal {
+		thread := DeriveThreadStatus(workspace, record, scope)
+		if thread.Active() {
+			reasons = append(reasons, "Thread · "+thread.Attention())
+		}
 	}
 	if reviews := countOpen(brief.Open, OpenReview); reviews > 0 {
 		reasons = append(reasons, plural(reviews, "item", "items")+" waiting in review")
