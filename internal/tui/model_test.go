@@ -1456,11 +1456,14 @@ func TestLiveSessionPrepPaneScrollsThroughRunSheet(t *testing.T) {
 	updated, _ := model.updateSession(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnd}))
 	model = updated.(Model)
 	lastPage := testANSI.ReplaceAllString(renderContentLines(model.sessionCampaignContentLines(40, 8)), "")
-	if model.prepScroll == 0 || !strings.Contains(lastPage, "Final confrontation") || strings.Contains(lastPage, "Opening beat") {
+	if !strings.Contains(lastPage, "Final confrontation") || strings.Contains(lastPage, "Opening beat") {
 		t.Fatalf("expected final prep page after End, scroll=%d, got:\n%s", model.prepScroll, lastPage)
 	}
 
-	maxScroll := model.prepScroll
+	updated, _ = model.updateSession(tea.KeyPressMsg(tea.Key{Code: tea.KeyHome}))
+	model = updated.(Model)
+	maxScroll := model.sessionPrepMaxScroll()
+	model.prepScroll = maxScroll
 	for _, step := range []struct {
 		key  tea.KeyPressMsg
 		want int
@@ -1479,9 +1482,9 @@ func TestLiveSessionPrepPaneScrollsThroughRunSheet(t *testing.T) {
 		}
 	}
 
-	updated, _ = model.updateSession(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	updated, _ = model.updateSession(tea.KeyPressMsg(tea.Key{Code: 'z', Text: "z"}))
 	model = updated.(Model)
-	if model.sessionFocus() != prefs.PaneInput || model.sessionInput.Value() != "x" {
+	if model.sessionFocus() != prefs.PaneInput || model.sessionInput.Value() != "z" {
 		t.Fatalf("typing from prep should return to capture input, focus=%s input=%q", model.sessionFocus(), model.sessionInput.Value())
 	}
 }

@@ -659,12 +659,7 @@ func (m Model) renderTreeDetailWidth(width int) string {
 			builder.WriteString("\n\n")
 			builder.WriteString(m.renderCastHops())
 			builder.WriteString("\n")
-			body := strings.TrimSpace(plan.Body)
-			if body == "" {
-				builder.WriteString(mutedStyle.Render("(empty)"))
-			} else {
-				builder.WriteString(m.renderMarkdown(body, width))
-			}
+			builder.WriteString(m.renderRunSheet(plan, width))
 			builder.WriteString("\n\n")
 			builder.WriteString(mutedStyle.Render("List Enter/e edits · detail j/k select · Enter preview · Enter again follow · s starts another live sit"))
 			return builder.String()

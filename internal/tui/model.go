@@ -57,6 +57,8 @@ type Model struct {
 	suggestion         int
 	campaignCursor     int
 	prepScroll         int
+	prepBeat           map[string]int
+	prepBeatState      map[string]map[string]beatState
 	contextCursor      int
 	previousInput      string
 	transcriptView     viewport.Model
@@ -371,7 +373,11 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if m.layout.Focus == prefs.PaneNav {
 				m.moveNavCursor(1)
 			} else if m.layout.Focus == prefs.PaneDetail {
-				m.moveDetailFocus(1)
+				if m.currentNav().Kind == NavPrep {
+					m.movePrepBeat(1)
+				} else {
+					m.moveDetailFocus(1)
+				}
 			} else {
 				m.moveBrowserCursor(1)
 			}
@@ -379,7 +385,11 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if m.layout.Focus == prefs.PaneNav {
 				m.moveNavCursor(-1)
 			} else if m.layout.Focus == prefs.PaneDetail {
-				m.moveDetailFocus(-1)
+				if m.currentNav().Kind == NavPrep {
+					m.movePrepBeat(-1)
+				} else {
+					m.moveDetailFocus(-1)
+				}
 			} else {
 				m.moveBrowserCursor(-1)
 			}
@@ -758,18 +768,39 @@ func (m Model) updateCampaignPaneKey(msg tea.KeyPressMsg) Model {
 
 func (m Model) updatePrepPaneKey(key string) Model {
 	switch key {
-	case "j", "down":
+	case "j":
+		m.movePrepBeat(1)
+	case "k":
+		m.movePrepBeat(-1)
+	case "down":
 		m.scrollSessionPrep(1)
-	case "k", "up":
+	case "up":
 		m.scrollSessionPrep(-1)
+	case "d":
+		m.togglePrepBeatState(beatDone)
+	case "x":
+		m.togglePrepBeatState(beatSkipped)
 	case "pgdown":
 		m.scrollSessionPrep(m.sessionPrepPageSize())
 	case "pgup":
 		m.scrollSessionPrep(-m.sessionPrepPageSize())
 	case "home":
+		plan := m.runSheetPlan()
+		if plan != nil {
+			m.ensurePrepState()
+			m.prepBeat[m.prepRunKey(plan.ID)] = 0
+		}
 		m.prepScroll = 0
 	case "end":
-		m.prepScroll = m.sessionPrepMaxScroll()
+		plan := m.runSheetPlan()
+		if plan != nil {
+			beats := domain.ParsePlannedOutline(plan.Body)
+			if len(beats) > 0 {
+				m.ensurePrepState()
+				m.prepBeat[m.prepRunKey(plan.ID)] = len(beats) - 1
+			}
+		}
+		m.prepScroll = 0
 	}
 	return m
 }
@@ -780,7 +811,7 @@ func isSessionCampaignKey(key string) bool {
 
 func isSessionPrepKey(key string) bool {
 	return key == "j" || key == "down" || key == "k" || key == "up" ||
-		key == "pgdown" || key == "pgup" || key == "home" || key == "end"
+		key == "pgdown" || key == "pgup" || key == "home" || key == "end" || key == "d" || key == "x"
 }
 
 func (m Model) updateContextPaneKey(msg tea.KeyPressMsg) Model {

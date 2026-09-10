@@ -112,3 +112,30 @@ func TestSessionsSeededFromKeepsPlayOrder(t *testing.T) {
 		t.Fatalf("later sit title=%q", got)
 	}
 }
+
+func TestParsePlannedOutlineClassifiesHeadingsAndIgnoresFences(t *testing.T) {
+	body := "# Scene: Arrival\r\n## Encounter: Gate guards\r\n```md\r\n# Treasure: False\r\n```\r\n## Revelation: Broken seal\r\n## NPC Beat: Vale\r\n## Location: Crypt\r\n## Treasure: Silver key\r\n## Loose ends\r\n"
+	beats := ParsePlannedOutline(body)
+	want := []BeatKind{BeatScene, BeatEncounter, BeatClue, BeatNPC, BeatLocation, BeatTreasure, BeatFreeform}
+	if len(beats) != len(want) {
+		t.Fatalf("beats=%#v", beats)
+	}
+	for index, kind := range want {
+		if beats[index].Kind != kind || beats[index].StartLine >= beats[index].EndLine {
+			t.Fatalf("beat %d = %#v", index, beats[index])
+		}
+	}
+	if beats[0].Title != "Arrival" || beats[2].Title != "Broken seal" {
+		t.Fatalf("titles=%#v", beats)
+	}
+}
+
+func TestParsePlannedOutlineFallsBackForHeadingFreeNotes(t *testing.T) {
+	beats := ParsePlannedOutline("A clue in plain prose.\n")
+	if len(beats) != 1 || beats[0].Kind != BeatFreeform || beats[0].ID != "notes-1" {
+		t.Fatalf("beats=%#v", beats)
+	}
+	if beats := ParsePlannedOutline(" \n"); len(beats) != 0 {
+		t.Fatalf("empty beats=%#v", beats)
+	}
+}

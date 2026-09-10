@@ -92,7 +92,7 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.session != nil:
 		return [][]string{
-			{"Session", "Enter capture", "Shift+Enter newline", "/ search · @ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "context p pin · x clear", "prep pane j/k · PgUp/PgDn · Home/End", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
+			{"Session", "Enter capture", "Shift+Enter newline", "/ search · @ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "context p pin · x clear", "prep pane j/k beats · ↑/↓ or PgUp/PgDn scroll · d done · x skip", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
 		}
 	default:
 		return [][]string{

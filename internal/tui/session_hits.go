@@ -202,7 +202,7 @@ func (m Model) sessionCampaignContentLines(width, height int) []contentLine {
 	scroll := clamp(m.prepScroll, 0, maxScroll)
 	end := min(len(bodyLines), scroll+pageSize)
 
-	position := "scroll j/k · PgUp/PgDn"
+	position := "j/k beats · ↑/↓ or PgUp/PgDn scroll"
 	if len(bodyLines) > pageSize {
 		position += " · " + strconv.Itoa(scroll+1) + "-" + strconv.Itoa(end) + "/" + strconv.Itoa(len(bodyLines))
 	}
@@ -222,11 +222,7 @@ func (m Model) sessionPrepBodyLines(width int) []string {
 	if plan == nil {
 		return nil
 	}
-	body := strings.TrimSpace(plan.Body)
-	if body == "" {
-		return []string{"No prepared notes"}
-	}
-	return strings.Split(m.renderMarkdown(body, max(1, width)), "\n")
+	return strings.Split(m.renderRunSheet(*plan, max(1, width)), "\n")
 }
 
 func (m Model) sessionPrepPageSize() int {
