@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 	"github.com/hbaldwin98/DungeonTUI/internal/search"
@@ -50,6 +52,37 @@ type SQLiteStore struct {
 	mu    sync.Mutex
 	db    *sql.DB
 	index *search.Index
+	// synced mirrors what the open database already holds. While it is
+	// present a save writes only the rows that differ from it; a nil value
+	// means the contents are unknown and the next save rewrites everything.
+	synced *snapshot
+	// backedUp is when this store last copied the database aside. A backup
+	// costs a copy of the whole file, so it is taken once per open and then
+	// throttled rather than repeated for every keystroke of live capture.
+	backedUp time.Time
+}
+
+// backupInterval bounds how stale the sidecar backup may be. Writes are
+// transactional, so the backup guards against a corrupt file or a mistaken
+// bulk edit rather than against a torn write, and does not need to track
+// every transcript line.
+const backupInterval = 5 * time.Minute
+
+// entityRow fingerprints one persisted row without keeping its payload.
+type entityRow struct {
+	ord int
+	sum [32]byte
+}
+
+// snapshot records the rows and search documents last written by this store.
+type snapshot struct {
+	entities map[string]map[string]entityRow
+	meta     map[string]string
+	docs     search.DocIndex
+}
+
+func digest(payload []byte) [32]byte {
+	return sha256.Sum256(payload)
 }
 
 func NewSQLite(path string) *SQLiteStore {
@@ -105,6 +138,7 @@ func (s *SQLiteStore) Close() {
 }
 
 func (s *SQLiteStore) closeLocked() {
+	s.synced = nil
 	if s.index != nil {
 		s.index = nil
 	}
@@ -129,6 +163,9 @@ func (s *SQLiteStore) Load() (domain.Workspace, error) {
 	return s.loadLocked()
 }
 
+// Save persists the workspace. Once this store knows what the database holds
+// it writes only the rows that changed, so a save during live capture costs
+// the entry that was added rather than the whole campaign (D-045).
 func (s *SQLiteStore) Save(workspace domain.Workspace) error {
 	return s.write(workspace, false)
 }
@@ -162,7 +199,7 @@ func (s *SQLiteStore) write(workspace domain.Workspace, replaceCorrupt bool) err
 	if err := s.ensureOpenLocked(); err != nil {
 		return err
 	}
-	return s.replaceLocked(workspace)
+	return s.syncLocked(workspace)
 }
 
 func (s *SQLiteStore) ExportTo(path string) error {
@@ -222,6 +259,11 @@ func (s *SQLiteStore) Reindex(docs []search.Document) error {
 	}
 	if err := s.ensureOpenLocked(); err != nil {
 		return err
+	}
+	// Replace rebuilds the docs table outside this store's bookkeeping, so
+	// what it now holds is no longer described by the snapshot.
+	if s.synced != nil {
+		s.synced.docs = nil
 	}
 	return s.index.Replace(docs)
 }
@@ -312,8 +354,14 @@ func (s *SQLiteStore) ensureOpenLocked() error {
 	return nil
 }
 
+// backupLocked copies the database aside, at most once per backupInterval.
+// Live capture saves after every entry, and a whole-file copy per entry made
+// the cost of one typed line scale with the size of the campaign.
 func (s *SQLiteStore) backupLocked() error {
 	if s.db == nil {
+		return nil
+	}
+	if !s.backedUp.IsZero() && time.Since(s.backedUp) < backupInterval {
 		return nil
 	}
 	os.Remove(s.BackupPath())
@@ -321,6 +369,7 @@ func (s *SQLiteStore) backupLocked() error {
 	if _, err := s.db.Exec(q); err != nil {
 		return fmt.Errorf("back up workspace: %w", err)
 	}
+	s.backedUp = time.Now()
 	return nil
 }
 
@@ -369,66 +418,247 @@ func (s *SQLiteStore) loadLocked() (domain.Workspace, error) {
 	return workspace, nil
 }
 
-func (s *SQLiteStore) replaceLocked(workspace domain.Workspace) error {
+// encodedKind is one entity kind rendered as the rows it persists, in order.
+type encodedKind struct {
+	kind string
+	rows []encodedRow
+}
+
+type encodedRow struct {
+	id      string
+	payload []byte
+	sum     [32]byte
+}
+
+// encodeWorkspace renders every persisted list once, so a save marshals the
+// workspace a single time whether it ends up writing one row or all of them.
+func encodeWorkspace(workspace domain.Workspace) ([]encodedKind, error) {
+	var kinds []encodedKind
+	var err error
+	if kinds, err = appendKind(kinds, entityWorld, idsWorlds(workspace.Library), workspace.Library); err != nil {
+		return nil, err
+	}
+	if kinds, err = appendKind(kinds, entitySource, idsSources(workspace.Sources), workspace.Sources); err != nil {
+		return nil, err
+	}
+	if kinds, err = appendKind(kinds, entityRecord, idsRecords(workspace.Records), workspace.Records); err != nil {
+		return nil, err
+	}
+	if kinds, err = appendKind(kinds, entitySession, idsSessions(workspace.Sessions), workspace.Sessions); err != nil {
+		return nil, err
+	}
+	if kinds, err = appendKind(kinds, entityPlan, idsPlans(workspace.PlannedNotes), workspace.PlannedNotes); err != nil {
+		return nil, err
+	}
+	if kinds, err = appendKind(kinds, entityRecon, idsRecons(workspace.Reconciliations), workspace.Reconciliations); err != nil {
+		return nil, err
+	}
+	if kinds, err = appendKind(kinds, entityCollection, idsCollections(workspace.Collections), workspace.Collections); err != nil {
+		return nil, err
+	}
+	return kinds, nil
+}
+
+func appendKind[T any](kinds []encodedKind, kind string, ids []string, items []T) ([]encodedKind, error) {
+	rows := make([]encodedRow, len(items))
+	for i, item := range items {
+		payload, err := json.Marshal(item)
+		if err != nil {
+			return nil, fmt.Errorf("encode %s: %w", kind, err)
+		}
+		rows[i] = encodedRow{id: ids[i], payload: payload, sum: digest(payload)}
+	}
+	return append(kinds, encodedKind{kind: kind, rows: rows}), nil
+}
+
+func encodeMeta(workspace domain.Workspace) (map[string]string, error) {
+	scopeJSON, err := json.Marshal(workspace.Scope)
+	if err != nil {
+		return nil, fmt.Errorf("encode workspace scope: %w", err)
+	}
+	return map[string]string{
+		"schema_version": fmt.Sprintf("%d", CurrentSchemaVersion),
+		"scope":          string(scopeJSON),
+	}, nil
+}
+
+// syncLocked persists the workspace, writing only what changed when this store
+// already knows what the database holds.
+//
+// The whole workspace used to be deleted and reinserted on every save, which
+// put the cost of one captured transcript line in proportion to the size of
+// the campaign. The snapshot makes the common save touch a single row.
+func (s *SQLiteStore) syncLocked(workspace domain.Workspace) error {
+	kinds, err := encodeWorkspace(workspace)
+	if err != nil {
+		return err
+	}
+	meta, err := encodeMeta(workspace)
+	if err != nil {
+		return err
+	}
+	docs := search.DocumentsFromWorkspace(workspace)
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin workspace write: %w", err)
 	}
-	if _, err := tx.Exec(`DELETE FROM entities WHERE kind != ?`, entityAdventure); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("clear workspace: %w", err)
-	}
-	if _, err := tx.Exec(`DELETE FROM meta`); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("clear workspace meta: %w", err)
-	}
-	if err := putMeta(tx, "schema_version", fmt.Sprintf("%d", CurrentSchemaVersion)); err != nil {
-		tx.Rollback()
-		return err
-	}
-	scopeJSON, err := json.Marshal(workspace.Scope)
+	next, err := s.writeTx(tx, kinds, meta, docs)
 	if err != nil {
 		tx.Rollback()
-		return fmt.Errorf("encode workspace scope: %w", err)
-	}
-	if err := putMeta(tx, "scope", string(scopeJSON)); err != nil {
-		tx.Rollback()
-		return err
-	}
-	writers := []func() error{
-		func() error { return insertJSONList(tx, entityWorld, idsWorlds(workspace.Library), workspace.Library) },
-		func() error {
-			return insertJSONList(tx, entitySource, idsSources(workspace.Sources), workspace.Sources)
-		},
-		func() error {
-			return insertJSONList(tx, entityRecord, idsRecords(workspace.Records), workspace.Records)
-		},
-		func() error {
-			return insertJSONList(tx, entitySession, idsSessions(workspace.Sessions), workspace.Sessions)
-		},
-		func() error {
-			return insertJSONList(tx, entityPlan, idsPlans(workspace.PlannedNotes), workspace.PlannedNotes)
-		},
-		func() error {
-			return insertJSONList(tx, entityRecon, idsRecons(workspace.Reconciliations), workspace.Reconciliations)
-		},
-		func() error {
-			return insertJSONList(tx, entityCollection, idsCollections(workspace.Collections), workspace.Collections)
-		},
-	}
-	for _, write := range writers {
-		if err := write(); err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-	docs := search.DocumentsFromWorkspace(workspace)
-	if err := search.WriteDocs(tx, docs); err != nil {
-		tx.Rollback()
+		// The rollback leaves the database as the old snapshot described,
+		// but a partially applied plan is not worth trusting; the next save
+		// rebuilds from scratch.
+		s.synced = nil
 		return err
 	}
 	if err := tx.Commit(); err != nil {
+		s.synced = nil
 		return fmt.Errorf("commit workspace: %w", err)
+	}
+	s.synced = next
+	return nil
+}
+
+func (s *SQLiteStore) writeTx(tx *sql.Tx, kinds []encodedKind, meta map[string]string, docs []search.Document) (*snapshot, error) {
+	if s.synced == nil {
+		return rewriteTx(tx, kinds, meta, docs)
+	}
+	return deltaTx(tx, s.synced, kinds, meta, docs)
+}
+
+// rewriteTx replaces every persisted row. It runs when the store has no
+// snapshot: a freshly opened database, or one left in an unknown state.
+func rewriteTx(tx *sql.Tx, kinds []encodedKind, meta map[string]string, docs []search.Document) (*snapshot, error) {
+	if _, err := tx.Exec(`DELETE FROM entities WHERE kind != ?`, entityAdventure); err != nil {
+		return nil, fmt.Errorf("clear workspace: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM meta`); err != nil {
+		return nil, fmt.Errorf("clear workspace meta: %w", err)
+	}
+	next := &snapshot{
+		entities: make(map[string]map[string]entityRow, len(kinds)),
+		meta:     make(map[string]string, len(meta)),
+	}
+	for key, value := range meta {
+		if err := putMeta(tx, key, value); err != nil {
+			return nil, err
+		}
+		next.meta[key] = value
+	}
+	for _, kind := range kinds {
+		held := make(map[string]entityRow, len(kind.rows))
+		for i, row := range kind.rows {
+			if err := insertEntity(tx, kind.kind, row, i); err != nil {
+				return nil, err
+			}
+			held[row.id] = entityRow{ord: i, sum: row.sum}
+		}
+		next.entities[kind.kind] = held
+	}
+	index, err := search.WriteDocs(tx, docs)
+	if err != nil {
+		return nil, err
+	}
+	next.docs = index
+	return next, nil
+}
+
+// deltaTx writes only the rows that differ from what prev records.
+func deltaTx(tx *sql.Tx, prev *snapshot, kinds []encodedKind, meta map[string]string, docs []search.Document) (*snapshot, error) {
+	next := &snapshot{
+		entities: make(map[string]map[string]entityRow, len(kinds)),
+		meta:     make(map[string]string, len(meta)),
+	}
+	for key, value := range meta {
+		if prev.meta[key] != value {
+			if _, err := tx.Exec(`INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, key, value); err != nil {
+				return nil, fmt.Errorf("write workspace meta %s: %w", key, err)
+			}
+		}
+		next.meta[key] = value
+	}
+	for key := range prev.meta {
+		if _, ok := meta[key]; ok {
+			continue
+		}
+		if _, err := tx.Exec(`DELETE FROM meta WHERE k = ?`, key); err != nil {
+			return nil, fmt.Errorf("clear workspace meta %s: %w", key, err)
+		}
+	}
+	for _, kind := range kinds {
+		held, err := syncKind(tx, prev.entities[kind.kind], kind)
+		if err != nil {
+			return nil, err
+		}
+		next.entities[kind.kind] = held
+	}
+	// A kind that disappeared entirely from the workspace still has rows.
+	for kind, held := range prev.entities {
+		if _, ok := next.entities[kind]; ok {
+			continue
+		}
+		for id := range held {
+			if err := deleteEntity(tx, kind, id); err != nil {
+				return nil, err
+			}
+		}
+	}
+	index, err := search.SyncDocs(tx, docs, prev.docs)
+	if err != nil {
+		return nil, err
+	}
+	next.docs = index
+	return next, nil
+}
+
+func syncKind(tx *sql.Tx, prev map[string]entityRow, kind encodedKind) (map[string]entityRow, error) {
+	held := make(map[string]entityRow, len(kind.rows))
+	for i, row := range kind.rows {
+		if _, duplicate := held[row.id]; duplicate {
+			return nil, fmt.Errorf("duplicate %s id %s", kind.kind, row.id)
+		}
+		held[row.id] = entityRow{ord: i, sum: row.sum}
+		if old, ok := prev[row.id]; ok {
+			if old.sum == row.sum && old.ord == i {
+				continue
+			}
+			if _, err := tx.Exec(
+				`UPDATE entities SET ord = ?, payload = ? WHERE kind = ? AND id = ?`,
+				i, string(row.payload), kind.kind, row.id,
+			); err != nil {
+				return nil, fmt.Errorf("update %s %s: %w", kind.kind, row.id, err)
+			}
+			continue
+		}
+		if err := insertEntity(tx, kind.kind, row, i); err != nil {
+			return nil, err
+		}
+	}
+	for id := range prev {
+		if _, ok := held[id]; ok {
+			continue
+		}
+		if err := deleteEntity(tx, kind.kind, id); err != nil {
+			return nil, err
+		}
+	}
+	return held, nil
+}
+
+func insertEntity(tx *sql.Tx, kind string, row encodedRow, ord int) error {
+	if _, err := tx.Exec(
+		`INSERT INTO entities (kind, id, ord, payload) VALUES (?, ?, ?, ?)`,
+		kind, row.id, ord, string(row.payload),
+	); err != nil {
+		return fmt.Errorf("insert %s %s: %w", kind, row.id, err)
+	}
+	return nil
+}
+
+func deleteEntity(tx *sql.Tx, kind, id string) error {
+	if _, err := tx.Exec(`DELETE FROM entities WHERE kind = ? AND id = ?`, kind, id); err != nil {
+		return fmt.Errorf("delete %s %s: %w", kind, id, err)
 	}
 	return nil
 }
@@ -506,23 +736,6 @@ func loadJSONList[T any](db *sql.DB, kind string) ([]T, error) {
 		out = append(out, item)
 	}
 	return out, nil
-}
-
-func insertJSONList[T any](tx *sql.Tx, kind string, ids []string, items []T) error {
-	for i, item := range items {
-		payload, err := json.Marshal(item)
-		if err != nil {
-			return fmt.Errorf("encode %s: %w", kind, err)
-		}
-		id := ids[i]
-		if _, err := tx.Exec(
-			`INSERT INTO entities (kind, id, ord, payload) VALUES (?, ?, ?, ?)`,
-			kind, id, i, string(payload),
-		); err != nil {
-			return fmt.Errorf("insert %s %s: %w", kind, id, err)
-		}
-	}
-	return nil
 }
 
 func idsWorlds(items []domain.WorldRef) []string {

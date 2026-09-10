@@ -50,6 +50,9 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - `internal/fivecli` runs the external `5e` binary over its `--json` boundary
   and reports typed setup diagnostics; the integration is optional and degrades
   to a typed unavailable state (Argus #96; D-044).
+- Saving the workspace writes only the rows that changed, and the sidecar
+  backup is throttled instead of copied per save, so capturing one transcript
+  line no longer rewrites the campaign (Argus #98; D-045).
 - Entity create/edit uses a single markdown document (`type:` / `# Title` /
   summary / body) instead of form fields (Argus #33).
 - Close focused type/session panes with `-`; delete and supersede require `y`

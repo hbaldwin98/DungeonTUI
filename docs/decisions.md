@@ -377,3 +377,35 @@ ingested is a diagnosis to report, not an error to raise.
 Every run is bounded by a timeout and a `WaitDelay`, because killing the
 subprocess does not close output pipes a grandchild still holds; without the
 delay a wedged lookup outlives its own deadline and blocks the TUI.
+
+## D-045 — Workspace saves are incremental, and the backup is throttled
+
+`SQLiteStore.Save` used to delete every non-adventure row, drop and rebuild the
+FTS table, and copy the whole database aside, on every call. Live capture saves
+after each transcript entry, so the cost of typing one line grew with the size
+of the campaign: at a thousand records a save took roughly 40ms, most of it
+whole-file I/O.
+
+The store now keeps a snapshot of what the open database holds — a digest per
+entity row and per search document — and a save writes only the rows whose
+digest changed, inside one transaction. Search documents are deleted by rowid
+rather than by kind and id, because those columns are UNINDEXED in the FTS
+table and matching on them would scan the whole index.
+
+The snapshot is built by the first save after the database is opened, which
+still rewrites everything. That keeps the fast path honest: the store only
+claims to know the contents when it wrote them itself. Closing the store, a
+`Reindex`, or any failed write clears the snapshot, so the next save rebuilds
+from scratch rather than trusting a stale plan.
+
+Backups are throttled to one per five minutes rather than one per save. Writes
+are transactional, so the sidecar guards against a corrupt file or a mistaken
+bulk edit, not against a torn write, and it does not need to track every
+captured line.
+
+What remains proportional to workspace size is serialization, not I/O: every
+save still marshals each entity and builds each search document in order to
+compare it. That is the same order as the validation pass a save already runs,
+and removing it would mean threading change information down from the model
+through the whole save API.
+

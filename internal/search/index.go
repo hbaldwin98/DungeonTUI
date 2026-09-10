@@ -1,6 +1,7 @@
 package search
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -177,7 +178,7 @@ func replaceDB(db *sql.DB, docs []Document) error {
 	if err != nil {
 		return fmt.Errorf("begin search index write: %w", err)
 	}
-	if err := WriteDocs(tx, docs); err != nil {
+	if _, err := WriteDocs(tx, docs); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -187,52 +188,178 @@ func replaceDB(db *sql.DB, docs []Document) error {
 	return nil
 }
 
+// DocIndex records the documents an index currently holds, keyed by document
+// key. It lets a later write touch only the rows that changed.
+type DocIndex map[string]DocRow
+
+// DocRow locates one indexed document and fingerprints its contents. The
+// rowid is kept because kind and id are UNINDEXED in the FTS table, so
+// deleting by them would scan the whole index.
+type DocRow struct {
+	RowID int64
+	Sum   [32]byte
+}
+
+const insertDocSQL = `INSERT INTO docs (
+	title, body, tags, aliases, kind, id, session_id, type_label, authority,
+	world_id, campaign_id, source_id, include_empty, record_json, snippet
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+// docColumns renders one document as the column tuple the docs table stores,
+// alongside a digest of that tuple so an unchanged row can be recognised
+// without reading it back.
+func docColumns(doc Document) ([]any, [32]byte, error) {
+	recordJSON, err := marshalRecord(doc)
+	if err != nil {
+		return nil, [32]byte{}, err
+	}
+	cols := []any{
+		doc.Title,
+		doc.Body,
+		strings.Join(doc.Tags, " "),
+		strings.Join(doc.Aliases, " "),
+		string(doc.Kind),
+		doc.ID,
+		doc.SessionID,
+		doc.TypeLabel,
+		string(doc.Authority),
+		doc.WorldID,
+		doc.CampaignID,
+		doc.SourceID,
+		emptyFlag(doc.IncludeEmpty),
+		recordJSON,
+		doc.Snippet,
+	}
+	hash := sha256.New()
+	for _, col := range cols {
+		hash.Write([]byte(col.(string)))
+		hash.Write([]byte{0})
+	}
+	var sum [32]byte
+	copy(sum[:], hash.Sum(nil))
+	return cols, sum, nil
+}
+
 // WriteDocs replaces the FTS table inside an existing transaction so campaign
-// rows and search can commit together.
-func WriteDocs(tx *sql.Tx, docs []Document) error {
+// rows and search can commit together. It returns the resulting DocIndex so a
+// caller holding the connection can follow up with SyncDocs.
+func WriteDocs(tx *sql.Tx, docs []Document) (DocIndex, error) {
 	if tx == nil {
-		return fmt.Errorf("search index transaction is required")
+		return nil, fmt.Errorf("search index transaction is required")
 	}
 	if _, err := tx.Exec(`DROP TABLE IF EXISTS docs`); err != nil {
-		return fmt.Errorf("reset search index: %w", err)
+		return nil, fmt.Errorf("reset search index: %w", err)
 	}
 	if _, err := tx.Exec(createDocsSQL); err != nil {
-		return fmt.Errorf("create search index: %w", err)
+		return nil, fmt.Errorf("create search index: %w", err)
 	}
-	stmt, err := tx.Prepare(`INSERT INTO docs (
-		title, body, tags, aliases, kind, id, session_id, type_label, authority,
-		world_id, campaign_id, source_id, include_empty, record_json, snippet
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(insertDocSQL)
 	if err != nil {
-		return fmt.Errorf("prepare search index insert: %w", err)
+		return nil, fmt.Errorf("prepare search index insert: %w", err)
 	}
 	defer stmt.Close()
+	index := make(DocIndex, len(docs))
 	for _, doc := range docs {
-		recordJSON, err := marshalRecord(doc)
+		cols, sum, err := docColumns(doc)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if _, err := stmt.Exec(
-			doc.Title,
-			doc.Body,
-			strings.Join(doc.Tags, " "),
-			strings.Join(doc.Aliases, " "),
-			string(doc.Kind),
-			doc.ID,
-			doc.SessionID,
-			doc.TypeLabel,
-			string(doc.Authority),
-			doc.WorldID,
-			doc.CampaignID,
-			doc.SourceID,
-			emptyFlag(doc.IncludeEmpty),
-			recordJSON,
-			doc.Snippet,
-		); err != nil {
-			return fmt.Errorf("insert search document %s/%s: %w", doc.Kind, doc.ID, err)
+		result, err := stmt.Exec(cols...)
+		if err != nil {
+			return nil, fmt.Errorf("insert search document %s/%s: %w", doc.Kind, doc.ID, err)
+		}
+		rowID, err := result.LastInsertId()
+		if err != nil {
+			return nil, fmt.Errorf("locate search document %s/%s: %w", doc.Kind, doc.ID, err)
+		}
+		index[doc.key()] = DocRow{RowID: rowID, Sum: sum}
+	}
+	return index, nil
+}
+
+// SyncDocs brings the docs table in line with docs by writing only the
+// documents that differ from prev, so appending one transcript line costs one
+// row rather than a rebuild of the whole index.
+//
+// It falls back to a full WriteDocs whenever prev cannot be trusted to
+// describe the table: no prior index, or a document key that appears twice and
+// so cannot be addressed as a single row.
+func SyncDocs(tx *sql.Tx, docs []Document, prev DocIndex) (DocIndex, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("search index transaction is required")
+	}
+	if prev == nil {
+		return WriteDocs(tx, docs)
+	}
+	type pending struct {
+		doc  Document
+		cols []any
+		sum  [32]byte
+	}
+	next := make(DocIndex, len(docs))
+	changed := make([]pending, 0)
+	for _, doc := range docs {
+		key := doc.key()
+		if _, duplicate := next[key]; duplicate {
+			// Two documents share a row identity, so neither can be
+			// addressed on its own. Rebuild rather than guess.
+			return WriteDocs(tx, docs)
+		}
+		cols, sum, err := docColumns(doc)
+		if err != nil {
+			return nil, err
+		}
+		if old, ok := prev[key]; ok && old.Sum == sum {
+			next[key] = old
+			continue
+		}
+		next[key] = DocRow{}
+		changed = append(changed, pending{doc: doc, cols: cols, sum: sum})
+	}
+	stale := make([]int64, 0)
+	for key, old := range prev {
+		if _, ok := next[key]; !ok {
+			stale = append(stale, old.RowID)
+			continue
+		}
+		// A changed document is rewritten: fts5 has no in-place update that
+		// keeps the index consistent, so the old row goes first.
+		if next[key] == (DocRow{}) {
+			stale = append(stale, old.RowID)
 		}
 	}
-	return nil
+	if len(stale) > 0 {
+		del, err := tx.Prepare(`DELETE FROM docs WHERE rowid = ?`)
+		if err != nil {
+			return nil, fmt.Errorf("prepare search index delete: %w", err)
+		}
+		defer del.Close()
+		for _, rowID := range stale {
+			if _, err := del.Exec(rowID); err != nil {
+				return nil, fmt.Errorf("delete search document %d: %w", rowID, err)
+			}
+		}
+	}
+	if len(changed) == 0 {
+		return next, nil
+	}
+	ins, err := tx.Prepare(insertDocSQL)
+	if err != nil {
+		return nil, fmt.Errorf("prepare search index insert: %w", err)
+	}
+	defer ins.Close()
+	for _, item := range changed {
+		result, err := ins.Exec(item.cols...)
+		if err != nil {
+			return nil, fmt.Errorf("insert search document %s/%s: %w", item.doc.Kind, item.doc.ID, err)
+		}
+		rowID, err := result.LastInsertId()
+		if err != nil {
+			return nil, fmt.Errorf("locate search document %s/%s: %w", item.doc.Kind, item.doc.ID, err)
+		}
+		next[item.doc.key()] = DocRow{RowID: rowID, Sum: item.sum}
+	}
+	return next, nil
 }
 
 func marshalRecord(doc Document) (string, error) {

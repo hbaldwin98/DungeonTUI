@@ -713,8 +713,10 @@ Portable local data
 
 The Bubble Tea model should coordinate presentation and emit typed application
 commands. Session and record writes go through `internal/app` so persistence
-failures roll back. The TUI should not be the only representation of state
-transitions.
+failures roll back. A save compares the workspace against what the store last
+wrote and persists only the changed rows and search documents, so live capture
+does not rewrite the campaign per transcript entry (D-045). The TUI should not
+be the only representation of state transitions.
 
 A future web app should be another client of the same application semantics:
 
