@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 
+	xansi "github.com/charmbracelet/x/ansi"
+
 	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 	"github.com/hbaldwin98/DungeonTUI/internal/prefs"
 )
@@ -59,14 +61,14 @@ func (m Model) sessionHitTargets() []hitTarget {
 	case campaignOn && contextOn:
 		hits = append(hits, hitTarget{MinX: 0, MaxX: divider - 1, MinY: upperTop, MaxY: upperTop + upperHeight - 1, Action: hitFocusPane, Pane: prefs.PaneCampaign})
 		hits = append(hits, hitTarget{MinX: divider, MaxX: m.width - 1, MinY: upperTop, MaxY: upperTop + upperHeight - 1, Action: hitFocusPane, Pane: prefs.PaneContext})
-		hits = append(hits, m.panelHits(0, divider, upperTop, upperHeight, m.campaignContentLines())...)
+		hits = append(hits, m.panelHits(0, divider, upperTop, upperHeight, m.sessionCampaignContentLines(panelInnerWidth(divider), panelInnerHeight(upperHeight)))...)
 		hits = append(hits, m.panelHits(divider, m.width-divider, upperTop, upperHeight, m.contextContentLines())...)
 	case contextOn:
 		hits = append(hits, hitTarget{MinX: 0, MaxX: m.width - 1, MinY: upperTop, MaxY: upperTop + upperHeight - 1, Action: hitFocusPane, Pane: prefs.PaneContext})
 		hits = append(hits, m.panelHits(0, m.width, upperTop, upperHeight, m.contextContentLines())...)
 	default:
 		hits = append(hits, hitTarget{MinX: 0, MaxX: m.width - 1, MinY: upperTop, MaxY: upperTop + upperHeight - 1, Action: hitFocusPane, Pane: prefs.PaneCampaign})
-		hits = append(hits, m.panelHits(0, m.width, upperTop, upperHeight, m.campaignContentLines())...)
+		hits = append(hits, m.panelHits(0, m.width, upperTop, upperHeight, m.sessionCampaignContentLines(panelInnerWidth(m.width), panelInnerHeight(upperHeight)))...)
 	}
 	hits = append(hits, hitTarget{MinX: 0, MaxX: m.width - 1, MinY: transcriptTop, MaxY: transcriptTop + transcriptHeight - 1, Action: hitFocusPane, Pane: prefs.PaneTranscript})
 	hits = append(hits, m.panelHits(0, m.width, inputTop, inputHeight, m.inputContentLines())...)
@@ -186,6 +188,61 @@ func (m Model) campaignContentLines() []contentLine {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func (m Model) sessionCampaignContentLines(width, height int) []contentLine {
+	plan := m.sessionPlannedNotes()
+	if plan == nil {
+		return m.campaignContentLines()
+	}
+
+	bodyLines := m.sessionPrepBodyLines(width)
+	pageSize := max(1, height-3)
+	maxScroll := max(0, len(bodyLines)-pageSize)
+	scroll := clamp(m.prepScroll, 0, maxScroll)
+	end := min(len(bodyLines), scroll+pageSize)
+
+	position := "scroll j/k · PgUp/PgDn"
+	if len(bodyLines) > pageSize {
+		position += " · " + strconv.Itoa(scroll+1) + "-" + strconv.Itoa(end) + "/" + strconv.Itoa(len(bodyLines))
+	}
+	lines := []contentLine{
+		{Text: xansi.Truncate("PREP · "+plan.Title, width, "…"), PinX: -1, ClearX: -1},
+		{Text: xansi.Truncate(position, width, "…"), PinX: -1, ClearX: -1},
+		{Text: "", PinX: -1, ClearX: -1},
+	}
+	for _, line := range bodyLines[scroll:end] {
+		lines = append(lines, contentLine{Text: line, PinX: -1, ClearX: -1})
+	}
+	return lines
+}
+
+func (m Model) sessionPrepBodyLines(width int) []string {
+	plan := m.sessionPlannedNotes()
+	if plan == nil {
+		return nil
+	}
+	body := strings.TrimSpace(plan.Body)
+	if body == "" {
+		return []string{"No prepared notes"}
+	}
+	return strings.Split(m.renderMarkdown(body, max(1, width)), "\n")
+}
+
+func (m Model) sessionPrepPageSize() int {
+	return max(1, panelInnerHeight(m.sessionUpperHeight())-3)
+}
+
+func (m Model) sessionPrepMaxScroll() int {
+	width := panelInnerWidth(m.width)
+	if m.layout.SessionLeafVisible(prefs.PaneContext) {
+		width = panelInnerWidth(m.splitWidth(m.width))
+	}
+	return max(0, len(m.sessionPrepBodyLines(width))-m.sessionPrepPageSize())
+}
+
+func (m *Model) scrollSessionPrep(delta int) {
+	m.prepScroll = clamp(m.prepScroll+delta, 0, m.sessionPrepMaxScroll())
 }
 
 func (m Model) contextContentLines() []contentLine {

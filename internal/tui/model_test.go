@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -947,6 +948,100 @@ func TestCreateDraftEntity(t *testing.T) {
 	}
 }
 
+func TestCreateWorldCanonEntityPersistsAndAppearsInSiblingCampaign(t *testing.T) {
+	ws := demoWorkspace()
+	for index := range ws.Library {
+		if ws.Library[index].ID == ws.Scope.WorldID {
+			ws.Library[index].Campaigns = append(ws.Library[index].Campaigns, domain.CampaignRef{
+				ID: "sibling-campaign", Name: "Sibling Campaign",
+			})
+		}
+	}
+	store := storage.NewSQLite(filepath.Join(t.TempDir(), "workspace.sqlite"))
+	defer store.Close()
+	model := newModel(ws, store, nil)
+	updated, _ := model.openEditor(true)
+	model = updated.(Model)
+	model.editBody.SetValue("type: LOCATION\nauthority: canon\nscope: world\n\n# Shared Keep\n\nVisible across the world.\n")
+	updated, _ = model.saveEditor()
+	model = updated.(Model)
+
+	record := model.workspace.Records[len(model.workspace.Records)-1]
+	if record.Authority != domain.Canon || record.Scope.WorldID != ws.Scope.WorldID || record.Scope.CampaignID != "" {
+		t.Fatalf("saved record=%#v", record)
+	}
+	persisted, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := persisted.Records[len(persisted.Records)-1]; got.ID != record.ID || got.Authority != domain.Canon || got.Scope.CampaignID != "" {
+		t.Fatalf("persisted record=%#v", got)
+	}
+
+	sibling, ok := model.workspace.ScopeFor(ws.Scope.WorldID, "sibling-campaign")
+	if !ok {
+		t.Fatal("expected sibling campaign scope")
+	}
+	model.enterScope(sibling)
+	if !model.recordInListScope(record) {
+		t.Fatal("world record should be visible in sibling campaign")
+	}
+	model.selectRecord(record)
+	if detail := model.renderDetailWidth(80); !strings.Contains(detail, "WORLD SHARED · "+ws.Scope.WorldName) {
+		t.Fatalf("detail does not identify shared world scope: %q", detail)
+	}
+}
+
+func TestEditEntityAppliesAuthorityAndScope(t *testing.T) {
+	model := New()
+	record := model.workspace.Records[0]
+	record.Authority = domain.Draft
+	record.Scope = model.workspace.Scope
+	model.workspace.Records[0] = record
+	model.selectRecord(record)
+	updated, _ := model.openEditor(false)
+	model = updated.(Model)
+	model.editBody.SetValue("type: " + string(record.Type) + "\nauthority: secret\nscope: world\n\n# " + record.Title + "\n\nChanged.\n")
+	updated, _ = model.saveEditor()
+	model = updated.(Model)
+	got := model.workspace.Records[0]
+	if got.Authority != domain.Secret || got.Scope.CampaignID != "" || got.Scope.WorldID != record.Scope.WorldID {
+		t.Fatalf("edited record=%#v", got)
+	}
+
+	model.selectRecord(got)
+	updated, _ = model.openEditor(false)
+	model = updated.(Model)
+	model.editBody.SetValue("type: " + string(got.Type) + "\nauthority: canon\nscope: campaign\n\n# " + got.Title + "\n\nChanged again.\n")
+	updated, _ = model.saveEditor()
+	model = updated.(Model)
+	got = model.workspace.Records[0]
+	if got.Authority != domain.Canon || got.Scope != model.workspace.Scope {
+		t.Fatalf("campaign-scoped record=%#v", got)
+	}
+}
+
+func TestEditWorldEntityRejectsCampaignScopeFromAnotherWorld(t *testing.T) {
+	model := New()
+	record := model.workspace.Records[0]
+	record.Scope = domain.Scope{WorldID: "another-world", WorldName: "Another World"}
+	model.workspace.Records[0] = record
+	model.selectRecord(record)
+	updated, _ := model.openEditor(false)
+	model = updated.(Model)
+	model.editBody.SetValue("type: " + string(record.Type) + "\nauthority: secret\nscope: campaign\n\n# " + record.Title + "\n\nShould not save.\n")
+	updated, _ = model.saveEditor()
+	model = updated.(Model)
+
+	got := model.workspace.Records[0]
+	if !reflect.DeepEqual(got, record) {
+		t.Fatalf("record changed across worlds: got=%#v want=%#v", got, record)
+	}
+	if !model.editing || model.status != "Open a campaign in this record's world before changing its scope" {
+		t.Fatalf("editing=%v status=%q", model.editing, model.status)
+	}
+}
+
 func TestEditEntityUsesMarkdownDocument(t *testing.T) {
 	model := New()
 	model.width = 100
@@ -1159,6 +1254,120 @@ func TestPlannedNotesSaveAndSeedLiveSession(t *testing.T) {
 	}
 	if !strings.Contains(model.View().Content, "Captain Vale") {
 		t.Fatal("PRESENT should list seeded cast")
+	}
+	if view := testANSI.ReplaceAllString(model.View().Content, ""); !strings.Contains(view, "PREP · Crypt") || !strings.Contains(view, "Meet @Captain Vale") {
+		t.Fatalf("live session should show its prepared run sheet, got:\n%s", view)
+	}
+}
+
+func TestLiveSessionPrepPaneScrollsThroughRunSheet(t *testing.T) {
+	model := New()
+	model.width = 100
+	model.height = 24
+	var body strings.Builder
+	body.WriteString("# Opening beat\n\n")
+	for index := 1; index <= 20; index++ {
+		fmt.Fprintf(&body, "- Prepared beat %02d\n", index)
+	}
+	body.WriteString("\n# Final confrontation\n")
+	plan := domain.PlannedNotes{
+		ID:    "plan-scroll",
+		Title: "The long night",
+		Scope: model.workspace.Scope,
+		Body:  body.String(),
+	}
+	model.workspace.PlannedNotes = append(model.workspace.PlannedNotes, plan)
+	model.selectedPlanID = plan.ID
+
+	started, _ := model.startSession()
+	model = started.(Model)
+	model.setSessionFocus(prefs.PaneCampaign)
+	firstPage := testANSI.ReplaceAllString(renderContentLines(model.sessionCampaignContentLines(40, 8)), "")
+	if !strings.Contains(firstPage, "Opening beat") || strings.Contains(firstPage, "Final confrontation") {
+		t.Fatalf("expected first prep page, got:\n%s", firstPage)
+	}
+
+	updated, _ := model.updateSession(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnd}))
+	model = updated.(Model)
+	lastPage := testANSI.ReplaceAllString(renderContentLines(model.sessionCampaignContentLines(40, 8)), "")
+	if model.prepScroll == 0 || !strings.Contains(lastPage, "Final confrontation") || strings.Contains(lastPage, "Opening beat") {
+		t.Fatalf("expected final prep page after End, scroll=%d, got:\n%s", model.prepScroll, lastPage)
+	}
+
+	maxScroll := model.prepScroll
+	for _, step := range []struct {
+		key  tea.KeyPressMsg
+		want int
+	}{
+		{key: tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}), want: maxScroll},
+		{key: tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}), want: maxScroll - model.sessionPrepPageSize()},
+		{key: tea.KeyPressMsg(tea.Key{Code: tea.KeyHome}), want: 0},
+		{key: tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}), want: 0},
+		{key: tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}), want: model.sessionPrepPageSize()},
+		{key: tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}), want: model.sessionPrepPageSize() + 1},
+	} {
+		updated, _ = model.updateSession(step.key)
+		model = updated.(Model)
+		if model.prepScroll != step.want {
+			t.Fatalf("key %v: prep scroll=%d want %d", step.key.String(), model.prepScroll, step.want)
+		}
+	}
+
+	updated, _ = model.updateSession(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	model = updated.(Model)
+	if model.sessionFocus() != prefs.PaneInput || model.sessionInput.Value() != "x" {
+		t.Fatalf("typing from prep should return to capture input, focus=%s input=%q", model.sessionFocus(), model.sessionInput.Value())
+	}
+}
+
+func TestLiveSessionEmptyPrepHasUsefulPlaceholder(t *testing.T) {
+	model := New()
+	plan := domain.PlannedNotes{ID: "empty-plan", Title: "Unwritten", Scope: model.workspace.Scope}
+	model.workspace.PlannedNotes = append(model.workspace.PlannedNotes, plan)
+	model.selectedPlanID = plan.ID
+
+	started, _ := model.startSession()
+	model = started.(Model)
+	got := testANSI.ReplaceAllString(renderContentLines(model.sessionCampaignContentLines(40, 8)), "")
+	if !strings.Contains(got, "PREP · Unwritten") || !strings.Contains(got, "No prepared notes") {
+		t.Fatalf("empty prep pane should explain its state, got:\n%s", got)
+	}
+}
+
+func TestHelpSectionsDescribeEachActiveMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*Model)
+		heading string
+	}{
+		{name: "editor", prepare: func(m *Model) { m.editing = true }, heading: "Markdown editor"},
+		{name: "planned notes", prepare: func(m *Model) { m.planning = true }, heading: "Planned notes"},
+		{name: "session", prepare: func(m *Model) { m.session = &domain.SessionRecord{} }, heading: "Session"},
+		{name: "preview", prepare: func(m *Model) { m.preview = &previewBuf{} }, heading: "Link preview"},
+		{name: "playback", prepare: func(m *Model) { m.playingBack = true }, heading: "Playback"},
+		{name: "rename vault", prepare: func(m *Model) { m.namingPicker = true }, heading: "Rename vault"},
+		{name: "library", prepare: func(m *Model) { m.picking = true }, heading: "Library"},
+		{name: "session folder", prepare: func(m *Model) { m.namingFolder = true }, heading: "Session folder"},
+		{name: "collection", prepare: func(m *Model) { m.namingCollection = true }, heading: "New collection"},
+		{name: "import", prepare: func(m *Model) { m.importing = true }, heading: "Import"},
+		{name: "reconciliation edit", prepare: func(m *Model) { m.reconciling, m.reconEditing = true, true }, heading: "Edit mutation"},
+		{name: "reconciliation", prepare: func(m *Model) { m.reconciling = true }, heading: "Reconciliation"},
+		{name: "search", prepare: func(m *Model) { m.searching = true }, heading: "Search"},
+		{name: "browser", prepare: func(m *Model) {}, heading: "Browser"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := New()
+			test.prepare(&model)
+			sections := model.helpSections()
+			if len(sections) != 1 || len(sections[0]) == 0 || sections[0][0] != test.heading {
+				t.Fatalf("help sections=%v, want heading %q", sections, test.heading)
+			}
+			if test.name == "session" && !strings.Contains(strings.Join(sections[0], "\n"), "prep pane j/k") {
+				t.Fatalf("session help does not explain prep scrolling: %v", sections[0])
+			}
+		})
 	}
 }
 

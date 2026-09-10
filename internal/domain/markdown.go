@@ -5,17 +5,38 @@ import (
 	"strings"
 )
 
+type EntityScopeLevel string
+
+const (
+	CampaignScope EntityScopeLevel = "campaign"
+	WorldScope    EntityScopeLevel = "world"
+)
+
+type ParsedEntityMarkdown struct {
+	Record     Record
+	ScopeLevel EntityScopeLevel
+}
+
 // FormatEntityMarkdown renders a record as an editable markdown document.
 func FormatEntityMarkdown(record Record) string {
 	var builder strings.Builder
 	builder.WriteString("type: ")
 	builder.WriteString(string(record.Type))
 	builder.WriteString("\n")
-	if record.Authority != "" && record.Authority != Draft {
-		builder.WriteString("authority: ")
-		builder.WriteString(string(record.Authority))
-		builder.WriteString("\n")
+	authority := record.Authority
+	if authority == "" {
+		authority = Draft
 	}
+	builder.WriteString("authority: ")
+	builder.WriteString(string(authority))
+	builder.WriteString("\n")
+	builder.WriteString("scope: ")
+	if record.Scope.WorldID != "" && record.Scope.CampaignID == "" {
+		builder.WriteString(string(WorldScope))
+	} else {
+		builder.WriteString(string(CampaignScope))
+	}
+	builder.WriteString("\n")
 	if len(record.Tags) > 0 {
 		builder.WriteString("tags: ")
 		builder.WriteString(strings.Join(record.Tags, ", "))
@@ -37,15 +58,15 @@ func FormatEntityMarkdown(record Record) string {
 	return builder.String()
 }
 
-// ParseEntityMarkdown extracts type/title/summary/body from a markdown entity doc.
-// Metadata lines (type:, authority:) may appear before the first heading.
-func ParseEntityMarkdown(text string, fallbackType EntityType) (Record, error) {
+// ParseEntityMarkdown extracts record fields and authoring scope from a markdown entity doc.
+func ParseEntityMarkdown(text string, fallbackType EntityType) (ParsedEntityMarkdown, error) {
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	entityType := fallbackType
 	if entityType == "" {
 		entityType = NPC
 	}
 	authority := Draft
+	scopeLevel := CampaignScope
 	var tags []string
 	index := 0
 	for index < len(lines) {
@@ -58,15 +79,29 @@ func ParseEntityMarkdown(text string, fallbackType EntityType) (Record, error) {
 		switch {
 		case strings.HasPrefix(lower, "type:"):
 			value := strings.TrimSpace(trimmed[len("type:"):])
-			if parsed, ok := parseEntityTypeToken(value); ok {
-				entityType = parsed
+			parsed, ok := parseEntityTypeToken(value)
+			if !ok {
+				return ParsedEntityMarkdown{}, fmt.Errorf("unknown entity type %q", value)
 			}
+			entityType = parsed
 			index++
 			continue
 		case strings.HasPrefix(lower, "authority:"):
 			value := strings.ToLower(strings.TrimSpace(trimmed[len("authority:"):]))
-			if parsed, ok := parseAuthorityToken(value); ok {
-				authority = parsed
+			parsed, ok := parseAuthorityToken(value)
+			if !ok {
+				return ParsedEntityMarkdown{}, fmt.Errorf("unknown authority %q", value)
+			}
+			authority = parsed
+			index++
+			continue
+		case strings.HasPrefix(lower, "scope:"):
+			value := strings.ToLower(strings.TrimSpace(trimmed[len("scope:"):]))
+			switch EntityScopeLevel(value) {
+			case CampaignScope, WorldScope:
+				scopeLevel = EntityScopeLevel(value)
+			default:
+				return ParsedEntityMarkdown{}, fmt.Errorf("unknown scope %q; use campaign or world", value)
 			}
 			index++
 			continue
@@ -92,7 +127,7 @@ func ParseEntityMarkdown(text string, fallbackType EntityType) (Record, error) {
 		}
 	}
 	if title == "" {
-		return Record{}, fmt.Errorf("markdown entity needs a # Title heading")
+		return ParsedEntityMarkdown{}, fmt.Errorf("markdown entity needs a # Title heading")
 	}
 
 	for index < len(lines) && strings.TrimSpace(lines[index]) == "" {
@@ -126,13 +161,16 @@ func ParseEntityMarkdown(text string, fallbackType EntityType) (Record, error) {
 		body += "\n"
 	}
 
-	return Record{
-		Type:      entityType,
-		Title:     title,
-		Summary:   summary,
-		Body:      body,
-		Authority: authority,
-		Tags:      tags,
+	return ParsedEntityMarkdown{
+		Record: Record{
+			Type:      entityType,
+			Title:     title,
+			Summary:   summary,
+			Body:      body,
+			Authority: authority,
+			Tags:      tags,
+		},
+		ScopeLevel: scopeLevel,
 	}, nil
 }
 

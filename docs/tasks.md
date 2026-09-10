@@ -6,6 +6,9 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 ## Done
 
 - Persistent typed entity records with authority markers and scoped search.
+- Markdown entity creation and editing honors explicit `scope: campaign|world`
+  and authority; shared-world records remain visible across sibling campaigns
+  (Argus #92; D-040).
 - Campaign/entity browser with list/detail panes and mouse navigation.
 - Session start/end lifecycle and durable multiline transcript.
 - Plain Enter submission; Shift+Enter newline; undo/restore submitted entries.
@@ -36,6 +39,8 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - Planned session notes (`p`): markdown prep docs with `@` / `#location`,
   distinct from live transcripts; `s` starts live play seeded from those notes
   (Argus #28–#29).
+- Live sessions started from prep show its rendered Markdown as a scrollable run
+  sheet beside scene/cast context (Argus #93; D-041).
 - Entity create/edit uses a single markdown document (`type:` / `# Title` /
   summary / body) instead of form fields (Argus #33).
 - Close focused type/session panes with `-`; delete and supersede require `y`

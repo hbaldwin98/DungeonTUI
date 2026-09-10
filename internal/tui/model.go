@@ -56,6 +56,7 @@ type Model struct {
 	suggestions        []Suggestion
 	suggestion         int
 	campaignCursor     int
+	prepScroll         int
 	contextCursor      int
 	previousInput      string
 	transcriptView     viewport.Model
@@ -532,6 +533,7 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.session = &session
+	m.prepScroll = 0
 	m.sessionInput.SetValue("")
 	m.sessionInput.SetWidth(max(30, m.width-8))
 	m.sessionInput.SetHeight(5)
@@ -564,108 +566,11 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	model := m
 	focus := model.sessionFocus()
 
-	if msg.String() == "ctrl+up" || msg.String() == "ctrl+down" || msg.String() == "pgup" || msg.String() == "pgdown" {
-		model.setSessionFocus(prefs.PaneTranscript)
-		var cmd tea.Cmd
-		model.transcriptView, cmd = model.transcriptView.Update(msg)
-		return model, cmd
+	if next, cmd, handled := model.updateSessionLeadingKey(msg, focus); handled {
+		return next, cmd
 	}
-	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModShift != 0 {
-		model.setSessionFocus(prefs.PaneInput)
-		previous := model.sessionInput.Value()
-		model.sessionInput.SetValue(previous + "\n")
-		model.previousInput = previous
-		return model, nil
-	}
-	switch msg.String() {
-	case "ctrl+e":
-		return model.endSession()
-	case "ctrl+p":
-		model.layout.CycleSessionUpperVisibility()
-		model.persistPreferences()
-		return model, nil
-	case "ctrl+o":
-		if model.openPeekPreview() {
-			return model, nil
-		}
-	case "-":
-		focus := model.sessionFocus()
-		switch focus {
-		case prefs.PaneCampaign:
-			if !model.layout.CloseSessionUpperPane(prefs.PaneCampaign) {
-				model.status = "Keep at least one upper pane"
-				return model, nil
-			}
-			model.persistPreferences()
-			model.setSessionFocus(prefs.PaneContext)
-			model.status = "Closed campaign pane · Ctrl+P to restore"
-			return model, nil
-		case prefs.PaneContext:
-			if !model.layout.CloseSessionUpperPane(prefs.PaneContext) {
-				model.status = "Keep at least one upper pane"
-				return model, nil
-			}
-			model.persistPreferences()
-			model.setSessionFocus(prefs.PaneCampaign)
-			model.status = "Closed context pane · Ctrl+P to restore"
-			return model, nil
-		}
-		model.status = "Focus campaign or context, then - to close"
-		return model, nil
-	case "tab":
-		if focus == prefs.PaneInput && len(model.suggestions) > 0 {
-			model.acceptSuggestion()
-			return model, nil
-		}
-		model.cycleSessionFocus()
-		return model, nil
-	case "shift+tab":
-		model.cycleSessionFocusReverse()
-		return model, nil
-	case "esc":
-		model.sessionInput.Blur()
-		return model, nil
-	}
-
-	if focus == prefs.PaneTranscript {
-		switch msg.String() {
-		case "j", "down":
-			var cmd tea.Cmd
-			model.transcriptView, cmd = model.transcriptView.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-			return model, cmd
-		case "k", "up":
-			var cmd tea.Cmd
-			model.transcriptView, cmd = model.transcriptView.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
-			return model, cmd
-		}
-	}
-
-	if focus == prefs.PaneCampaign {
-		switch msg.String() {
-		case "j", "down":
-			model.campaignCursor = clamp(model.campaignCursor+1, 0, max(0, len(model.campaignNavItems())-1))
-			return model, nil
-		case "k", "up":
-			model.campaignCursor = clamp(model.campaignCursor-1, 0, max(0, len(model.campaignNavItems())-1))
-			return model, nil
-		case "enter":
-			model.activateCampaignCursor()
-			return model, nil
-		}
-	}
-
-	if focus == prefs.PaneContext {
-		switch msg.String() {
-		case "j", "down":
-			model.contextCursor = clamp(model.contextCursor+1, 0, max(0, len(model.sessionContextItems())-1))
-			return model, nil
-		case "k", "up":
-			model.contextCursor = clamp(model.contextCursor-1, 0, max(0, len(model.sessionContextItems())-1))
-			return model, nil
-		case "enter":
-			model.activateContextCursor()
-			return model, nil
-		}
+	if next, cmd, handled := model.updateSessionPaneKey(msg, focus); handled {
+		return next, cmd
 	}
 
 	// Printable input and suggestion navigation belong to the input pane.
@@ -677,61 +582,8 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	switch msg.String() {
-	case "enter", "ctrl+enter", "\r", "\n":
-		return model.submitTranscript()
-	case "shift+enter":
-		previous := model.sessionInput.Value()
-		model.sessionInput.SetValue(previous + "\n")
-		model.previousInput = previous
-		return model, nil
-	case "ctrl+z":
-		if model.sessionInput.Value() != "" && model.previousInput != "" {
-			model.sessionInput.SetValue(model.previousInput)
-			model.refreshSuggestions()
-			return model, nil
-		}
-		for index := len(model.session.Entries) - 1; index >= 0; index-- {
-			if !model.session.Entries[index].Undone {
-				model.session.Entries[index].Undone = true
-				model.refreshTranscriptViewport()
-				model.status = "Undid transcript entry · Ctrl+Y restores it"
-				model.persistWorkspace()
-				return model, nil
-			}
-		}
-	case "ctrl+y":
-		for index := len(model.session.Entries) - 1; index >= 0; index-- {
-			if model.session.Entries[index].Undone {
-				model.session.Entries[index].Undone = false
-				model.refreshTranscriptViewport()
-				model.status = "Restored transcript entry"
-				model.persistWorkspace()
-				return model, nil
-			}
-		}
-	case "up":
-		if len(model.suggestions) > 0 {
-			model.suggestion = clamp(model.suggestion-1, 0, len(model.suggestions)-1)
-			model.refreshPeek()
-			return model, nil
-		}
-	case "down":
-		if len(model.suggestions) > 0 {
-			model.suggestion = clamp(model.suggestion+1, 0, len(model.suggestions)-1)
-			model.refreshPeek()
-			return model, nil
-		}
-	case "pgup":
-		if model.peek != nil {
-			model.scrollPeek(-1)
-			return model, nil
-		}
-	case "pgdown":
-		if model.peek != nil {
-			model.scrollPeek(1)
-			return model, nil
-		}
+	if next, cmd, handled := model.updateSessionInputKey(msg); handled {
+		return next, cmd
 	}
 	previous := model.sessionInput.Value()
 	var cmd tea.Cmd
@@ -744,6 +596,247 @@ func (m Model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		model.review = model.resolveReference(model.sessionInput.Value())
 	}
 	return model, cmd
+}
+
+func (m Model) updateSessionLeadingKey(msg tea.KeyPressMsg, focus prefs.Pane) (tea.Model, tea.Cmd, bool) {
+	if msg.String() == "ctrl+up" || msg.String() == "ctrl+down" {
+		m.setSessionFocus(prefs.PaneTranscript)
+		var cmd tea.Cmd
+		m.transcriptView, cmd = m.transcriptView.Update(msg)
+		return m, cmd, true
+	}
+	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModShift != 0 {
+		m.appendSessionInputNewline()
+		return m, nil, true
+	}
+	switch msg.String() {
+	case "ctrl+e":
+		next, cmd := m.endSession()
+		return next, cmd, true
+	case "ctrl+p":
+		m.layout.CycleSessionUpperVisibility()
+		m.persistPreferences()
+		return m, nil, true
+	case "ctrl+o":
+		return m, nil, m.openPeekPreview()
+	case "-":
+		return m.closeFocusedSessionPane(), nil, true
+	case "tab":
+		if focus == prefs.PaneInput && len(m.suggestions) > 0 {
+			m.acceptSuggestion()
+		} else {
+			m.cycleSessionFocus()
+		}
+		return m, nil, true
+	case "shift+tab":
+		m.cycleSessionFocusReverse()
+		return m, nil, true
+	case "esc":
+		m.sessionInput.Blur()
+		return m, nil, true
+	default:
+		return m, nil, false
+	}
+}
+
+func (m Model) closeFocusedSessionPane() Model {
+	switch m.sessionFocus() {
+	case prefs.PaneCampaign:
+		if !m.layout.CloseSessionUpperPane(prefs.PaneCampaign) {
+			m.status = "Keep at least one upper pane"
+			return m
+		}
+		m.persistPreferences()
+		m.setSessionFocus(prefs.PaneContext)
+		m.status = "Closed campaign pane · Ctrl+P to restore"
+	case prefs.PaneContext:
+		if !m.layout.CloseSessionUpperPane(prefs.PaneContext) {
+			m.status = "Keep at least one upper pane"
+			return m
+		}
+		m.persistPreferences()
+		m.setSessionFocus(prefs.PaneCampaign)
+		m.status = "Closed context pane · Ctrl+P to restore"
+	default:
+		m.status = "Focus campaign or context, then - to close"
+	}
+	return m
+}
+
+func (m Model) updateSessionPaneKey(msg tea.KeyPressMsg, focus prefs.Pane) (Model, tea.Cmd, bool) {
+	switch focus {
+	case prefs.PaneTranscript:
+		return m.updateTranscriptPaneKey(msg)
+	case prefs.PaneCampaign:
+		handled := isSessionCampaignKey(msg.String())
+		if m.sessionPlannedNotes() != nil {
+			handled = isSessionPrepKey(msg.String())
+		}
+		return m.updateCampaignPaneKey(msg), nil, handled
+	case prefs.PaneContext:
+		return m.updateContextPaneKey(msg), nil, isSessionContextKey(msg.String())
+	default:
+		return m, nil, false
+	}
+}
+
+func (m Model) updateTranscriptPaneKey(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
+	switch msg.String() {
+	case "j", "down", "pgdown":
+		key := tea.KeyDown
+		if msg.String() == "pgdown" {
+			key = tea.KeyPgDown
+		}
+		var cmd tea.Cmd
+		m.transcriptView, cmd = m.transcriptView.Update(tea.KeyPressMsg(tea.Key{Code: key}))
+		return m, cmd, true
+	case "k", "up", "pgup":
+		key := tea.KeyUp
+		if msg.String() == "pgup" {
+			key = tea.KeyPgUp
+		}
+		var cmd tea.Cmd
+		m.transcriptView, cmd = m.transcriptView.Update(tea.KeyPressMsg(tea.Key{Code: key}))
+		return m, cmd, true
+	default:
+		return m, nil, false
+	}
+}
+
+func (m Model) updateCampaignPaneKey(msg tea.KeyPressMsg) Model {
+	if m.sessionPlannedNotes() != nil {
+		return m.updatePrepPaneKey(msg.String())
+	}
+	switch msg.String() {
+	case "j", "down":
+		m.campaignCursor = clamp(m.campaignCursor+1, 0, max(0, len(m.campaignNavItems())-1))
+	case "k", "up":
+		m.campaignCursor = clamp(m.campaignCursor-1, 0, max(0, len(m.campaignNavItems())-1))
+	case "enter":
+		m.activateCampaignCursor()
+	}
+	return m
+}
+
+func (m Model) updatePrepPaneKey(key string) Model {
+	switch key {
+	case "j", "down":
+		m.scrollSessionPrep(1)
+	case "k", "up":
+		m.scrollSessionPrep(-1)
+	case "pgdown":
+		m.scrollSessionPrep(m.sessionPrepPageSize())
+	case "pgup":
+		m.scrollSessionPrep(-m.sessionPrepPageSize())
+	case "home":
+		m.prepScroll = 0
+	case "end":
+		m.prepScroll = m.sessionPrepMaxScroll()
+	}
+	return m
+}
+
+func isSessionCampaignKey(key string) bool {
+	return key == "j" || key == "down" || key == "k" || key == "up" || key == "enter"
+}
+
+func isSessionPrepKey(key string) bool {
+	return key == "j" || key == "down" || key == "k" || key == "up" ||
+		key == "pgdown" || key == "pgup" || key == "home" || key == "end"
+}
+
+func (m Model) updateContextPaneKey(msg tea.KeyPressMsg) Model {
+	switch msg.String() {
+	case "j", "down":
+		m.contextCursor = clamp(m.contextCursor+1, 0, max(0, len(m.sessionContextItems())-1))
+	case "k", "up":
+		m.contextCursor = clamp(m.contextCursor-1, 0, max(0, len(m.sessionContextItems())-1))
+	case "enter":
+		m.activateContextCursor()
+	}
+	return m
+}
+
+func isSessionContextKey(key string) bool {
+	return key == "j" || key == "down" || key == "k" || key == "up" || key == "enter"
+}
+
+func (m Model) updateSessionInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	switch msg.String() {
+	case "enter", "ctrl+enter", "\r", "\n":
+		next, cmd := m.submitTranscript()
+		return next, cmd, true
+	case "shift+enter":
+		m.appendSessionInputNewline()
+		return m, nil, true
+	case "ctrl+z":
+		return m.undoSessionInputOrEntry(), nil, true
+	case "ctrl+y":
+		return m.redoSessionEntry(), nil, true
+	case "up", "down":
+		return m.moveSessionSuggestion(msg.String()), nil, len(m.suggestions) > 0
+	case "pgup", "pgdown":
+		return m.moveSessionPeek(msg.String()), nil, m.peek != nil
+	default:
+		return m, nil, false
+	}
+}
+
+func (m *Model) appendSessionInputNewline() {
+	m.setSessionFocus(prefs.PaneInput)
+	previous := m.sessionInput.Value()
+	m.sessionInput.SetValue(previous + "\n")
+	m.previousInput = previous
+}
+
+func (m Model) undoSessionInputOrEntry() Model {
+	if m.sessionInput.Value() != "" && m.previousInput != "" {
+		m.sessionInput.SetValue(m.previousInput)
+		m.refreshSuggestions()
+		return m
+	}
+	for index := len(m.session.Entries) - 1; index >= 0; index-- {
+		if !m.session.Entries[index].Undone {
+			m.session.Entries[index].Undone = true
+			m.refreshTranscriptViewport()
+			m.status = "Undid transcript entry · Ctrl+Y restores it"
+			m.persistWorkspace()
+			return m
+		}
+	}
+	return m
+}
+
+func (m Model) redoSessionEntry() Model {
+	for index := len(m.session.Entries) - 1; index >= 0; index-- {
+		if m.session.Entries[index].Undone {
+			m.session.Entries[index].Undone = false
+			m.refreshTranscriptViewport()
+			m.status = "Restored transcript entry"
+			m.persistWorkspace()
+			return m
+		}
+	}
+	return m
+}
+
+func (m Model) moveSessionSuggestion(key string) Model {
+	if key == "up" {
+		m.suggestion = clamp(m.suggestion-1, 0, len(m.suggestions)-1)
+	} else {
+		m.suggestion = clamp(m.suggestion+1, 0, len(m.suggestions)-1)
+	}
+	m.refreshPeek()
+	return m
+}
+
+func (m Model) moveSessionPeek(key string) Model {
+	if key == "pgup" {
+		m.scrollPeek(-1)
+	} else {
+		m.scrollPeek(1)
+	}
+	return m
 }
 
 func (m *Model) cycleSessionFocus() {
@@ -1940,7 +2033,7 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
 	body := newMarkdownTextArea(m.width, m.height)
-	body.Placeholder = "type: NPC\n\n# Title\n\nSummary paragraph.\n\nBody markdown…"
+	body.Placeholder = "type: NPC\nauthority: draft\nscope: campaign\n\n# Title\n\nSummary paragraph.\n\nBody markdown…"
 
 	model := m
 	model.editing = true
@@ -1965,6 +2058,7 @@ func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
 			Summary:   "",
 			Body:      "",
 			Authority: domain.Draft,
+			Scope:     model.workspace.Scope,
 		}
 		model.editBody.SetValue(domain.FormatEntityMarkdown(draft))
 	} else {
@@ -2050,27 +2144,43 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	scope := m.workspace.Scope
+	if parsed.ScopeLevel == domain.WorldScope {
+		scope.CampaignID = ""
+		scope.Campaign = ""
+	}
 	record := domain.Record{
-		ID:        fmt.Sprintf("%s-%d", strings.ToLower(strings.ReplaceAll(parsed.Title, " ", "-")), time.Now().UnixNano()),
-		Type:      parsed.Type,
-		Title:     parsed.Title,
-		Summary:   parsed.Summary,
-		Body:      parsed.Body,
-		Authority: domain.Draft,
+		ID:        fmt.Sprintf("%s-%d", strings.ToLower(strings.ReplaceAll(parsed.Record.Title, " ", "-")), time.Now().UnixNano()),
+		Type:      parsed.Record.Type,
+		Title:     parsed.Record.Title,
+		Summary:   parsed.Record.Summary,
+		Body:      parsed.Record.Body,
+		Authority: parsed.Record.Authority,
 		Scope:     scope,
-		Source:    "DM draft",
-		Tags:      parsed.Tags,
+		Source:    "DM-authored",
+		Tags:      parsed.Record.Tags,
 	}
 	if !m.creating {
 		found := false
 		for index := range m.workspace.Records {
 			if m.workspace.Records[index].ID == m.editID {
 				record = m.workspace.Records[index]
-				record.Type = parsed.Type
-				record.Title = parsed.Title
-				record.Summary = parsed.Summary
-				record.Body = parsed.Body
-				record.Tags = parsed.Tags
+				record.Type = parsed.Record.Type
+				record.Title = parsed.Record.Title
+				record.Summary = parsed.Record.Summary
+				record.Body = parsed.Record.Body
+				record.Authority = parsed.Record.Authority
+				record.Tags = parsed.Record.Tags
+				wasWorldScoped := record.Scope.CampaignID == ""
+				if parsed.ScopeLevel == domain.WorldScope {
+					record.Scope.CampaignID = ""
+					record.Scope.Campaign = ""
+				} else if wasWorldScoped {
+					if record.Scope.WorldID != m.workspace.Scope.WorldID {
+						m.status = "Open a campaign in this record's world before changing its scope"
+						return m, nil
+					}
+					record.Scope = m.workspace.Scope
+				}
 				found = true
 				break
 			}
@@ -2100,7 +2210,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 	m.refreshResults()
 	m.editing = false
 	m.suggestions = nil
-	m.status = "Saved markdown draft: " + record.Title
+	m.status = "Saved " + strings.ToLower(record.Authority.Label()) + " in " + entityScopeLabel(record.Scope) + ": " + record.Title
 	if m.store != nil {
 		if err := m.store.Save(m.workspace); err != nil {
 			m.status = "Saved in memory; persistence failed: " + err.Error()
@@ -2578,13 +2688,13 @@ func (m Model) sessionView() tea.View {
 	var upper string
 	switch {
 	case campaignOn && contextOn:
-		scene := m.panelStyleFor(prefs.PaneCampaign).Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderCampaignPane(), panelInnerWidth(leftWidth), panelInnerHeight(upperHeight)))
+		scene := m.panelStyleFor(prefs.PaneCampaign).Width(leftWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderCampaignPane(panelInnerWidth(leftWidth), panelInnerHeight(upperHeight)), panelInnerWidth(leftWidth), panelInnerHeight(upperHeight)))
 		context := m.panelStyleFor(prefs.PaneContext).Width(rightWidth).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderContextPane(), panelInnerWidth(rightWidth), panelInnerHeight(upperHeight)))
 		upper = lipgloss.JoinHorizontal(lipgloss.Top, scene, context)
 	case contextOn:
 		upper = m.panelStyleFor(prefs.PaneContext).Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderContextPane(), panelInnerWidth(width), panelInnerHeight(upperHeight)))
 	default:
-		upper = m.panelStyleFor(prefs.PaneCampaign).Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderCampaignPane(), panelInnerWidth(width), panelInnerHeight(upperHeight)))
+		upper = m.panelStyleFor(prefs.PaneCampaign).Width(width).Height(upperHeight).MaxHeight(upperHeight).Render(fitPanelBody(m.renderCampaignPane(panelInnerWidth(width), panelInnerHeight(upperHeight)), panelInnerWidth(width), panelInnerHeight(upperHeight)))
 	}
 	transcript := m.panelStyleFor(prefs.PaneTranscript).Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
 	input := m.panelStyleFor(prefs.PaneInput).Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitPanelBody(m.renderSessionInput(), panelInnerWidth(width), panelInnerHeight(inputHeight)))
@@ -2614,8 +2724,8 @@ func (m Model) renderSessionHeader() string {
 	return left + strings.Repeat("─", gap) + right
 }
 
-func (m Model) renderCampaignPane() string {
-	return renderContentLines(m.campaignContentLines())
+func (m Model) renderCampaignPane(width, height int) string {
+	return renderContentLines(m.sessionCampaignContentLines(width, height))
 }
 
 func (m Model) renderContextPane() string {
@@ -2832,7 +2942,7 @@ func (m Model) renderDetailWidth(width int) string {
 		builder.WriteString("\n\n")
 	}
 	builder.WriteString(labelStyle.Render("SCOPE"))
-	builder.WriteString("  " + record.Scope.Label() + "\n")
+	builder.WriteString("  " + entityScopeLabel(record.Scope) + "\n")
 	if len(record.Tags) > 0 {
 		builder.WriteString(labelStyle.Render("TAGS"))
 		builder.WriteString("  #" + strings.Join(record.Tags, "  #") + "\n")
@@ -2861,6 +2971,13 @@ func (m Model) renderDetailWidth(width int) string {
 	builder.WriteString("\n")
 	builder.WriteString(m.renderEntityGraph(*record))
 	return builder.String()
+}
+
+func entityScopeLabel(scope domain.Scope) string {
+	if scope.WorldID != "" && scope.CampaignID == "" {
+		return "WORLD SHARED · " + scope.WorldName
+	}
+	return "CAMPAIGN · " + scope.Campaign
 }
 
 func (m Model) renderSearchOverlay() string {

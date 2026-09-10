@@ -35,7 +35,7 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.session != nil:
 		return [][]string{
-			{"Session", "Enter capture", "Shift+Enter newline", "@ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
+			{"Session", "Enter capture", "Shift+Enter newline", "@ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "prep pane j/k · PgUp/PgDn · Home/End", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
 		}
 	case m.preview != nil:
 		return [][]string{

@@ -7,11 +7,12 @@ terminal-native workstation for running tabletop role-playing campaigns. It is
 an evolving design rather than a fixed implementation specification.
 
 The current implementation is a usable Bubble Tea vertical slice: persistent
-JSON campaign records, typed browsing/search, draft entity editing, session
-lifecycle, multiline transcript capture, `@` links/autosuggestions, `$` draft
-creation, local `#random`/`#location` commands, `#` dice/arithmetic rolls,
-entity review, scrollback, mouse-driven session pane resizing, and session
-scene panes driven by live campaign records rather than hard-coded fixtures.
+SQLite campaign records, typed browsing/search, entity editing with explicit
+world/campaign scope and authority, session lifecycle, multiline transcript
+capture, `@` links/autosuggestions, `$` draft creation, local
+`#random`/`#location` commands, `#` dice/arithmetic rolls, entity review,
+scrollback, mouse-driven session pane resizing, and session scene panes driven
+by live campaign records rather than hard-coded fixtures.
 The layout is intentionally still being validated. Pane split preferences
 persist as named pane trees in `preferences.json`, separate from campaign JSON.
 
@@ -480,8 +481,9 @@ arbitrary horizontal/vertical splits rather than adding one-off coordinates.
   timestamp so the arc stays readable.
 - **Live session** — explicit start/end capture with an immutable transcript of
   what happened at the table. Starting live play can *use* planned notes as
-  scene/context seed so the table sees organized prep rather than the whole
-  wiki. Each live sit keeps its own transcript and reconciliation.
+  scene/context seed. The linked prep stays visible as a scrollable Markdown run
+  sheet in the live workspace while scene/cast context and transcript remain in
+  their own panes. Each live sit keeps its own transcript and reconciliation.
 
 Afterward, the DM can open an ended session and **play back** derived beats
 (cast associations, transcript hits, reconciliation items) with rewind and

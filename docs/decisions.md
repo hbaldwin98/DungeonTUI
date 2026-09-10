@@ -318,3 +318,22 @@ Named hits nest under collapsible chapter folders in the Sources list. Enter
 expands a chapter. Names that share the same text collapse to one row; extra
 labels stay aliases for `@` and `/`. The detail pane Glamour-renders the
 selected document, not the entire cached adventure.
+
+## D-040 — Entity documents own scope and authority explicitly
+
+The Markdown entity editor always exposes `scope: campaign|world` and an
+`authority:` value. New entities default to a campaign-scoped draft. Saving
+honors both fields and rejects unknown metadata values instead of silently
+substituting defaults. Changing a campaign entity to world scope preserves its
+world identity and clears campaign ownership; changing a world entity back to
+campaign scope requires an active campaign in that same world. Entity detail
+labels ownership as `WORLD SHARED` or `CAMPAIGN` so list filters cannot be
+mistaken for persisted scope.
+
+## D-041 — Planned notes remain visible during live capture
+
+A live session started from planned notes uses the session's left upper pane as
+a scrollable prep run sheet. The title stays visible while `j`/`k`,
+`PgUp`/`PgDn`, and `Home`/`End` move through the rendered Markdown body. The
+right pane continues to show scene and cast context, and the transcript remains
+a separate pane. A session without linked prep keeps the campaign navigator.
