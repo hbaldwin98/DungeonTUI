@@ -264,9 +264,15 @@ func formatAmbiguousRule(amb *fivecli.AmbiguousError) string {
 }
 
 func (m *Model) openRulePreview(hop detailHop) {
+	m.openRulePreviewFrom(hop, m.snapshotSearchLocation())
+}
+
+func (m *Model) openRulePreviewFrom(hop detailHop, origin searchLocation) {
 	m.preview = &previewBuf{
 		Hop:      hop,
 		ruleText: "Loading 5e reference…",
+		origin:   origin,
+		parent:   m.preview,
 	}
 	if m.session != nil {
 		m.status = "5e reference · Enter returns to capture · Esc closes"
@@ -284,10 +290,11 @@ func (m Model) openRuleSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd
 		Prefix:     strings.TrimSpace(result.RuleKind + " · " + result.RuleSource + " · "),
 		Relation:   "5e reference · not campaign canon",
 	}
+	origin := m.snapshotSearchLocation()
 	m.searching = false
 	m.searchInput.Blur()
 	m.rulesNote = ""
-	m.openRulePreview(hop)
+	m.openRulePreviewFrom(hop, origin)
 	return m, m.fetchRulePreviewCmd(hop)
 }
 

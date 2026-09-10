@@ -13,8 +13,14 @@ import (
 )
 
 type previewBuf struct {
-	Hop           detailHop
-	Scroll        int
+	Hop    detailHop
+	Scroll int
+	// origin is the search position the preview was opened from, so closing
+	// it returns to that exact row instead of the bare browser.
+	origin searchLocation
+	// parent is the preview this one was opened over, so nested inspection
+	// unwinds one step at a time.
+	parent        *previewBuf
 	ruleText      string
 	bodyWidth     int
 	bodyRevision  uint64
@@ -38,19 +44,42 @@ func previewFill() lipgloss.Style {
 }
 
 func (m *Model) openPreview(hop detailHop) {
-	m.preview = &previewBuf{Hop: hop}
+	m.openPreviewFrom(hop, m.snapshotSearchLocation())
+}
+
+// openPreviewFrom records where inspection started. Callers that close the
+// search overlay first pass the position they captured before closing it.
+func (m *Model) openPreviewFrom(hop detailHop, origin searchLocation) {
+	m.preview = &previewBuf{Hop: hop, origin: origin, parent: m.preview}
 	m.status = "Preview · " + hop.Label + " · Enter again follows · Esc returns"
 }
 
-func (m *Model) closePreview() {
+// closePreview returns to the preview's exact origin: an enclosing preview,
+// the search row it was opened from, or the surface underneath.
+func (m *Model) closePreview() tea.Cmd {
 	if m.preview == nil {
-		return
+		return nil
+	}
+	closed := m.preview
+	if closed.parent != nil {
+		m.preview = closed.parent
+		m.status = "Back to " + closed.parent.Hop.Label
+		return nil
 	}
 	m.preview = nil
-	m.status = "Closed preview"
 	if m.session != nil {
+		// D-043: inspection during live capture is non-destructive and always
+		// hands the keyboard back to capture, never to the search overlay.
+		m.status = "Closed preview"
 		m.setSessionFocus(m.sessionFocus())
+		return nil
 	}
+	if cmd := m.restoreSearchLocation(closed.origin); cmd != nil {
+		m.status = "Back to search · " + closed.origin.query
+		return cmd
+	}
+	m.status = "Closed preview"
+	return nil
 }
 
 func (m Model) commitPreview() (tea.Model, tea.Cmd) {
@@ -58,9 +87,11 @@ func (m Model) commitPreview() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.session != nil {
-		m.closePreview()
-		m.status = "Returned to live session"
-		return m, nil
+		cmd := m.closePreview()
+		if cmd == nil && m.preview == nil {
+			m.status = "Returned to live session"
+		}
+		return m, cmd
 	}
 	hop := m.preview.Hop
 	if hop.Kind == hopRule {
@@ -169,8 +200,7 @@ func (m Model) updatePreview(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "esc", "q":
-		m.closePreview()
-		return m, nil
+		return m, m.closePreview()
 	case "enter":
 		return m.commitPreview()
 	case "j", "down", "pgdown":
@@ -552,8 +582,7 @@ func (m Model) renderPreviewOverlay(background string) string {
 func (m Model) updatePreviewClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	x, y, w, h := m.previewHitBox()
 	if msg.X < x || msg.X >= x+w || msg.Y < y || msg.Y >= y+h {
-		m.closePreview()
-		return m, nil
+		return m, m.closePreview()
 	}
 	innerX := x + 3
 	footerY := y + h - 3
@@ -563,8 +592,7 @@ func (m Model) updatePreviewClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			return m.commitPreview()
 		}
 		if rel >= 8 && rel < 15 {
-			m.closePreview()
-			return m, nil
+			return m, m.closePreview()
 		}
 	}
 	return m, nil

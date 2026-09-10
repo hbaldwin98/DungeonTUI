@@ -98,6 +98,7 @@ type Model struct {
 	historyCursor      int
 	detailView         *paneScroll
 	browserHistory     []browserLocation
+	browserForward     []browserLocation
 	playingBack        bool
 	playbackCursor     int
 	collectionFilter   string
@@ -505,7 +506,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			m.cycleBrowserFocus()
 		case "backspace", "alt+left":
-			m.restoreBrowserLocation()
+			return m, m.restoreBrowserLocation()
+		case "alt+right":
+			return m, m.advanceBrowserLocation()
 		}
 	case tea.MouseClickMsg:
 		if m.capture.Open {
@@ -1643,6 +1646,7 @@ func (m *Model) deleteSelected() {
 	if record == nil {
 		return
 	}
+	fallback := neighborID(recordIDs(m.selectionRecords()), record.ID)
 	next, err := m.app.Commit(m.workspace, func(ws domain.Workspace) (domain.Workspace, error) {
 		return app.DeleteRecord(ws, record.ID)
 	})
@@ -1653,6 +1657,9 @@ func (m *Model) deleteSelected() {
 	m.replaceWorkspace(next)
 	m.rebuildSearch()
 	m.selectedID = ""
+	if replacement, ok := recordByID(m.workspace.Records, fallback); ok {
+		m.selectRecord(replacement)
+	}
 	m.ensureBrowserSelection()
 	m.refreshResults()
 	m.status = "Deleted " + record.Title
@@ -1676,6 +1683,7 @@ func (m *Model) deleteSelectedSession() {
 	if session == nil {
 		return
 	}
+	fallback := neighborID(sessionRowIDs(m.sessionTreeRows()), session.ID)
 	next, err := m.app.Commit(m.workspace, func(ws domain.Workspace) (domain.Workspace, error) {
 		return app.DeleteSession(ws, session.ID)
 	})
@@ -1687,7 +1695,7 @@ func (m *Model) deleteSelectedSession() {
 	if m.session != nil && m.session.ID == session.ID {
 		m.session = nil
 	}
-	m.selectedSessionID = ""
+	m.selectedSessionID = fallback
 	m.selectedFolderPath = ""
 	m.syncSessionTreeCursor()
 	m.status = "Deleted session " + session.Title
@@ -2581,15 +2589,18 @@ func (m Model) openSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {
 	if m.session != nil {
 		return m.openLiveSearchResult(result)
 	}
+	// Snapshot before closing search so back and preview-close both return to
+	// this query and row rather than the bare browser.
+	origin := m.snapshotBrowserLocation()
 	m.searching = false
 	m.searchInput.Blur()
 	switch result.Kind {
 	case searchsvc.KindPrep:
-		m.pushBrowserLocation()
+		m.pushBrowserLocationSnapshot(origin)
 		m.focusPrep(result.TargetID())
 		return m, nil
 	case searchsvc.KindSession, searchsvc.KindTranscript:
-		m.pushBrowserLocation()
+		m.pushBrowserLocationSnapshot(origin)
 		id := result.SessionID
 		if id == "" {
 			id = result.TargetID()
@@ -2602,9 +2613,9 @@ func (m Model) openSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {
 	id := result.TargetID()
 	if rec, ok := m.lookupAny(id); ok {
 		if fivetools.IsReferenceID(rec.ID) {
-			m.openPreview(detailHop{Kind: hopReference, Label: rec.Title, RecordID: rec.ID})
+			m.openPreviewFrom(detailHop{Kind: hopReference, Label: rec.Title, RecordID: rec.ID}, origin.search)
 		} else {
-			m.pushBrowserLocation()
+			m.pushBrowserLocationSnapshot(origin)
 			m.selectRecord(rec)
 		}
 	}
@@ -2619,7 +2630,8 @@ func (m Model) openLiveSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd
 	}
 	m.searching = false
 	m.searchInput.Blur()
-	m.openPreview(hop)
+	// No origin is recorded: D-043 returns live inspection to capture.
+	m.openPreviewFrom(hop, searchLocation{})
 	return m, nil
 }
 
@@ -2889,8 +2901,8 @@ func (m Model) View() tea.View {
 		bodyHeight := max(1, m.height-2)
 		body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
 		help := "/ search   n new   Enter open   : commands"
-		if len(m.browserHistory) > 0 {
-			help = "Backspace back   " + help
+		if trail := m.browserTrailLabel(); trail != "" {
+			help = trail + "   " + help
 		}
 		if m.status != "" {
 			help = m.status + "  ·  " + help

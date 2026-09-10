@@ -113,10 +113,14 @@ func (m Model) selectedRecord() *domain.Record {
 }
 
 func (m *Model) selectRecord(record domain.Record) {
+	// Re-selecting the record already open keeps the chosen detail link, so
+	// saving an edit does not throw the reader back to the first row.
+	if m.selectedID != record.ID {
+		m.historyCursor = 0
+	}
 	m.selectedID = record.ID
 	m.selectedSessionID = ""
 	m.selectedPlanID = ""
-	m.historyCursor = 0
 	m.typeFilter = record.Type
 	if m.usesCampaignTree() {
 		m.focusNavType(record.Type)

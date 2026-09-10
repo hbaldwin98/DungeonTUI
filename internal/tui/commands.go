@@ -146,7 +146,8 @@ func (m Model) paletteCommands() []paletteCommand {
 			{ID: "settings.open", Label: "Open settings", Aliases: "5e path preferences"},
 			{ID: "record.delete", Label: "Delete selected item", Aliases: "remove", Enabled: hasRecord || m.selectedSession() != nil, Reason: "Select an entity or session"},
 			{ID: "record.supersede", Label: "Supersede selected entity", Aliases: "archive", Enabled: hasRecord, Reason: "Select a wiki entity"},
-			{ID: "browser.back", Label: "Go back", Aliases: "history", Enabled: len(m.browserHistory) > 0, Reason: "No earlier location"},
+			{ID: "browser.back", Label: "Go back", Aliases: "history previous", Enabled: len(m.browserHistory) > 0, Reason: "No earlier location"},
+			{ID: "browser.forward", Label: "Go forward", Aliases: "history next", Enabled: len(m.browserForward) > 0, Reason: "No later location"},
 		}
 	}
 }
@@ -286,7 +287,8 @@ func paletteCommandExecutors() map[string]paletteCommandExecutor {
 		"settings.open":       func(m Model) (tea.Model, tea.Cmd) { return m.openSettings() },
 		"record.delete":       func(m Model) (tea.Model, tea.Cmd) { return m.armDestructiveConfirm("delete") },
 		"record.supersede":    func(m Model) (tea.Model, tea.Cmd) { return m.armDestructiveConfirm("supersede") },
-		"browser.back":        func(m Model) (tea.Model, tea.Cmd) { m.restoreBrowserLocation(); return m, nil },
+		"browser.back":        func(m Model) (tea.Model, tea.Cmd) { return m, m.restoreBrowserLocation() },
+		"browser.forward":     func(m Model) (tea.Model, tea.Cmd) { return m, m.advanceBrowserLocation() },
 		"picker.open":         func(m Model) (tea.Model, tea.Cmd) { return m.activatePickerItem() },
 		"picker.new":          func(m Model) (tea.Model, tea.Cmd) { return m.createPickerItem() },
 		"picker.rename":       func(m Model) (tea.Model, tea.Cmd) { return m.openPickerRename() },
@@ -298,7 +300,7 @@ func paletteCommandExecutors() map[string]paletteCommandExecutor {
 			return m, nil
 		},
 		"preview.open":      func(m Model) (tea.Model, tea.Cmd) { return m.commitPreview() },
-		"preview.close":     func(m Model) (tea.Model, tea.Cmd) { m.closePreview(); return m, nil },
+		"preview.close":     func(m Model) (tea.Model, tea.Cmd) { return m, m.closePreview() },
 		"preview.top":       func(m Model) (tea.Model, tea.Cmd) { m.preview.Scroll = 0; return m, nil },
 		"preview.bottom":    func(m Model) (tea.Model, tea.Cmd) { m.preview.Scroll = m.previewMaxScroll(); return m, nil },
 		"playback.previous": func(m Model) (tea.Model, tea.Cmd) { return m.updatePlayback(tea.KeyPressMsg{Code: tea.KeyLeft}) },
