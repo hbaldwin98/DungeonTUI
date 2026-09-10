@@ -1609,6 +1609,8 @@ func TestNewPrepAttachesEndedSessionContext(t *testing.T) {
 		t.Fatal("expected ended session")
 	}
 	priorTitle := model.workspace.Sessions[0].Title
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Text: "p"}))
 	model = updated.(Model)
 	if !model.planning {
@@ -1656,12 +1658,10 @@ func TestSessionReconciliationPreservesTranscript(t *testing.T) {
 	if model.workspace.Sessions[0].Entries[0].Text != original {
 		t.Fatal("ending session must leave transcript text intact")
 	}
-	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'r', Text: "r"}))
-	model = updated.(Model)
 	if !model.reconciling {
-		t.Fatal("expected reconciliation overlay")
+		t.Fatal("ending a session should expose the reconciliation inbox")
 	}
-	if !strings.Contains(model.View().Content, "SESSION RECONCILIATION") {
+	if !strings.Contains(model.View().Content, "POST-SESSION INBOX") {
 		t.Fatalf("expected reconciliation UI: %q", model.View().Content)
 	}
 }
@@ -1677,6 +1677,11 @@ func TestEndedSessionPlaybackScrubsDerivedBeats(t *testing.T) {
 	model = updated.(Model)
 	original := model.session.Entries[0].Text
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl}))
+	model = updated.(Model)
+	for index := range model.workspace.Reconciliations[0].Items {
+		model.workspace.Reconciliations[0].Items[index].Status = domain.ReconApproved
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	model = updated.(Model)
 
 	model.setNavCursor(0)

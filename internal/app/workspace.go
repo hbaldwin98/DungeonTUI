@@ -137,8 +137,13 @@ func EndSession(ws domain.Workspace, session domain.SessionRecord) (domain.Works
 	if session.ID == "" {
 		return ws, domain.ReconciliationRecord{}, fmt.Errorf("no live session")
 	}
-	recon := domain.BuildSessionReconciliation(session, ws.Records)
 	ws = UpsertSession(ws, session)
+	for _, existing := range ws.Reconciliations {
+		if existing.SessionID == session.ID {
+			return ws, existing, nil
+		}
+	}
+	recon := domain.BuildSessionReconciliation(session, ws.Records)
 	ws = UpsertRecon(ws, recon)
 	return ws, recon, nil
 }
@@ -170,10 +175,32 @@ func RejectRecon(ws domain.Workspace, reconIndex, itemIndex int) (domain.Workspa
 	if itemIndex < 0 || itemIndex >= len(recon.Items) {
 		return ws, fmt.Errorf("reconciliation item not found")
 	}
-	if recon.Items[itemIndex].Status != domain.ReconPending {
+	if recon.Items[itemIndex].Status == domain.ReconRejected {
+		return ws, nil
+	}
+	if !domain.ReconciliationUnresolved(recon.Items[itemIndex].Status) {
 		return ws, fmt.Errorf("item is %s", recon.Items[itemIndex].Status)
 	}
 	recon.Items[itemIndex].Status = domain.ReconRejected
+	ws.Reconciliations[reconIndex] = recon
+	return ws, nil
+}
+
+func DeferRecon(ws domain.Workspace, reconIndex, itemIndex int) (domain.Workspace, error) {
+	if reconIndex < 0 || reconIndex >= len(ws.Reconciliations) {
+		return ws, fmt.Errorf("reconciliation not found")
+	}
+	recon := ws.Reconciliations[reconIndex]
+	if itemIndex < 0 || itemIndex >= len(recon.Items) {
+		return ws, fmt.Errorf("reconciliation item not found")
+	}
+	if recon.Items[itemIndex].Status == domain.ReconDeferred {
+		return ws, nil
+	}
+	if recon.Items[itemIndex].Status != domain.ReconPending {
+		return ws, fmt.Errorf("item is %s", recon.Items[itemIndex].Status)
+	}
+	recon.Items[itemIndex].Status = domain.ReconDeferred
 	ws.Reconciliations[reconIndex] = recon
 	return ws, nil
 }
@@ -186,8 +213,8 @@ func EditReconMutation(ws domain.Workspace, reconIndex, itemIndex int, text stri
 	if itemIndex < 0 || itemIndex >= len(recon.Items) {
 		return ws, fmt.Errorf("reconciliation item not found")
 	}
-	if recon.Items[itemIndex].Status != domain.ReconPending {
-		return ws, fmt.Errorf("only pending mutations can be edited")
+	if !domain.ReconciliationUnresolved(recon.Items[itemIndex].Status) {
+		return ws, fmt.Errorf("only unresolved mutations can be edited")
 	}
 	if text == "" {
 		return ws, fmt.Errorf("mutation text is required")

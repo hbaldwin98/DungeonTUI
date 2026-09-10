@@ -138,7 +138,7 @@ func unresolvedCampaignReviews(reconciliations []ReconciliationRecord, sessions 
 		}
 		unresolved := 0
 		for _, item := range reconciliation.Items {
-			if item.Status == ReconPending || item.Status == ReconDeferred {
+			if ReconciliationUnresolved(item.Status) {
 				unresolved++
 			}
 		}

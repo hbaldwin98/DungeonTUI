@@ -75,7 +75,7 @@ func (m Model) helpSections() [][]string {
 			}
 		}
 		return [][]string{
-			{"Reconciliation", "j/k move", "e edit mutation", "a apply to wiki", "x reject", "Esc close", "Transcript stays immutable"},
+			{"Reconciliation", "j/k move", "e edit mutation", "a accept", "d defer", "x reject", "Esc close", "Transcript stays immutable"},
 		}
 	case m.settingsOpen:
 		return [][]string{

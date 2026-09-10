@@ -491,6 +491,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.restoreBrowserLocation()
 		}
 	case tea.MouseClickMsg:
+		if m.reconciling {
+			return m.updateReconciliationMouse(msg)
+		}
 		if m.preview != nil || m.searching {
 			return m.updateMouseClick(msg)
 		}
@@ -499,6 +502,14 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.updateMouseClick(msg)
 	case tea.MouseWheelMsg:
+		if m.reconciling {
+			if msg.Button == tea.MouseWheelDown {
+				m.moveReconciliationCursor(1)
+			} else if msg.Button == tea.MouseWheelUp {
+				m.moveReconciliationCursor(-1)
+			}
+			return m, nil
+		}
 		if m.preview != nil || m.searching {
 			return m.updateMouseWheel(msg)
 		}
@@ -1292,9 +1303,13 @@ func (m Model) endSession() (tea.Model, tea.Cmd) {
 			break
 		}
 	}
-	m.status = fmt.Sprintf("Session ended · %d entries · %d reconcile items · press r", len(entrySnapshot), len(recon.Items))
+	m.status = fmt.Sprintf("Session ended · %d entries · %d review items", len(entrySnapshot), len(recon.Items))
 	if !transcriptMatches(m.workspace.Sessions, session.ID, entrySnapshot) {
 		m.status = "Session ended · transcript integrity check failed"
+		return m, nil
+	}
+	if len(m.unresolvedReconciliationItems()) > 0 {
+		return m.openReconciliation()
 	}
 	return m, nil
 }
@@ -1341,8 +1356,8 @@ func (m Model) openReconciliation() (tea.Model, tea.Cmd) {
 	m.reconEditing = false
 	m.clearDestructiveConfirm("")
 	m.reconIndex = clamp(m.reconIndex, 0, len(m.workspace.Reconciliations)-1)
-	m.reconCursor = 0
-	m.status = "Reconciliation · e edit  a apply  x reject  Esc close"
+	m.selectFirstUnresolvedReconciliationItem()
+	m.status = "Review inbox · a accept  e edit  d defer  x reject"
 	return m, nil
 }
 
@@ -1472,6 +1487,10 @@ func (m Model) activateSessionSelection() (tea.Model, tea.Cmd) {
 		return m.startSession()
 	}
 	if session.EndedAt != nil {
+		if index := m.unresolvedReconciliationForSession(session.ID); index >= 0 {
+			m.reconIndex = index
+			return m.openReconciliation()
+		}
 		return m.openPlayback()
 	}
 	return m.resumeSelectedSession(session)
@@ -1679,28 +1698,25 @@ func (m Model) updateReconciliation(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.reconEditing {
 		return m.updateReconEdit(msg)
 	}
-	recon := &m.workspace.Reconciliations[m.reconIndex]
 	switch msg.String() {
 	case "esc", "q":
 		m.reconciling = false
 		m.status = "Closed reconciliation"
 		return m, nil
 	case "j", "down":
-		if len(recon.Items) > 0 {
-			m.reconCursor = clamp(m.reconCursor+1, 0, len(recon.Items)-1)
-		}
+		m.moveReconciliationCursor(1)
 		return m, nil
 	case "k", "up":
-		if len(recon.Items) > 0 {
-			m.reconCursor = clamp(m.reconCursor-1, 0, len(recon.Items)-1)
-		}
+		m.moveReconciliationCursor(-1)
 		return m, nil
 	case "e":
-		return m.startReconEdit(recon)
+		return m.startReconEdit(&m.workspace.Reconciliations[m.reconIndex])
 	case "a":
-		return m.approveReconciliationItem(recon)
+		return m.approveReconciliationItem(&m.workspace.Reconciliations[m.reconIndex])
+	case "d":
+		return m.deferReconciliationItem()
 	case "x":
-		return m.rejectReconciliationItem(recon)
+		return m.rejectReconciliationItem(&m.workspace.Reconciliations[m.reconIndex])
 	}
 	return m, nil
 }
@@ -1710,8 +1726,8 @@ func (m Model) startReconEdit(recon *domain.ReconciliationRecord) (tea.Model, te
 		return m, nil
 	}
 	item := recon.Items[m.reconCursor]
-	if item.Status != domain.ReconPending {
-		m.status = "Only pending mutations can be edited"
+	if !domain.ReconciliationUnresolved(item.Status) {
+		m.status = "Only unresolved mutations can be edited"
 		return m, nil
 	}
 	edit := newMarkdownTextArea(m.width, 8)
@@ -1783,7 +1799,8 @@ func (m Model) approveReconciliationItem(recon *domain.ReconciliationRecord) (te
 	}
 	m.replaceWorkspace(next)
 	m.rebuildSearch()
-	m.status = "Applied to wiki · transcript unchanged"
+	m.advanceReconciliationCursor()
+	m.status = m.reconciliationResultStatus("Accepted")
 	return m, nil
 }
 
@@ -1799,7 +1816,8 @@ func (m Model) rejectReconciliationItem(recon *domain.ReconciliationRecord) (tea
 		return m, nil
 	}
 	m.replaceWorkspace(next)
-	m.status = "Rejected · transcript unchanged"
+	m.advanceReconciliationCursor()
+	m.status = m.reconciliationResultStatus("Rejected")
 	return m, nil
 }
 
@@ -3308,9 +3326,9 @@ func (m Model) renderEditorOverlay() string {
 }
 
 func (m Model) renderReconciliationOverlay() string {
-	width := min(88, max(52, m.width-10))
+	width := min(88, max(32, m.width-4))
 	var builder strings.Builder
-	builder.WriteString(searchTitleStyle.Render("SESSION RECONCILIATION"))
+	builder.WriteString(searchTitleStyle.Render("POST-SESSION INBOX"))
 	if len(m.workspace.Reconciliations) == 0 {
 		builder.WriteString("\n\n")
 		builder.WriteString(mutedStyle.Render("No reconciliation records yet."))
@@ -3319,24 +3337,40 @@ func (m Model) renderReconciliationOverlay() string {
 		builder.WriteString("  ")
 		builder.WriteString(filterStyle.Render(recon.Title))
 		builder.WriteString("\n")
-		builder.WriteString(mutedStyle.Render("Transcript stays immutable · derived review items only"))
+		unresolved := m.unresolvedReconciliationItems()
+		builder.WriteString(mutedStyle.Render(fmt.Sprintf("%d remaining · transcript evidence stays immutable", len(unresolved))))
 		builder.WriteString("\n\n")
-		if len(recon.Items) == 0 {
-			builder.WriteString(mutedStyle.Render("No review items extracted from this session."))
+		if len(unresolved) == 0 {
+			builder.WriteString(filterStyle.Render("Inbox complete"))
+			builder.WriteString("\n")
+			builder.WriteString(mutedStyle.Render("Every extracted item has an owner decision."))
 		} else {
-			for index, item := range recon.Items {
+			maxRows := max(1, m.reconciliationOverlayHeight()-10)
+			start := 0
+			for position, index := range unresolved {
+				if index == m.reconCursor && position >= maxRows {
+					start = position - maxRows + 1
+				}
+			}
+			visible := unresolved[start:min(len(unresolved), start+maxRows)]
+			for _, index := range visible {
+				item := recon.Items[index]
 				prefix := "  "
 				style := searchResultStyle
 				if index == m.reconCursor {
 					prefix = "▸ "
 					style = selectedSearchResultStyle
 				}
-				line := fmt.Sprintf("%s[%s] %s  %s", prefix, item.Status, item.Kind, item.Summary)
+				line := fmt.Sprintf("%s[%s] %s", prefix, item.Status, item.Summary)
 				builder.WriteString(style.Render(line))
 				builder.WriteString("\n")
 			}
 			item := recon.Items[clamp(m.reconCursor, 0, len(recon.Items)-1)]
 			builder.WriteString("\n")
+			builder.WriteString(labelStyle.Render("EVIDENCE"))
+			builder.WriteString("\n")
+			builder.WriteString(m.reconciliationProvenance(item))
+			builder.WriteString("\n\n")
 			builder.WriteString(labelStyle.Render("MUTATION"))
 			builder.WriteString("  ")
 			builder.WriteString(filterStyle.Render(string(item.Mutation.Op)))
@@ -3354,7 +3388,7 @@ func (m Model) renderReconciliationOverlay() string {
 	if m.reconEditing {
 		builder.WriteString(helpStyle.Render("Ctrl+S save mutation  Esc cancel"))
 	} else {
-		builder.WriteString(helpStyle.Render("j/k move  e edit  a apply  x reject  Esc close"))
+		builder.WriteString(helpStyle.Render("a accept    e edit    d defer    x reject    Esc close"))
 	}
 	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,

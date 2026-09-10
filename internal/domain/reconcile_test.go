@@ -151,8 +151,8 @@ func TestApproveLinkReviewAppendsSourcedCitation(t *testing.T) {
 	}
 
 	_, _, err = ApplyReconItem(updated, records, session)
-	if err == nil {
-		t.Fatal("expected error re-applying a non-pending item")
+	if err != nil {
+		t.Fatalf("re-applying the same accepted item should be idempotent: %v", err)
 	}
 	vale = findRecordByID(t, records, "npc-vale")
 	if strings.Count(vale.Body, "dungeon:session=session-1 entry=entry-1") != 1 {

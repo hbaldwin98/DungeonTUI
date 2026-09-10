@@ -81,6 +81,92 @@ func TestEndSessionAndApplyRecon(t *testing.T) {
 	}
 }
 
+func TestEndSessionPreservesExistingReviewProgress(t *testing.T) {
+	ws := testWS()
+	ended := time.Now().UTC()
+	session := domain.SessionRecord{ID: "sit-1", Title: "Sit 1", Scope: ws.Scope, EndedAt: &ended,
+		Entries: []domain.TranscriptEntry{{ID: "e1", Text: "Keep this note."}}}
+	ws, recon, err := EndSession(ws, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err = DeferRecon(ws, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.Reconciliations[0].Items[0].Mutation.Text = "Edited owner text"
+	ws, repeated, err := EndSession(ws, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated.ID != recon.ID || repeated.Items[0].Status != domain.ReconDeferred || repeated.Items[0].Mutation.Text != "Edited owner text" {
+		t.Fatalf("repeated end reset review progress: %#v", repeated)
+	}
+}
+
+func TestDeferReconIsIdempotentAndCanLaterApply(t *testing.T) {
+	ws := testWS()
+	ws.Sessions = []domain.SessionRecord{{ID: "sit-1", Title: "Sit", Scope: ws.Scope}}
+	ws.Reconciliations = []domain.ReconciliationRecord{{ID: "recon", SessionID: "sit-1", Items: []domain.ReconciliationItem{{ID: "item", Status: domain.ReconPending}}}}
+	var err error
+	ws, err = DeferRecon(ws, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err = DeferRecon(ws, 0, 0)
+	if err != nil || ws.Reconciliations[0].Items[0].Status != domain.ReconDeferred {
+		t.Fatalf("repeat defer = %q, %v", ws.Reconciliations[0].Items[0].Status, err)
+	}
+	ws, err = ApplyRecon(ws, 0, 0)
+	if err != nil || ws.Reconciliations[0].Items[0].Status != domain.ReconApproved {
+		t.Fatalf("apply deferred = %q, %v", ws.Reconciliations[0].Items[0].Status, err)
+	}
+}
+
+func TestRejectReconIsIdempotentAndPreservesTranscript(t *testing.T) {
+	ws := testWS()
+	ws.Sessions = []domain.SessionRecord{{ID: "sit-1", Entries: []domain.TranscriptEntry{{ID: "entry-1", Text: "Immutable evidence"}}}}
+	ws.Reconciliations = []domain.ReconciliationRecord{{ID: "recon", SessionID: "sit-1", Items: []domain.ReconciliationItem{{ID: "item", Status: domain.ReconDeferred}}}}
+
+	var err error
+	ws, err = RejectRecon(ws, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err = RejectRecon(ws, 0, 0)
+	if err != nil {
+		t.Fatalf("repeat reject: %v", err)
+	}
+	if got := ws.Reconciliations[0].Items[0].Status; got != domain.ReconRejected {
+		t.Fatalf("status=%q", got)
+	}
+	if got := ws.Sessions[0].Entries[0].Text; got != "Immutable evidence" {
+		t.Fatalf("reject changed transcript to %q", got)
+	}
+}
+
+func TestEditReconMutationSupportsDeferredItemsAndValidatesInput(t *testing.T) {
+	ws := testWS()
+	ws.Reconciliations = []domain.ReconciliationRecord{{ID: "recon", Items: []domain.ReconciliationItem{{
+		ID: "item", Status: domain.ReconDeferred, Mutation: domain.Mutation{Text: "Original"},
+	}}}}
+
+	updated, err := EditReconMutation(ws, 0, 0, "Owner wording")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Reconciliations[0].Items[0].Mutation.Text; got != "Owner wording" {
+		t.Fatalf("mutation text=%q", got)
+	}
+	if _, err := EditReconMutation(updated, 0, 0, ""); err == nil {
+		t.Fatal("expected empty mutation text to be rejected")
+	}
+	updated.Reconciliations[0].Items[0].Status = domain.ReconApproved
+	if _, err := EditReconMutation(updated, 0, 0, "Too late"); err == nil {
+		t.Fatal("expected decided item edit to be rejected")
+	}
+}
+
 func TestDeleteAndSupersedeRecord(t *testing.T) {
 	ws := testWS()
 	ws, err := SupersedeRecord(ws, "npc-vale")

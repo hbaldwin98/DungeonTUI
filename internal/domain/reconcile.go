@@ -16,6 +16,11 @@ const (
 	ReconDeferred ReconciliationStatus = "deferred"
 )
 
+// ReconciliationUnresolved reports whether an item still requires an owner decision.
+func ReconciliationUnresolved(status ReconciliationStatus) bool {
+	return status == ReconPending || status == ReconDeferred
+}
+
 // ReconciliationKind classifies what the DM is reviewing.
 type ReconciliationKind string
 
@@ -159,7 +164,10 @@ func ApproveItem(item ReconciliationItem, records []Record) (ReconciliationItem,
 // ApplyReconItem applies an editable sourced mutation to wiki records and marks
 // the item approved. It refuses non-pending items and never rewrites transcripts.
 func ApplyReconItem(item ReconciliationItem, records []Record, session SessionRecord) (ReconciliationItem, []Record, error) {
-	if item.Status != ReconPending {
+	if item.Status == ReconApproved {
+		return item, records, nil
+	}
+	if !ReconciliationUnresolved(item.Status) {
 		return item, records, fmt.Errorf("item %q is %s", item.ID, item.Status)
 	}
 	if item.Mutation.Op == "" && item.Kind == "" {
