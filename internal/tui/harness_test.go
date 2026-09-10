@@ -174,7 +174,8 @@ func TestSessionPanelsKeepBottomBorders(t *testing.T) {
 		t.Fatalf("fill failed: %s", strings.Join(errs, "; "))
 	}
 	// Clipped MaxHeight used to eat lower borders, gluing panes together.
-	bottomBorders := strings.Count(frame.Plain, "╰")
+	// Count either corner so the guard survives a change of border style.
+	bottomBorders := strings.Count(frame.Plain, "└") + strings.Count(frame.Plain, "╰")
 	if bottomBorders < 3 {
 		t.Fatalf("expected closed borders for upper/transcript/input panes, found %d:\n%s", bottomBorders, frame.Plain)
 	}

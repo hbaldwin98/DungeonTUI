@@ -2396,7 +2396,7 @@ func TestLinkPreviewClickOutsideDismisses(t *testing.T) {
 	}
 }
 
-func TestPreviewOverlayHasBorderAndSurface(t *testing.T) {
+func TestPreviewOverlayHasBorderAndNoBackgroundPaint(t *testing.T) {
 	model := New()
 	model.width = 100
 	model.height = 36
@@ -2418,12 +2418,19 @@ func TestPreviewOverlayHasBorderAndSurface(t *testing.T) {
 	if len(lines) < 3 {
 		t.Fatalf("preview frame too short: %q", stripped)
 	}
+	top := lines[0]
+	if !strings.ContainsAny(top, "╔═┌─") {
+		t.Fatalf("expected a top border, first line %q", top)
+	}
 	bottom := lines[len(lines)-1]
-	if !strings.ContainsAny(bottom, "╚═┘═") {
+	if !strings.ContainsAny(bottom, "╚═┘─") {
 		t.Fatalf("expected a bottom border, last line %q", bottom)
 	}
-	if !strings.Contains(frame, "48;2;31;35;53") {
-		t.Fatalf("expected surface background on preview text, got %q", frame)
+	// Color is reserved for authority, state, warning, and focus: painting a
+	// surface behind the overlay caused terminal artifacts, so the frame must
+	// carry no background at all.
+	if strings.Contains(frame, "\x1b[48;2;") {
+		t.Fatalf("preview must not paint a background, got %q", frame)
 	}
 }
 
