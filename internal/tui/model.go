@@ -765,12 +765,20 @@ func (m Model) updateContextPaneKey(msg tea.KeyPressMsg) Model {
 		m.contextCursor = clamp(m.contextCursor-1, 0, max(0, len(m.sessionContextItems())-1))
 	case "enter":
 		m.activateContextCursor()
+	case "p":
+		if m.review != nil {
+			m.reviewPinned = !m.reviewPinned
+		}
+	case "esc", "x":
+		m.review = nil
+		m.reviewPinned = false
 	}
 	return m
 }
 
 func isSessionContextKey(key string) bool {
-	return key == "j" || key == "down" || key == "k" || key == "up" || key == "enter"
+	return key == "j" || key == "down" || key == "k" || key == "up" || key == "enter" ||
+		key == "p" || key == "esc" || key == "x"
 }
 
 func (m Model) updateSessionInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
@@ -2716,9 +2724,9 @@ func (m Model) View() tea.View {
 		header := m.renderHeader(contentWidth)
 		bodyHeight := max(1, m.height-2)
 		body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-		help := "? help · j/k · Tab · f/o filters · Enter · n/e/p/s · d · b · / · q"
+		help := "/ search   n new   Enter open   ? commands"
 		if len(m.browserHistory) > 0 {
-			help += " · Backspace back"
+			help = "Backspace back   " + help
 		}
 		if m.status != "" {
 			help = m.status + "  ·  " + help
@@ -2781,7 +2789,7 @@ func (m Model) sessionView() tea.View {
 	}
 	transcript := m.panelStyleFor(prefs.PaneTranscript).Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
 	input := m.panelStyleFor(prefs.PaneInput).Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitPanelBody(m.renderSessionInput(), panelInnerWidth(width), panelInnerHeight(inputHeight)))
-	help := "? help · click pane · Tab · @/$/# · Enter capture · Ctrl+E end"
+	help := "Enter capture   / search   Tab pane   ? commands"
 	footer := footerStyle.Width(width).Render(help)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
@@ -3126,7 +3134,6 @@ func (m Model) renderSearchOverlay() string {
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
 	)
 }
 
@@ -3143,7 +3150,6 @@ func (m Model) renderCollectionNameOverlay() string {
 	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
 	)
 }
 
@@ -3239,7 +3245,6 @@ func (m Model) renderReconciliationOverlay() string {
 	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
 	)
 }
 

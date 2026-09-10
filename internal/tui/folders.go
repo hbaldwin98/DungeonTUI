@@ -358,7 +358,6 @@ func (m Model) renderFolderNameOverlay() string {
 	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
 	)
 }
 

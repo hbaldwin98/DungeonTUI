@@ -394,21 +394,10 @@ func TestSessionMouseSuggestionPinAndCampaignSection(t *testing.T) {
 		t.Fatal("accepted suggestion should open review")
 	}
 
-	var pin hitTarget
-	found = false
-	for _, hit := range h.Model.sessionHitTargets() {
-		if hit.Action == hitPinReview {
-			pin = hit
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected pin control")
-	}
-	h.Click(pin.MinX, pin.MinY)
+	h.Model.setSessionFocus(prefs.PaneContext)
+	h.Key("p")
 	if !h.Model.reviewPinned {
-		t.Fatal("pin click should pin review")
+		t.Fatal("p should pin the selected review")
 	}
 	h.SetSessionDraft("@Father")
 	h.Model.refreshSuggestions()
@@ -416,21 +405,9 @@ func TestSessionMouseSuggestionPinAndCampaignSection(t *testing.T) {
 		t.Fatal("pinned review should survive @ resolution")
 	}
 
-	var clear hitTarget
-	found = false
-	for _, hit := range h.Model.sessionHitTargets() {
-		if hit.Action == hitClearReview {
-			clear = hit
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected clear control")
-	}
-	h.Click(clear.MinX, clear.MinY)
+	h.Key("x")
 	if h.Model.review != nil || h.Model.reviewPinned {
-		t.Fatal("clear should remove review")
+		t.Fatal("x should clear the selected review")
 	}
 
 	var npcSection hitTarget

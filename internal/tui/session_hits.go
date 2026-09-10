@@ -287,15 +287,12 @@ func (m Model) contextContentLines() []contentLine {
 	}
 
 	if m.review != nil {
-		pinLabel := "pin"
+		state := "SELECTED"
 		if m.reviewPinned {
-			pinLabel = "unpin"
+			state += " · PINNED"
 		}
-		prefix := "SELECTED  ["
-		pinX := len(prefix)
-		clearX := pinX + len(pinLabel) + len("] [")
 		lines = append(lines,
-			contentLine{Text: prefix + pinLabel + "] [clear]", PinX: pinX, ClearX: clearX},
+			contentLine{Text: state, PinX: -1, ClearX: -1},
 			contentLine{Text: m.review.Title, PinX: -1, ClearX: -1},
 			contentLine{Text: "", PinX: -1, ClearX: -1},
 		)

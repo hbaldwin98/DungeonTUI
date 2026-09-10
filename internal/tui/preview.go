@@ -29,7 +29,7 @@ type previewBuf struct {
 }
 
 func surface(style lipgloss.Style) lipgloss.Style {
-	return style.Background(colorSurface)
+	return style
 }
 
 func previewFill() lipgloss.Style {
@@ -492,7 +492,6 @@ func (m Model) previewFrame() string {
 	builder.WriteString(surface(mutedStyle).Render("j/k scroll  Enter follow  Esc return"))
 
 	frame := searchPanelStyle.
-		BorderBackground(colorSurface).
 		Width(width).
 		Render(builder.String())
 	m.preview.frameHop = hop
@@ -514,7 +513,6 @@ func (m Model) renderPreviewOverlay(background string) string {
 	if background == "" {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 			lipgloss.WithWhitespaceChars(" "),
-			lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
 		)
 	}
 	base := lipgloss.NewLayer(background).X(0).Y(0).Z(0)

@@ -81,7 +81,7 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.session != nil:
 		return [][]string{
-			{"Session", "Enter capture", "Shift+Enter newline", "/ search · @ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "prep pane j/k · PgUp/PgDn · Home/End", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
+			{"Session", "Enter capture", "Shift+Enter newline", "/ search · @ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "context p pin · x clear", "prep pane j/k · PgUp/PgDn · Home/End", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
 		}
 	default:
 		return [][]string{
@@ -112,6 +112,5 @@ func (m Model) renderHelpOverlay() string {
 	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("#24283B"))),
 	)
 }

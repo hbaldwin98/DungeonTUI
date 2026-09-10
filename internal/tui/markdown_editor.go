@@ -17,9 +17,9 @@ const markdownEditorMaxLines = 10000
 func dungeonTextAreaStyles() textarea.Styles {
 	styles := textarea.DefaultDarkStyles()
 	styles.Focused = textarea.StyleState{
-		Base:             lipgloss.NewStyle().Background(colorSurface).Foreground(colorText),
+		Base:             lipgloss.NewStyle().Foreground(colorText),
 		Text:             lipgloss.NewStyle().Foreground(colorText),
-		CursorLine:       lipgloss.NewStyle().Background(lipgloss.Color("#292E42")),
+		CursorLine:       lipgloss.NewStyle(),
 		CursorLineNumber: lipgloss.NewStyle().Foreground(colorAccent),
 		LineNumber:       lipgloss.NewStyle().Foreground(colorMuted),
 		Placeholder:      lipgloss.NewStyle().Foreground(colorMuted),
@@ -150,7 +150,6 @@ func renderFullScreenEditor(termWidth, termHeight int, chrome, body, help string
 		Width(max(1, termWidth)).
 		Height(bodyHeight).
 		MaxHeight(bodyHeight).
-		Background(colorSurface).
 		Render(fitLines(body, bodyHeight))
 	content := lipgloss.JoinVertical(lipgloss.Left, chrome, framed, footer)
 	return appStyle.
