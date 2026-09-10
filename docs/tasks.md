@@ -47,6 +47,9 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
 - `/` searches the wiki, prep, sessions, and transcripts during live capture and
   inspects hits in a read-only overlay without ending the sit (Argus #95;
   D-043).
+- `internal/fivecli` runs the external `5e` binary over its `--json` boundary
+  and reports typed setup diagnostics; the integration is optional and degrades
+  to a typed unavailable state (Argus #96; D-044).
 - Entity create/edit uses a single markdown document (`type:` / `# Title` /
   summary / body) instead of form fields (Argus #33).
 - Close focused type/session panes with `-`; delete and supersede require `y`

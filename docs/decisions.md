@@ -356,3 +356,24 @@ navigating the browser, and `Enter`, `Esc`, or `q` in that preview returns
 directly to capture with the input refocused. Reconciliation results are refused
 with an explanatory status because reviewing them requires leaving the session.
 Inspection never ends capture, so a table question no longer costs the sit.
+
+## D-044 — 5e-cli is an external data plane reached over its JSON boundary
+
+Dungeon still ships no mechanical ruleset (D-029). Mechanical lookup is
+delegated to the separate `5e` binary, invoked as a subprocess with `--json` by
+`internal/fivecli`, so neither tool vendors the other's store and both stay
+independently installable. MCP remains available later for agent tool use.
+
+The adapter is optional by construction. A workstation without `5e` gets a
+typed `ErrUnavailable`, never a crash, and `Adapter.Status` collapses an absent
+binary and a misconfigured one into a single reportable state.
+
+`5e doctor --json` exits nonzero while still printing a complete diagnostic
+body, so a nonzero exit is not treated as failure on its own: the body is
+decoded when present, and an `ExitError` carrying stderr is returned only when
+the tool produced no JSON to interpret. A tool that is installed but not
+ingested is a diagnosis to report, not an error to raise.
+
+Every run is bounded by a timeout and a `WaitDelay`, because killing the
+subprocess does not close output pipes a grandchild still holds; without the
+delay a wedged lookup outlives its own deadline and blocks the TUI.

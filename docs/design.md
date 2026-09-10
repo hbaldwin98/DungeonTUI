@@ -732,7 +732,9 @@ and search live in `workspace.sqlite` (D-024). JSON is the portable export and
 the migrate-from format for older `workspace.json` files. Owner markdown FILES
 become wiki `Record`s. Published 5e.tools adventures cache as read-only
 reference books, never campaign canon. There is no mechanical 5e ruleset
-plugin in this app (D-029). Optional embeddings for AI retrieval must not
+plugin in this app (D-029); mechanical lookup is delegated to the external
+`5e` binary over its JSON boundary by `internal/fivecli`, which stays optional
+and reports typed setup diagnostics (D-044). Optional embeddings for AI retrieval must not
 change domain or TUI code. Cached embeddings are derived operational data and
 are not required to reconstruct canon. Portability does not require every
 internal record to be a Markdown file.
