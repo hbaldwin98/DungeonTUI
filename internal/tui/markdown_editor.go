@@ -6,10 +6,13 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/DungeonTUI/internal/domain"
 )
+
+const markdownEditorMaxLines = 10000
 
 func dungeonTextAreaStyles() textarea.Styles {
 	styles := textarea.DefaultDarkStyles()
@@ -36,13 +39,28 @@ func newMarkdownTextArea(width, height int) textarea.Model {
 	ta.Prompt = ""
 	ta.ShowLineNumbers = true
 	ta.CharLimit = 0
-	ta.MaxHeight = 0
+	// Bubbles derives the gutter width from MaxHeight. Match its hard line
+	// limit so line-number digit changes never shift the document text.
+	ta.MaxHeight = markdownEditorMaxLines
 	ta.MaxWidth = 0
 	ta.SetStyles(dungeonTextAreaStyles())
 	// Ctrl+T is reserved for cycling entity type in the entity editor.
 	ta.KeyMap.TransposeCharacterBackward = key.NewBinding()
 	sizeMarkdownTextArea(&ta, width, height)
 	return ta
+}
+
+func insertMarkdownText(ta *textarea.Model, msg tea.KeyPressMsg) bool {
+	if msg.Text == "" || msg.Code == tea.KeyTab || ta.HasSelection() {
+		return false
+	}
+	// Let Update handle a key that may move the cursor onto another visual
+	// row; it owns viewport content and can scroll that new row into view.
+	if ta.LineInfo().CharOffset+lipgloss.Width(msg.Text) >= ta.Width()-1 {
+		return false
+	}
+	ta.InsertString(msg.Text)
+	return true
 }
 
 func sizeMarkdownTextArea(ta *textarea.Model, termWidth, termHeight int) {

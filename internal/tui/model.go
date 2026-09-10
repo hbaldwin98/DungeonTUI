@@ -2120,6 +2120,10 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 	}
+	if insertMarkdownText(&model.editBody, msg) {
+		model.refreshEditorSuggestions()
+		return model, nil
+	}
 	var cmd tea.Cmd
 	model.editBody, cmd = model.editBody.Update(msg)
 	model.refreshEditorSuggestions()
@@ -2627,25 +2631,30 @@ func (m Model) View() tea.View {
 	}
 
 	contentWidth := max(1, m.width)
-	header := m.renderHeader(contentWidth)
-	bodyHeight := max(1, m.height-2)
-	body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
-	help := "? help · j/k · Tab · f/o filters · Enter · n/e/p/s · d · b · / · q"
-	if len(m.browserHistory) > 0 {
-		help += " · Backspace back"
+	view := ""
+	if m.editing {
+		view = m.renderEditorOverlay()
+	} else {
+		header := m.renderHeader(contentWidth)
+		bodyHeight := max(1, m.height-2)
+		body := m.renderBrowserTree(m.layout.Browser.Root, contentWidth, bodyHeight, 0, 1, nil)
+		help := "? help · j/k · Tab · f/o filters · Enter · n/e/p/s · d · b · / · q"
+		if len(m.browserHistory) > 0 {
+			help += " · Backspace back"
+		}
+		if m.status != "" {
+			help = m.status + "  ·  " + help
+		}
+		footer := footerStyle.
+			Width(contentWidth).
+			Render(help)
+		content := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+		view = appStyle.
+			Width(contentWidth).
+			Height(max(1, m.height)).
+			MaxHeight(max(1, m.height)).
+			Render(content)
 	}
-	if m.status != "" {
-		help = m.status + "  ·  " + help
-	}
-	footer := footerStyle.
-		Width(contentWidth).
-		Render(help)
-	content := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
-	view := appStyle.
-		Width(contentWidth).
-		Height(max(1, m.height)).
-		MaxHeight(max(1, m.height)).
-		Render(content)
 
 	if m.searching {
 		view = m.renderSearchOverlay()
@@ -2653,12 +2662,8 @@ func (m Model) View() tea.View {
 		view = m.renderFolderNameOverlay()
 	} else if m.namingCollection {
 		view = m.renderCollectionNameOverlay()
-	} else if m.editing {
-		view = m.renderEditorOverlay()
 	} else if m.planning {
 		view = m.renderPlannedNotesOverlay()
-	} else if m.preview != nil {
-		view = m.renderPreviewOverlay(view)
 	} else if m.playingBack {
 		view = m.renderPlaybackOverlay()
 	} else if m.reconciling {

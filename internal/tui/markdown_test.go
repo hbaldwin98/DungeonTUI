@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/hbaldwin98/DungeonTUI/internal/domain"
@@ -274,6 +275,211 @@ func resetMarkdownCacheForTest() {
 	markdownFailed = false
 	markdownCache = [markdownCacheCapacity]markdownCacheEntry{}
 	markdownNext = 0
+}
+
+func TestMarkdownTextAreaLineNumbersKeepTextAligned(t *testing.T) {
+	ta := newMarkdownTextArea(80, 24)
+	ta.SetValue(strings.Repeat("marker\n", 9) + "marker")
+
+	lines := strings.Split(testANSI.ReplaceAllString(ta.View(), ""), "\n")
+	if len(lines) < 10 {
+		t.Fatalf("textarea rendered %d lines, want at least 10", len(lines))
+	}
+	ninth := strings.Index(lines[8], "marker")
+	tenth := strings.Index(lines[9], "marker")
+	if ninth < 0 || tenth < 0 {
+		t.Fatalf("marker missing from rendered lines 9 and 10: %q / %q", lines[8], lines[9])
+	}
+	if ninth != tenth {
+		t.Fatalf("line-number gutter shifted text: line 9 starts at %d, line 10 at %d", ninth, tenth)
+	}
+}
+
+func TestInsertMarkdownTextKeepsCursorVisible(t *testing.T) {
+	model := New()
+	model.width = 40
+	model.height = 12
+	model.editing = true
+	model.editBody = newMarkdownTextArea(model.width, model.height)
+	model.editBody.SetValue(strings.Repeat("line\n", 20))
+	_ = model.editBody.View()
+	model.editBody.MoveToEnd()
+	model.editBody.Focus()
+	before := model.editBody.ScrollYOffset()
+
+	for range 80 {
+		updated, _ := model.updateEditor(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+		model = updated.(Model)
+		_ = model.View()
+	}
+
+	if !strings.HasSuffix(model.editBody.Value(), strings.Repeat("x", 80)) {
+		t.Fatal("direct insertion lost repeated input")
+	}
+	if model.editBody.ScrollYOffset() <= before {
+		t.Fatalf("viewport offset stayed at %d after cursor wrapped below it", before)
+	}
+}
+
+func TestInsertMarkdownTextMatchesTextAreaEditingBehavior(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     string
+		key       tea.KeyPressMsg
+		selectAll bool
+		fast      bool
+	}{
+		{name: "plain text", value: "field note", key: tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}), fast: true},
+		{name: "wide text", value: "field note", key: tea.KeyPressMsg(tea.Key{Code: '界', Text: "界"}), fast: true},
+		{name: "soft wrap", value: strings.Repeat("x", 32), key: tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"})},
+		{name: "selection", value: "replace me", key: tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}), selectAll: true},
+		{name: "tab", value: "field note", key: tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Text: "\t"})},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			optimized := newMarkdownTextArea(40, 12)
+			expected := newMarkdownTextArea(40, 12)
+			optimized.SetValue(test.value)
+			expected.SetValue(test.value)
+			optimized.MoveToEnd()
+			expected.MoveToEnd()
+			optimized.Focus()
+			expected.Focus()
+			if test.selectAll {
+				optimized.SelectAll()
+				expected.SelectAll()
+			}
+
+			fast := insertMarkdownText(&optimized, test.key)
+			if fast != test.fast {
+				t.Fatalf("fast path=%v, want %v", fast, test.fast)
+			}
+			if !fast {
+				optimized, _ = optimized.Update(test.key)
+			}
+			expected, _ = expected.Update(test.key)
+
+			if optimized.Value() != expected.Value() || optimized.Line() != expected.Line() || optimized.Column() != expected.Column() {
+				t.Fatalf("optimized edit differs: value=%q line=%d column=%d; want value=%q line=%d column=%d",
+					optimized.Value(), optimized.Line(), optimized.Column(), expected.Value(), expected.Line(), expected.Column())
+			}
+		})
+	}
+}
+
+func TestUpdateEditorRoutesEditingControls(t *testing.T) {
+	t.Run("escape cancels", func(t *testing.T) {
+		model := editorTestModel()
+		updated, _ := model.updateEditor(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+		model = updated.(Model)
+		if model.editing || model.status != "Cancelled edit" {
+			t.Fatalf("editing=%v status=%q", model.editing, model.status)
+		}
+	})
+
+	t.Run("type cycles", func(t *testing.T) {
+		model := editorTestModel()
+		before := model.editType
+		updated, _ := model.updateEditor(tea.KeyPressMsg(tea.Key{Code: 't', Mod: tea.ModCtrl}))
+		model = updated.(Model)
+		if model.editType == before || !strings.Contains(model.editBody.Value(), "type: "+string(model.editType)) {
+			t.Fatalf("type did not cycle in markdown: type=%q body=%q", model.editType, model.editBody.Value())
+		}
+	})
+
+	t.Run("suggestions navigate and accept", func(t *testing.T) {
+		model := editorTestModel()
+		first := model.workspace.Records[0]
+		second := model.workspace.Records[1]
+		model.editBody.SetValue("Meet @")
+		model.suggestions = []Suggestion{
+			{Label: first.Title, Insert: "@" + first.Title + " ", Record: &first},
+			{Label: second.Title, Insert: "@" + second.Title + " ", Record: &second},
+		}
+		updated, _ := model.updateEditor(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+		model = updated.(Model)
+		if model.suggestion != 1 || model.peek == nil || model.peek.ID != second.ID {
+			t.Fatalf("down did not select second suggestion: index=%d peek=%#v", model.suggestion, model.peek)
+		}
+		updated, _ = model.updateEditor(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+		model = updated.(Model)
+		if model.suggestion != 0 {
+			t.Fatalf("up did not select first suggestion: %d", model.suggestion)
+		}
+		updated, _ = model.updateEditor(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+		model = updated.(Model)
+		if model.editBody.Value() != "Meet @"+first.Title+" " {
+			t.Fatalf("tab did not accept suggestion: body=%q", model.editBody.Value())
+		}
+	})
+
+	t.Run("preview opens and scrolls", func(t *testing.T) {
+		model := editorTestModel()
+		record := model.workspace.Records[0]
+		record.Body = strings.Repeat("preview line\n", 30)
+		model.peek = &record
+		updated, _ := model.updateEditor(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+		model = updated.(Model)
+		if model.preview == nil || model.preview.Hop.RecordID != record.ID {
+			t.Fatalf("ctrl+o did not open preview: %#v", model.preview)
+		}
+		model.preview = nil
+		updated, _ = model.updateEditor(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+		model = updated.(Model)
+		if model.peekScroll == 0 {
+			t.Fatal("page down did not scroll the editor peek")
+		}
+		updated, _ = model.updateEditor(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
+		model = updated.(Model)
+		if model.peekScroll != 0 {
+			t.Fatalf("page up did not restore peek scroll: %d", model.peekScroll)
+		}
+	})
+}
+
+func editorTestModel() Model {
+	model := New()
+	model.width = 80
+	model.height = 24
+	model.editing = true
+	model.editType = domain.Note
+	model.editBody = newMarkdownTextArea(model.width, model.height)
+	model.editBody.SetValue("type: NOTE\n\n# Field Note\n")
+	model.editBody.MoveToEnd()
+	model.editBody.Focus()
+	return model
+}
+
+func TestEditorViewSkipsBrowserChrome(t *testing.T) {
+	model := editorTestModel()
+	plain := testANSI.ReplaceAllString(model.View().Content, "")
+	if !strings.Contains(plain, "EDIT ENTITY") {
+		t.Fatalf("editor view missing editor chrome: %q", plain)
+	}
+	if strings.Contains(plain, "CAMPAIGN") {
+		t.Fatalf("editor view leaked browser chrome: %q", plain)
+	}
+}
+
+func BenchmarkEditorKeypressLargeEntity(b *testing.B) {
+	model := New()
+	model.width = 120
+	model.height = 36
+	model.editing = true
+	model.editBody = newMarkdownTextArea(model.width, model.height)
+	model.editBody.SetValue(strings.Repeat("A field note with no active reference.\n", 500))
+	model.editBody.MoveToEnd()
+	model.editBody.Focus()
+	key := tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		updated, _ := model.updateEditor(key)
+		model = updated.(Model)
+		_ = model.View()
+	}
 }
 
 func BenchmarkRenderDetailLargeBody(b *testing.B) {
