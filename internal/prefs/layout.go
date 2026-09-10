@@ -86,8 +86,22 @@ type Layout struct {
 	// have to relaunch the TUI through a wrapper.
 	FiveCLIBinary string `json:"fivecli_binary,omitempty"`
 
+	// Preset names the task preset last applied; empty means the owner's own
+	// layout. PresetTrees remembers the owner's ratios per preset, and
+	// Previous holds the hand-built layout from before the first preset so
+	// RestoreLayout can undo it.
+	Preset      string               `json:"preset,omitempty"`
+	PresetTrees map[Preset]SplitTree `json:"preset_trees,omitempty"`
+	Previous    *PresetStash         `json:"previous_layout,omitempty"`
+
 	// ImportHarness is unused. Kept so older preferences.json still load.
 	ImportHarness string `json:"import_harness,omitempty"`
+}
+
+// PresetStash is a full pair of trees kept for RestoreLayout.
+type PresetStash struct {
+	Browser SplitTree `json:"browser"`
+	Session SplitTree `json:"session"`
 }
 
 // SplitTree is a rooted pane graph for one workspace mode.

@@ -44,6 +44,7 @@ type Model struct {
 	store              storage.Store
 	prefs              prefs.Store
 	status             string
+	statusSeq          uint64 // advances each time status changes; see trackStatus
 	editing            bool
 	creating           bool
 	editID             string
@@ -276,7 +277,18 @@ func (m Model) Init() tea.Cmd {
 	return nil
 }
 
+// Update routes every message and then lets trackStatus time any status the
+// message produced, so status feedback expires without per-call-site timers.
 func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if msg, ok := message.(statusExpireMsg); ok {
+		return m.expireStatus(msg)
+	}
+	before := m.status
+	next, cmd := m.update(message)
+	return trackStatus(before, next, cmd)
+}
+
+func (m Model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case toolsCatalogMsg:
 		return m.handleToolsCatalog(msg)
@@ -2932,12 +2944,9 @@ func (m Model) View() tea.View {
 		if trail := m.browserTrailLabel(); trail != "" {
 			help = trail + "   " + help
 		}
-		if m.status != "" {
-			help = m.status + "  ·  " + help
-		}
 		footer := footerStyle.
 			Width(contentWidth).
-			Render(help)
+			Render(footerWithStatus(m.status, help, contentWidth))
 		content := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 		view = appStyle.
 			Width(contentWidth).
@@ -2997,7 +3006,7 @@ func (m Model) sessionView() tea.View {
 	transcript := m.panelStyleFor(prefs.PaneTranscript).Width(width).Height(transcriptHeight).MaxHeight(transcriptHeight).Render(m.renderTranscript(transcriptHeight))
 	input := m.panelStyleFor(prefs.PaneInput).Width(width).Height(inputHeight).MaxHeight(inputHeight).Render(fitPanelBody(m.renderSessionInput(), panelInnerWidth(width), panelInnerHeight(inputHeight)))
 	help := "Enter capture   Ctrl+N note   / search   Tab pane   ? commands"
-	footer := footerStyle.Width(width).Render(help)
+	footer := footerStyle.Width(width).Render(footerWithStatus(m.status, help, width))
 	content := lipgloss.JoinVertical(lipgloss.Left, header, upper, transcript, input, footer)
 	view := appStyle.Width(width).Height(max(1, m.height)).MaxHeight(max(1, m.height)).Render(content)
 	if m.preview != nil {

@@ -92,14 +92,14 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.session != nil:
 		return [][]string{
-			{"Session", "Enter capture", "Ctrl+N unclassified quick capture", "Shift+Enter newline", "/ search · @ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "context p pin · x clear", "prep pane j/k beats · ↑/↓ or PgUp/PgDn scroll · d done · x skip", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
+			{"Session", "Enter capture", "Ctrl+N unclassified quick capture", "Shift+Enter newline", "/ search · @ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "context p pin · x clear", "prep pane j/k beats · ↑/↓ or PgUp/PgDn scroll · d done · x skip", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane", "layout presets live in : from the browser"},
 		}
 	default:
 		return [][]string{
 			{"Browser", ": search commands", "Ctrl+N quick capture (: files it)", "j/k move", "←/→ or Tab panes", "detail PgUp/PgDn scroll · j/k select links", "Enter preview · Enter again follow / playback / expand source folder", "detail scan: why now · last seen · connected · what changed · details",
 				": mark thread advancing / open / dormant / resolved · state: line in the editor",
 				"Link rows show why they appear", "n new · e edit · I import", "p prep · s live", "d delete · x supersede", "m session folder", "f tag · c collection · g new collection · a add", "o scope · b library · / search",
-				"Backspace or Alt+← back · Alt+→ forward · PATH shows the trail", "Sources: chapters in the list · Enter expands names · detail shows that slice", "@ peeks wiki then enabled adventure reference", "r reconcile · q quit"},
+				"Backspace or Alt+← back · Alt+→ forward · PATH shows the trail", "Sources: chapters in the list · Enter expands names · detail shows that slice", "@ peeks wiki then enabled adventure reference", ": Layout Browse / Prep / Run / Review · : restore my layout", "r reconcile · q quit"},
 		}
 	}
 }

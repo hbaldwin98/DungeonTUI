@@ -74,7 +74,19 @@ func (m *Model) closeCommandPalette(restoreHelp bool) {
 	}
 }
 
+// paletteCommands adds the layout presets to the browser context. They stay
+// out of the transient overlays, where changing the workspace behind the
+// overlay would be surprising.
 func (m Model) paletteCommands() []paletteCommand {
+	commands := m.basePaletteCommands()
+	switch m.commandContext() {
+	case commandPicker, commandPreview, commandPlayback, commandReconciliation:
+		return commands
+	}
+	return append(commands, m.presetCommands()...)
+}
+
+func (m Model) basePaletteCommands() []paletteCommand {
 	help := paletteCommand{ID: "help.open", Label: "Show keyboard reference", Aliases: "shortcuts keys"}
 	capture := paletteCommand{ID: "capture.new", Label: "Capture a quick note", Aliases: "inbox thought idea jot", Enabled: m.canQuickCapture(), Reason: "Open a world or campaign first"}
 	switch m.commandContext() {
@@ -272,6 +284,14 @@ func (m Model) executePaletteSelection() (tea.Model, tea.Cmd) {
 type paletteCommandExecutor func(Model) (tea.Model, tea.Cmd)
 
 func paletteCommandExecutors() map[string]paletteCommandExecutor {
+	executors := basePaletteCommandExecutors()
+	for id, execute := range presetExecutors() {
+		executors[id] = execute
+	}
+	return executors
+}
+
+func basePaletteCommandExecutors() map[string]paletteCommandExecutor {
 	return map[string]paletteCommandExecutor{
 		"help.open":    func(m Model) (tea.Model, tea.Cmd) { m.helping = true; return m, nil },
 		"capture.new":  func(m Model) (tea.Model, tea.Cmd) { return m.openQuickCapture() },
