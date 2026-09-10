@@ -14,6 +14,7 @@ import (
 type NavKind string
 
 const (
+	NavHome     NavKind = "home"
 	NavSessions NavKind = "sessions"
 	NavPrep     NavKind = "prep"
 	NavSources  NavKind = "sources"
@@ -42,6 +43,7 @@ func campaignTreeEntries() []navEntry {
 		{Kind: NavType, Type: domain.Event, Label: "Timeline"},
 		{Kind: NavType, Type: domain.Rule, Label: "Rules"},
 		{Kind: NavType, Type: domain.Note, Label: "Knowledge"},
+		{Kind: NavHome, Label: "Home"},
 	}
 }
 
@@ -75,6 +77,8 @@ func (m *Model) setNavCursor(index int) {
 	m.selectedHitName = ""
 	m.selectedChapter = ""
 	switch entry.Kind {
+	case NavHome:
+		m.typeFilter = ""
 	case NavType:
 		m.typeFilter = entry.Type
 		rows := m.recordTreeRows()
@@ -441,6 +445,8 @@ func (m Model) renderListPane(maxRows int) string {
 	builder.WriteString("\n\n")
 
 	switch entry.Kind {
+	case NavHome:
+		return m.renderHomeActions()
 	case NavSessions:
 		rows := m.sessionTreeRows()
 		if len(rows) == 0 {
@@ -590,6 +596,8 @@ func (m Model) renderTreeDetail() string {
 func (m Model) renderTreeDetailWidth(width int) string {
 	entry := m.currentNav()
 	switch entry.Kind {
+	case NavHome:
+		return m.renderCampaignHome()
 	case NavSessions:
 		if m.selectedSessionID == "" {
 			return m.renderSessionFolderDetail(m.selectedFolderPath)

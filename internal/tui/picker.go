@@ -53,6 +53,12 @@ func (m *Model) enterScope(scope domain.Scope) {
 	m.navKind = ""
 	m.planID = ""
 	m.ensureBrowserSelection()
+	for index, entry := range m.navEntries() {
+		if entry.Kind == NavHome {
+			m.setNavCursor(index)
+			break
+		}
+	}
 	m.attachReferences()
 	m.rebuildSearch()
 	m.refreshResults()
@@ -88,6 +94,8 @@ func (m *Model) enterDemoCampaign() {
 		scope = m.workspace.Scope
 	}
 	m.enterScope(scope)
+	m.navKind = ""
+	m.ensureBrowserSelection()
 }
 
 func (m Model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

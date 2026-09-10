@@ -1409,6 +1409,8 @@ func (m Model) activateBrowserSelection() (tea.Model, tea.Cmd) {
 		}
 	}
 	switch m.currentNav().Kind {
+	case NavHome:
+		return m.activateHomeAction(m.cursor)
 	case NavPrep:
 		return m.activatePrepSelection()
 	case NavSessions:
@@ -1487,6 +1489,13 @@ func (m *Model) moveBrowserCursor(delta int) {
 	}
 	if m.usesCampaignTree() && (m.layout.Focus == prefs.PaneList || m.layout.Focus == prefs.PaneDetail) {
 		switch m.currentNav().Kind {
+		case NavHome:
+			actions := m.homeActions()
+			if len(actions) == 0 {
+				return
+			}
+			m.cursor = clamp(m.cursor+delta, 0, len(actions)-1)
+			return
 		case NavSessions:
 			rows := m.sessionTreeRows()
 			if len(rows) == 0 {
@@ -2040,6 +2049,13 @@ func (m Model) updateMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		case prefs.PaneDetail:
 			return m, nil
 		case prefs.PaneList:
+			if len(region.HomeRows) > 0 {
+				if index >= 0 && index < len(region.HomeRows) {
+					m.cursor = index
+					return m.activateHomeAction(index)
+				}
+				return m, nil
+			}
 			if len(region.SessionTree) > 0 {
 				if index >= 0 && index < len(region.SessionTree) {
 					m.cursor = index

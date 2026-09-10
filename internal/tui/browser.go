@@ -21,6 +21,7 @@ type browserRegion struct {
 	SessionTree []domain.SessionTreeRow
 	PlanRows    []domain.PlannedNotes
 	SourceRows  []sourceListRow
+	HomeRows    []homeAction
 	Offset      int // Y offset of first record row within the pane content
 	WindowStart int
 	RecordTree  []domain.RecordTreeRow
@@ -242,6 +243,8 @@ func (m *Model) setBrowserFocus(pane prefs.Pane) {
 				return
 			}
 			m.syncSourceListCursor()
+		case NavHome:
+			m.cursor = clamp(m.cursor, 0, len(m.homeActions())-1)
 		default:
 			rows := m.recordTreeRows()
 			if len(rows) == 0 {
@@ -447,6 +450,8 @@ func (m Model) renderBrowserLeaf(pane prefs.Pane, width, height, originX, origin
 				Offset: originY + 4,
 			}
 			switch m.currentNav().Kind {
+			case NavHome:
+				region.HomeRows = m.homeActions()
 			case NavSessions:
 				region.SessionTree = m.sessionTreeRows()
 			case NavPrep:
