@@ -3202,7 +3202,15 @@ func (m Model) renderDetailWidth(width int) string {
 	builder.WriteString(authorityStyle(record.Authority).Render(record.Authority.Marker() + " " + record.Authority.Label()))
 	builder.WriteString("\n")
 	builder.WriteString(detailTitleStyle.Render(record.Title))
-	builder.WriteString("\n\n")
+	builder.WriteString("\n")
+	// Authority notices sit directly under the title because they change how
+	// the body below them should be read. Everything else about provenance
+	// waits for the DETAILS block at the end.
+	if notice := entityAuthorityNotice(*record); notice != "" {
+		builder.WriteString(notice)
+		builder.WriteString("\n")
+	}
+	builder.WriteString("\n")
 	if record.Summary != "" {
 		builder.WriteString(m.renderMarkdown(record.Summary, width))
 		builder.WriteString("\n\n")
@@ -3210,37 +3218,30 @@ func (m Model) renderDetailWidth(width int) string {
 	if record.Body != "" {
 		builder.WriteString(m.renderMarkdown(stripRedundantTitleHeading(record.Body, record.Title), width))
 		builder.WriteString("\n\n")
+	} else if record.Summary == "" {
+		builder.WriteString(mutedStyle.Render("No description yet · e edits this entity"))
+		builder.WriteString("\n\n")
 	}
-	builder.WriteString(labelStyle.Render("SCOPE"))
-	builder.WriteString("  " + entityScopeLabel(record.Scope) + "\n")
-	if len(record.Tags) > 0 {
-		builder.WriteString(labelStyle.Render("TAGS"))
-		builder.WriteString("  #" + strings.Join(record.Tags, "  #") + "\n")
-	}
-	if cols := domain.CollectionsContaining(m.workspace.Collections, m.workspace.Scope, record.ID); len(cols) > 0 {
-		names := make([]string, 0, len(cols))
-		for _, col := range cols {
-			names = append(names, col.Title)
-		}
-		builder.WriteString(labelStyle.Render("COLLECTIONS"))
-		builder.WriteString("  " + strings.Join(names, "  ·  ") + "\n")
-	}
-	builder.WriteString(labelStyle.Render("SOURCE"))
-	builder.WriteString(" " + record.Source + "\n")
-
-	if record.IsAIContent {
-		builder.WriteString("\n")
-		builder.WriteString(proposalWarningStyle.Render("AI-GENERATED · NOT FACTUAL · REQUIRES DM APPROVAL"))
-	}
-
-	if record.Authority == domain.Draft {
-		builder.WriteString("\n")
-		builder.WriteString(draftNoticeStyle.Render("DRAFT ENTITY · EDITABLE · NOT YET CANON"))
-	}
-
-	builder.WriteString("\n")
-	builder.WriteString(m.renderEntityGraph(*record))
+	builder.WriteString(m.renderEntityBriefSections(*record))
 	return builder.String()
+}
+
+// entityAuthorityNotice states an explicit AI, draft, or reference-only state.
+func entityAuthorityNotice(record domain.Record) string {
+	switch {
+	case record.IsAIContent:
+		return proposalWarningStyle.Render("AI-GENERATED · NOT FACTUAL · REQUIRES DM APPROVAL")
+	case record.Authority == domain.Proposal:
+		return proposalWarningStyle.Render("AI PROPOSAL · NOT CANON UNTIL YOU ACCEPT IT")
+	case record.Authority == domain.Draft:
+		return draftNoticeStyle.Render("DRAFT ENTITY · EDITABLE · NOT YET CANON")
+	case record.Authority == domain.Reference:
+		return mutedStyle.Render("IMPORTED REFERENCE · READ-ONLY SOURCE MATERIAL · NOT CAMPAIGN CANON")
+	case record.Authority == domain.Superseded:
+		return mutedStyle.Render("SUPERSEDED · KEPT FOR HISTORY · NOT CURRENT")
+	default:
+		return ""
+	}
 }
 
 func entityScopeLabel(scope domain.Scope) string {

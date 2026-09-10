@@ -1938,10 +1938,10 @@ func TestEntityCoherenceBacklinksHistoryAndPeek(t *testing.T) {
 		}
 	}
 	detail := model.renderDetail()
-	if !strings.Contains(detail, "LINKED") || !strings.Contains(detail, "session ·") {
+	if !strings.Contains(detail, "CONNECTED") || !strings.Contains(detail, "session ·") {
 		t.Fatalf("expected backlinks section: %q", detail)
 	}
-	if !strings.Contains(detail, "HISTORY") {
+	if !strings.Contains(detail, "WHAT CHANGED") {
 		t.Fatalf("expected history section: %q", detail)
 	}
 	model.layout.Focus = prefs.PaneDetail
@@ -2075,7 +2075,7 @@ func TestWikiMentionsFollowAndBreak(t *testing.T) {
 	}
 	model.layout.Focus = prefs.PaneDetail
 	detail := model.renderDetail()
-	if !strings.Contains(detail, "REFERENCES") || !strings.Contains(detail, "Father Merrow") {
+	if !strings.Contains(detail, "CONNECTED") || !strings.Contains(detail, "Father Merrow") {
 		t.Fatalf("expected outgoing wiki ref: %q", detail)
 	}
 	if !strings.Contains(detail, "wiki ·") {

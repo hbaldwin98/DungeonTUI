@@ -111,7 +111,32 @@ func (m Model) wikiDetailHops() []detailHop {
 	for _, row := range domain.EntitySessionHistory(m.workspace, record.ID) {
 		hops = append(hops, detailHop{Kind: hopHistory, Section: "history", Label: row.Title, Relation: "session history", SessionID: row.SessionID, EntryID: historyEntryID(row)})
 	}
-	return hops
+	return orderWikiHops(hops, record.Type)
+}
+
+// orderWikiHops puts the hops in the same order the detail pane renders them,
+// so j/k walks the pane top to bottom whichever scan order the type uses.
+func orderWikiHops(hops []detailHop, entityType domain.EntityType) []detailHop {
+	groups := map[domain.EntityBriefSection][]string{
+		domain.BriefConnected: {"ref", "linked"},
+		domain.BriefChanged:   {"history"},
+	}
+	out := make([]detailHop, 0, len(hops))
+	for _, section := range domain.EntityBriefOrder(entityType) {
+		for _, group := range groups[section] {
+			for _, hop := range hops {
+				if hop.Section == group {
+					out = append(out, hop)
+				}
+			}
+		}
+	}
+	if len(out) != len(hops) {
+		// A section this function does not know about must never silently
+		// drop its hops.
+		return hops
+	}
+	return out
 }
 
 func historyEntryID(row domain.SessionHistoryRow) string {
@@ -382,104 +407,4 @@ func recordByID(records []domain.Record, id string) (domain.Record, bool) {
 		}
 	}
 	return domain.Record{}, false
-}
-
-func (m Model) renderEntityGraph(record domain.Record) string {
-	hops := m.wikiDetailHops()
-	history := domain.EntitySessionHistory(m.workspace, record.ID)
-	historyByID := map[string]domain.SessionHistoryRow{}
-	for _, row := range history {
-		historyByID[row.SessionID] = row
-	}
-	var builder strings.Builder
-	builder.WriteString(labelStyle.Render("REFERENCES"))
-	builder.WriteString("\n")
-	wroteRef := false
-	for index, hop := range hops {
-		if hop.Section != "ref" {
-			continue
-		}
-		wroteRef = true
-		if hop.Kind == hopBroken {
-			builder.WriteString(m.renderHopLineWithRelation(index, hop.Prefix, hop.Label, hop.Relation, true))
-		} else {
-			builder.WriteString(m.renderHopLineWithRelation(index, hop.Prefix, hop.Label, hop.Relation, false))
-		}
-		builder.WriteRune('\n')
-	}
-	if !wroteRef {
-		builder.WriteString(mutedStyle.Render("  — no @ mentions in this record"))
-		builder.WriteRune('\n')
-	}
-
-	builder.WriteString("\n")
-	builder.WriteString(labelStyle.Render("LINKED"))
-	builder.WriteString("\n")
-	wroteLinked := false
-	for index, hop := range hops {
-		if hop.Section != "linked" {
-			continue
-		}
-		wroteLinked = true
-		builder.WriteString(m.renderHopLineWithRelation(index, hop.Prefix, hop.Label, hop.Relation, hop.Kind == hopBroken))
-		builder.WriteRune('\n')
-	}
-	if !wroteLinked {
-		builder.WriteString(mutedStyle.Render("  — no backlinks yet"))
-		builder.WriteRune('\n')
-	}
-
-	builder.WriteString("\n")
-	builder.WriteString(labelStyle.Render("HISTORY"))
-	builder.WriteString("\n")
-	wroteHistory := false
-	for index, hop := range hops {
-		if hop.Section != "history" {
-			continue
-		}
-		wroteHistory = true
-		row, ok := historyByID[hop.SessionID]
-		stamp := ""
-		parts := make([]string, 0, 3)
-		if ok {
-			stamp = row.StartedAt.Local().Format("2006-01-02") + " · "
-			if row.Associated {
-				parts = append(parts, "cast")
-			}
-			if row.TranscriptHits > 0 {
-				parts = append(parts, fmt.Sprintf("%d @", row.TranscriptHits))
-			}
-			if row.ReconItems > 0 {
-				parts = append(parts, fmt.Sprintf("%d recon", row.ReconItems))
-			}
-		}
-		expand := ""
-		showEvents := ok && len(row.Events) > 0 && m.layout.Focus == prefs.PaneDetail && index == m.historyCursor
-		if showEvents {
-			expand = " ▼"
-		} else if ok && len(row.Events) > 0 {
-			expand = " ▸"
-		}
-		meta := hop.Label
-		if len(parts) > 0 {
-			meta += " · " + strings.Join(parts, ", ")
-		}
-		builder.WriteString(m.renderHopLineWithRelation(index, stamp, meta+expand, hop.Relation, false))
-		builder.WriteRune('\n')
-		if showEvents {
-			for _, event := range row.Events {
-				builder.WriteString(mutedStyle.Render("      · " + event.Summary))
-				builder.WriteString("\n")
-			}
-		}
-	}
-	if !wroteHistory {
-		builder.WriteString(mutedStyle.Render("  — no session history yet"))
-		builder.WriteRune('\n')
-	}
-	if m.layout.Focus == prefs.PaneDetail {
-		builder.WriteString(mutedStyle.Render("j/k select · Enter preview · Enter again follow"))
-		builder.WriteRune('\n')
-	}
-	return builder.String()
 }
