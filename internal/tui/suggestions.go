@@ -166,11 +166,8 @@ func renderSuggestionList(suggestions []Suggestion, selected int) string {
 
 func (m Model) entitySuggestions(query string) []Suggestion {
 	out := make([]Suggestion, 0, 5)
-	for _, record := range m.workspace.Records {
+	for _, record := range m.operationalRecords() {
 		if record.Authority == domain.Proposal {
-			continue
-		}
-		if !m.recordInListScope(record) {
 			continue
 		}
 		if query != "" && !strings.Contains(strings.ToLower(record.Title), query) {

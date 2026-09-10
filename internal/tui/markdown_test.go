@@ -182,6 +182,7 @@ func TestRenderMarkdownRetainsFinalOutputsAndCurrentMentionStyle(t *testing.T) {
 		ID:        "cache-target",
 		Title:     "Cache Target",
 		Authority: domain.Canon,
+		Scope:     resolvedModel.workspace.Scope,
 	})
 	resolved := resolvedModel.renderMarkdown(mentionSource, 48)
 	if broken == resolved {

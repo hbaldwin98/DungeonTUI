@@ -33,11 +33,12 @@ func (m Model) helpSections() [][]string {
 		return [][]string{
 			{"Planned notes", "Tab title/body", "Ctrl+S save", "Ctrl+P prior sits", "@ / #location · peek · Ctrl+O preview", "Esc cancel"},
 		}
-	case m.session != nil:
-		return [][]string{
-			{"Session", "Enter capture", "Shift+Enter newline", "@ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "prep pane j/k · PgUp/PgDn · Home/End", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
-		}
 	case m.preview != nil:
+		if m.session != nil {
+			return [][]string{
+				{"Live inspection", "j/k or PgUp/PgDn scroll", "Enter, Esc, or q returns to capture"},
+			}
+		}
 		return [][]string{
 			{"Link preview", "j/k or PgUp/PgDn scroll", "Enter again follow in navigator", "Esc or q return to the list", "Click [open] or [close] · click outside dismisses"},
 		}
@@ -76,7 +77,11 @@ func (m Model) helpSections() [][]string {
 		}
 	case m.searching:
 		return [][]string{
-			{"Search", "Type to filter wiki, prep, sessions, notes, recon", "↑↓ select", "Enter open", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},
+			{"Search", "Type to filter wiki, prep, sessions, notes, recon", "↑↓ select", "Enter inspect", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},
+		}
+	case m.session != nil:
+		return [][]string{
+			{"Session", "Enter capture", "Shift+Enter newline", "/ search · @ / $ / # suggest · peek · Ctrl+O preview", "Tab cycle panes", "prep pane j/k · PgUp/PgDn · Home/End", "Ctrl+E end", "Ctrl+P upper panes", "- close upper pane"},
 		}
 	default:
 		return [][]string{

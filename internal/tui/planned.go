@@ -189,13 +189,7 @@ func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
 	if notes.CreatedAt.IsZero() {
 		notes.CreatedAt = now
 	}
-	visible := make([]domain.Record, 0, len(m.workspace.Records))
-	for _, record := range m.workspace.Records {
-		if domain.RecordVisibleIn(record, m.workspace.Scope, m.workspace.EnabledSourceIDs(m.workspace.Scope)) {
-			visible = append(visible, record)
-		}
-	}
-	notes = notes.RefreshPlannedLinks(visible)
+	notes = notes.RefreshPlannedLinks(m.operationalRecords())
 	if err := notes.Validate(); err != nil {
 		m.status = err.Error()
 		return m, nil

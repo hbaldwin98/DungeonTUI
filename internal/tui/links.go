@@ -265,7 +265,7 @@ func (m Model) hopMarker(index int) (cursor string, style lipgloss.Style) {
 }
 
 func (m Model) renderProseWithMentions(text string) string {
-	mentions := domain.MentionsIn(text, m.workspace.Records)
+	mentions := m.resolveMentions(text)
 	if len(mentions) == 0 {
 		return text
 	}

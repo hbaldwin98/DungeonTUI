@@ -139,9 +139,12 @@ func (m Model) resolveReferenceAtCursor(line string, col int) *domain.Record {
 		return nil
 	}
 	remaining := line[start+1:]
+	if remaining == "" {
+		return nil
+	}
 	var best *domain.Record
 	bestLen := 0
-	for _, record := range m.campaignRecords() {
+	for _, record := range m.operationalRecords() {
 		title := record.Title
 		if title == "" {
 			continue
@@ -160,7 +163,7 @@ func (m Model) resolveReferenceAtCursor(line string, col int) *domain.Record {
 		refEnd := start + 1 + len(title)
 		if refEnd < len(line) {
 			next := line[refEnd]
-			if !isTokenBoundary(next) && next != ',' && next != ';' && next != '.' && next != '!' && next != '?' {
+			if !isReferenceEndBoundary(next) {
 				continue
 			}
 		}
@@ -183,6 +186,10 @@ func (m Model) resolveReferenceAtCursor(line string, col int) *domain.Record {
 		return &rec
 	}
 	return nil
+}
+
+func isReferenceEndBoundary(value byte) bool {
+	return isTokenBoundary(value) || strings.ContainsRune(",;.?!", rune(value))
 }
 
 func (m Model) renderPeekPanel(maxLines int) string {

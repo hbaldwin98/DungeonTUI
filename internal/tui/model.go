@@ -320,6 +320,12 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.reconciling {
 			return m.updateReconciliation(msg)
 		}
+		if m.searching {
+			if msg.String() == "?" {
+				return m.openHelp()
+			}
+			return m.updateSearch(msg)
+		}
 		if m.session != nil {
 			if msg.String() == "?" {
 				return m.openHelp()
@@ -332,13 +338,6 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.namingCollection {
 			return m.updateCollectionName(msg)
 		}
-		if m.searching {
-			if msg.String() == "?" {
-				return m.openHelp()
-			}
-			return m.updateSearch(msg)
-		}
-
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -456,11 +455,17 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.restoreBrowserLocation()
 		}
 	case tea.MouseClickMsg:
+		if m.preview != nil || m.searching {
+			return m.updateMouseClick(msg)
+		}
 		if m.session != nil {
 			return m.updateSessionMouseClick(msg)
 		}
 		return m.updateMouseClick(msg)
 	case tea.MouseWheelMsg:
+		if m.preview != nil || m.searching {
+			return m.updateMouseWheel(msg)
+		}
 		if m.session != nil {
 			m.setSessionFocus(prefs.PaneTranscript)
 			var cmd tea.Cmd
@@ -506,6 +511,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) startSession() (tea.Model, tea.Cmd) {
 	started := time.Now().UTC()
+	if m.review != nil && m.operationalRecordByID(m.review.ID) == nil {
+		m.review = nil
+	}
 	session := domain.SessionRecord{
 		ID:        fmt.Sprintf("session-%d", started.UnixNano()),
 		Title:     "Session " + started.Format("2006-01-02 15:04"),
@@ -520,11 +528,24 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 		session.PlannedNotesID = plan.ID
 		already := domain.SessionsSeededFrom(m.workspace.Sessions, plan.ID)
 		session.Title = domain.NextSitTitle(plan.Title, len(already), started)
-		if plan.LocationID != "" || plan.LocationName != "" {
-			session.LocationID = plan.LocationID
-			session.LocationName = plan.LocationName
+		if location := m.operationalRecordByID(plan.LocationID); location != nil && location.Type == domain.Location {
+			session.LocationID = location.ID
+			session.LocationName = location.Title
+		} else if location := m.findLocation(plan.LocationName); location != nil {
+			session.LocationID = location.ID
+			session.LocationName = location.Title
 		}
-		session = session.SeedLinksFrom(*plan)
+		planReviewSet := false
+		for _, link := range plan.Links {
+			if record := m.operationalRecordByID(link.RecordID); record != nil {
+				session = session.Associate(link)
+				if !planReviewSet {
+					candidate := *record
+					m.review = &candidate
+					planReviewSet = true
+				}
+			}
+		}
 	}
 	if session.LocationID == "" && session.LocationName == "" {
 		if location := m.defaultSessionLocation(); location != nil {
@@ -543,18 +564,6 @@ func (m Model) startSession() (tea.Model, tea.Cmd) {
 	m.refreshTranscriptViewport()
 	m.refreshSuggestions()
 	if plan != nil {
-		for _, link := range plan.Links {
-			for index := range m.workspace.Records {
-				if m.workspace.Records[index].ID == link.RecordID {
-					record := m.workspace.Records[index]
-					m.review = &record
-					break
-				}
-			}
-			if m.review != nil {
-				break
-			}
-		}
 		m.status = "Live from planned notes · " + session.Title + " · Ctrl+E ends"
 	} else {
 		m.status = "Session started · click panes to focus · Ctrl+E ends capture"
@@ -610,6 +619,9 @@ func (m Model) updateSessionLeadingKey(msg tea.KeyPressMsg, focus prefs.Pane) (t
 		return m, nil, true
 	}
 	switch msg.String() {
+	case "/":
+		next, cmd := m.openSearch()
+		return next, cmd, true
 	case "ctrl+e":
 		next, cmd := m.endSession()
 		return next, cmd, true
@@ -891,7 +903,7 @@ func (m *Model) activateCampaignCursor() {
 		return
 	}
 	entityType := items[clamp(m.campaignCursor, 0, len(items)-1)]
-	for _, record := range m.campaignRecords() {
+	for _, record := range m.operationalRecords() {
 		if record.Type == entityType && record.Authority != domain.Proposal {
 			candidate := record
 			m.review = &candidate
@@ -1799,7 +1811,7 @@ func (m Model) resolveReference(text string) *domain.Record {
 	query = strings.TrimRight(query, ".,!?;:")
 	var best *domain.Record
 	bestScore := 0
-	for _, record := range m.campaignRecords() {
+	for _, record := range m.operationalRecords() {
 		title := strings.ToLower(record.Title)
 		needle := strings.ToLower(query)
 		score := 0
@@ -1842,7 +1854,7 @@ func (m Model) resolveLinks(text string) []domain.EntityLink {
 		}
 		var best *domain.Record
 		bestLen := 0
-		for _, record := range m.campaignRecords() {
+		for _, record := range m.operationalRecords() {
 			title := record.Title
 			if title == "" || !strings.HasPrefix(strings.ToLower(remaining), strings.ToLower(title)) {
 				continue
@@ -1881,6 +1893,9 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.searching = false
 		m.searchInput.Blur()
+		if m.session != nil {
+			m.setSessionFocus(m.sessionFocus())
+		}
 		return m, nil
 	case "ctrl+s":
 		m.searchScope = (m.searchScope + 1) % 3
@@ -1921,6 +1936,9 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) openSearch() (tea.Model, tea.Cmd) {
 	m.searching = true
 	m.selected = 0
+	if m.session != nil {
+		m.sessionInput.Blur()
+	}
 	m.searchInput.Focus()
 	m.refreshResults()
 	return m, textinput.Blink
@@ -2345,7 +2363,7 @@ func (m Model) applyHit(hit hitTarget) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		for _, record := range m.campaignRecords() {
+		for _, record := range m.operationalRecords() {
 			if record.Type == hit.EntityType && record.Authority != domain.Proposal {
 				candidate := record
 				m.review = &candidate
@@ -2407,6 +2425,9 @@ func (m *Model) refreshResults() {
 }
 
 func (m Model) openSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {
+	if m.session != nil {
+		return m.openLiveSearchResult(result)
+	}
 	m.searching = false
 	m.searchInput.Blur()
 	switch result.Kind {
@@ -2437,6 +2458,40 @@ func (m Model) openSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) openLiveSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {
+	hop, ok := m.searchResultPreviewHop(result)
+	if !ok {
+		m.status = "End live capture before reviewing reconciliation"
+		return m, nil
+	}
+	m.searching = false
+	m.searchInput.Blur()
+	m.openPreview(hop)
+	return m, nil
+}
+
+func (m Model) searchResultPreviewHop(result searchsvc.Result) (detailHop, bool) {
+	switch result.Kind {
+	case searchsvc.KindPrep:
+		return detailHop{Kind: hopPrep, Label: result.DisplayTitle(), PlanID: result.TargetID()}, true
+	case searchsvc.KindSession:
+		return detailHop{Kind: hopSession, Label: result.DisplayTitle(), SessionID: result.TargetID()}, true
+	case searchsvc.KindTranscript:
+		return detailHop{Kind: hopHistory, Label: result.DisplayTitle(), SessionID: result.SessionID, EntryID: result.TargetID()}, true
+	case searchsvc.KindRecon:
+		return detailHop{}, false
+	}
+	record, ok := m.lookupAny(result.TargetID())
+	if !ok {
+		return detailHop{}, false
+	}
+	kind := hopWiki
+	if fivetools.IsReferenceID(record.ID) {
+		kind = hopReference
+	}
+	return detailHop{Kind: kind, Label: record.Title, RecordID: record.ID}, true
+}
+
 func (m Model) openReconAt(id string) (tea.Model, tea.Cmd) {
 	for index, recon := range m.workspace.Reconciliations {
 		if recon.ID == id {
@@ -2452,13 +2507,30 @@ func (m Model) visibleRecords() []domain.Record {
 	return m.scopedRecords(true)
 }
 
-func (m Model) campaignRecords() []domain.Record {
-	return m.scopedRecords(false)
+func (m Model) operationalRecords() []domain.Record {
+	records := make([]domain.Record, 0, len(m.workspace.Records))
+	enabled := m.workspace.EnabledSourceIDs(m.workspace.Scope)
+	for _, record := range m.workspace.Records {
+		if domain.RecordVisibleIn(record, m.workspace.Scope, enabled) {
+			records = append(records, record)
+		}
+	}
+	return records
+}
+
+func (m Model) operationalRecordByID(id string) *domain.Record {
+	for _, record := range m.operationalRecords() {
+		if record.ID == id {
+			candidate := record
+			return &candidate
+		}
+	}
+	return nil
 }
 
 func (m Model) defaultSessionLocation() *domain.Record {
 	var fallback *domain.Record
-	for _, record := range m.campaignRecords() {
+	for _, record := range m.operationalRecords() {
 		if record.Type != domain.Location || record.Authority == domain.Proposal {
 			continue
 		}
@@ -2477,7 +2549,7 @@ func (m Model) sessionLocationRecord() *domain.Record {
 	if m.session == nil || m.session.LocationID == "" {
 		return nil
 	}
-	for _, record := range m.campaignRecords() {
+	for _, record := range m.operationalRecords() {
 		if record.ID == m.session.LocationID {
 			candidate := record
 			return &candidate
@@ -2493,7 +2565,7 @@ func (m Model) findLocation(query string) *domain.Record {
 	}
 	var best *domain.Record
 	bestScore := 0
-	for _, record := range m.campaignRecords() {
+	for _, record := range m.operationalRecords() {
 		if record.Type != domain.Location || record.Authority == domain.Proposal {
 			continue
 		}
@@ -2527,12 +2599,12 @@ func (m Model) sessionPresent() []domain.Record {
 	}
 	present := make([]domain.Record, 0, len(m.session.Links))
 	seen := map[string]bool{}
+	records := m.operationalRecords()
 	for _, link := range m.session.Links {
 		if link.RecordID == "" || seen[link.RecordID] {
 			continue
 		}
-		for index := range m.workspace.Records {
-			record := m.workspace.Records[index]
+		for _, record := range records {
 			if record.ID != link.RecordID {
 				continue
 			}
@@ -2557,7 +2629,7 @@ func (m Model) sessionPlannedNotes() *domain.PlannedNotes {
 
 func (m Model) sessionThreads() []domain.Record {
 	threads := make([]domain.Record, 0)
-	for _, record := range m.campaignRecords() {
+	for _, record := range m.operationalRecords() {
 		if record.Type != domain.Thread || record.Authority == domain.Proposal {
 			continue
 		}
@@ -2581,7 +2653,7 @@ func (m Model) sessionContextItems() []domain.Record {
 
 func (m Model) countByType(entityType domain.EntityType) int {
 	count := 0
-	for _, record := range m.campaignRecords() {
+	for _, record := range m.operationalRecords() {
 		if record.Type == entityType && record.Authority != domain.Proposal {
 			count++
 		}
@@ -2627,7 +2699,13 @@ func (m Model) View() tea.View {
 		return result
 	}
 	if m.session != nil {
-		return m.sessionView()
+		result := m.sessionView()
+		if m.searching {
+			result.Content = m.renderSearchOverlay()
+		} else if m.preview != nil {
+			result.Content = m.renderPreviewOverlay(result.Content)
+		}
+		return result
 	}
 
 	contentWidth := max(1, m.width)
@@ -3037,7 +3115,11 @@ func (m Model) renderSearchOverlay() string {
 	}
 
 	builder.WriteString("\n")
-	builder.WriteString(helpStyle.Render("Ctrl+S scope  Ctrl+A include AI  ↑/↓ select  Enter open  Esc close"))
+	footer := "Ctrl+S scope  Ctrl+A include AI  ↑/↓ select  Enter open  Esc close"
+	if m.session != nil {
+		footer = "Ctrl+S scope  Ctrl+A include AI  ↑/↓ select  Enter inspect  Esc back to capture"
+	}
+	builder.WriteString(helpStyle.Render(footer))
 	overlay := searchPanelStyle.
 		Width(width).
 		Render(builder.String())

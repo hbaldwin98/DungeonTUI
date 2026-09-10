@@ -435,13 +435,16 @@ func TestReconciliationCiteRollsBackWhenPersistenceFails(t *testing.T) {
 	}
 }
 
-func TestPlannedLinksDoNotResolveAcrossCampaigns(t *testing.T) {
+func TestPlannedLinksUseOperationalScope(t *testing.T) {
 	ws := demoWorkspace()
 	ws.Records = append(ws.Records, domain.Record{
 		ID: "foreign-vale", Type: domain.NPC, Title: "Foreign Vale", Aliases: []string{"Captain Vale"},
 		Authority: domain.Canon, Scope: domain.Scope{WorldID: "barovia", WorldName: "Barovia", CampaignID: "curse-of-strahd", Campaign: "Curse of Strahd"},
 	})
 	model := newModel(ws, nil, nil)
+	model.listScope = searchsvc.EntireLibrary
+	model.tagFilter = "does-not-exist"
+	model.collectionFilter = "missing-collection"
 	updatedModel, _ := model.openPlannedNotes(true)
 	model = updatedModel.(Model)
 	model.planTitle.SetValue("Scoped prep")
@@ -452,8 +455,8 @@ func TestPlannedLinksDoNotResolveAcrossCampaigns(t *testing.T) {
 		t.Fatalf("plans = %#v", model.workspace.PlannedNotes)
 	}
 	link := model.workspace.PlannedNotes[len(model.workspace.PlannedNotes)-1].Links[0]
-	if link.RecordID == "foreign-vale" {
-		t.Fatalf("resolved foreign campaign record: %#v", link)
+	if link.RecordID != "npc-captain-vale" {
+		t.Fatalf("planned link ignored operational scope: %#v", link)
 	}
 }
 
@@ -1141,6 +1144,169 @@ func TestTagAndScopeFiltersNarrowBrowserList(t *testing.T) {
 	model = updated.(Model)
 	if model.listScope != searchsvc.CurrentWorld {
 		t.Fatalf("expected world scope after o, got %v", model.listScope)
+	}
+}
+
+func TestOperationalRecordsIgnoreBrowserFilters(t *testing.T) {
+	model := New()
+	baselineNPCs := model.countByType(domain.NPC)
+	baselineThreads := len(model.sessionThreads())
+	baselineLocation := model.defaultSessionLocation()
+	if baselineLocation == nil {
+		t.Fatal("fixture should provide a default session location")
+	}
+	model.listScope = searchsvc.EntireLibrary
+	model.tagFilter = "does-not-exist"
+	model.collectionFilter = "missing-collection"
+
+	if records := model.visibleRecords(); len(records) != 0 {
+		t.Fatalf("browser filters should hide all records, got %#v", records)
+	}
+	if got := model.countByType(domain.NPC); got != baselineNPCs {
+		t.Fatalf("browser filters changed operational NPC count: got %d want %d", got, baselineNPCs)
+	}
+	if got := len(model.sessionThreads()); got != baselineThreads {
+		t.Fatalf("browser filters changed session threads: got %d want %d", got, baselineThreads)
+	}
+	if location := model.defaultSessionLocation(); location == nil || location.ID != baselineLocation.ID {
+		t.Fatalf("browser filters changed default session location: %#v", location)
+	}
+	if location := model.findLocation(baselineLocation.Title); location == nil || location.ID != baselineLocation.ID {
+		t.Fatalf("browser filters changed location lookup: %#v", location)
+	}
+	model.session = &domain.SessionRecord{LocationID: baselineLocation.ID}
+	if location := model.sessionLocationRecord(); location == nil || location.ID != baselineLocation.ID {
+		t.Fatalf("browser filters changed session location: %#v", location)
+	}
+	links := model.resolveLinks("@Captain Vale enters")
+	if len(links) != 1 || links[0].RecordID != "npc-captain-vale" {
+		t.Fatalf("filtered campaign record did not resolve: %#v", links)
+	}
+	suggestions := model.entitySuggestions("captain")
+	if len(suggestions) == 0 || suggestions[0].Record == nil || suggestions[0].Record.ID != "npc-captain-vale" {
+		t.Fatalf("filtered campaign record was absent from suggestions: %#v", suggestions)
+	}
+	if record := model.resolveReference("Review @Captain Vale."); record == nil || record.ID != "npc-captain-vale" {
+		t.Fatalf("browser filters changed live reference resolution: %#v", record)
+	}
+	if record := model.resolveReferenceAtCursor("Review @Captain Vale.", len("Review @Captain")); record == nil || record.ID != "npc-captain-vale" {
+		t.Fatalf("browser filters changed cursor reference resolution: %#v", record)
+	}
+	model.review = nil
+	model.campaignCursor = 0 // NPC
+	model.activateCampaignCursor()
+	if model.review == nil || model.review.ID != "npc-captain-vale" {
+		t.Fatalf("browser filters changed campaign keyboard selection: %#v", model.review)
+	}
+	model.review = nil
+	updated, _ := model.applyHit(hitTarget{Action: hitCampaignType, EntityType: domain.NPC})
+	model = updated.(Model)
+	if model.review == nil || model.review.ID != "npc-captain-vale" {
+		t.Fatalf("browser filters changed campaign mouse selection: %#v", model.review)
+	}
+}
+
+func TestOperationalRecordsExcludeForeignCampaignRecords(t *testing.T) {
+	model := New()
+	foreign := domain.Record{
+		ID: "foreign-oracle", Type: domain.NPC, Title: "Foreign Oracle", Authority: domain.Canon,
+		Scope: domain.Scope{WorldID: model.workspace.Scope.WorldID, WorldName: model.workspace.Scope.WorldName, CampaignID: "other-campaign", Campaign: "Other Campaign"},
+	}
+	foreignLocation := foreign
+	foreignLocation.ID = "foreign-location"
+	foreignLocation.Type = domain.Location
+	foreignLocation.Title = "Foreign Keep"
+	foreignLocation.Tags = []string{"current-scene"}
+	foreignThread := foreign
+	foreignThread.ID = "foreign-thread"
+	foreignThread.Type = domain.Thread
+	foreignThread.Title = "Foreign Plot"
+	model.workspace.Records = append(model.workspace.Records, foreign, foreignLocation, foreignThread)
+	model.listScope = searchsvc.CurrentWorld
+	model.typeFilter = ""
+
+	visible := 0
+	for _, record := range model.visibleRecords() {
+		if record.ID == foreign.ID || record.ID == foreignLocation.ID || record.ID == foreignThread.ID {
+			visible++
+		}
+	}
+	if visible != 3 {
+		t.Fatalf("world browser should display all foreign-campaign records, got %d", visible)
+	}
+	for _, record := range model.operationalRecords() {
+		if record.Scope.CampaignID == "other-campaign" {
+			t.Fatalf("foreign-campaign record leaked into operational scope: %#v", record)
+		}
+	}
+	if record := model.resolveReference("Review @Foreign Oracle"); record != nil {
+		t.Fatalf("foreign-campaign record resolved for live review: %#v", record)
+	}
+	if record := model.resolveReferenceAtCursor("Review @Foreign Oracle", len("Review @Foreign")); record != nil {
+		t.Fatalf("foreign-campaign record resolved at cursor: %#v", record)
+	}
+	if links := model.resolveLinks("@Foreign Oracle appears"); len(links) != 0 {
+		t.Fatalf("foreign-campaign record resolved in transcript: %#v", links)
+	}
+	if suggestions := model.entitySuggestions("foreign oracle"); len(suggestions) != 0 {
+		t.Fatalf("foreign-campaign record appeared in suggestions: %#v", suggestions)
+	}
+	mentions := model.resolveMentions("Ask @Foreign Oracle")
+	if len(mentions) != 1 || mentions[0].RecordID != "" {
+		t.Fatalf("foreign-campaign prose mention should remain unresolved: %#v", mentions)
+	}
+	wantStyle := New().renderProseWithMentions("Ask @Foreign Oracle")
+	if got := model.renderProseWithMentions("Ask @Foreign Oracle"); got != wantStyle {
+		t.Fatal("foreign-campaign prose mention was styled as resolved")
+	}
+	if location := model.findLocation("Foreign Keep"); location != nil {
+		t.Fatalf("foreign-campaign location was found operationally: %#v", location)
+	}
+	model.session = &domain.SessionRecord{
+		LocationID: foreignLocation.ID,
+		Links:      []domain.EntityLink{{Text: foreign.Title, RecordID: foreign.ID}},
+	}
+	if location := model.sessionLocationRecord(); location != nil {
+		t.Fatalf("foreign-campaign location leaked into current scene: %#v", location)
+	}
+	if present := model.sessionPresent(); len(present) != 0 {
+		t.Fatalf("foreign-campaign cast leaked into session: %#v", present)
+	}
+	for _, thread := range model.sessionThreads() {
+		if thread.ID == foreignThread.ID {
+			t.Fatalf("foreign-campaign thread leaked into session: %#v", thread)
+		}
+	}
+}
+
+func TestStartSessionIgnoresForeignPlannedContext(t *testing.T) {
+	model := New()
+	foreignScope := domain.Scope{
+		WorldID: model.workspace.Scope.WorldID, WorldName: model.workspace.Scope.WorldName,
+		CampaignID: "other-campaign", Campaign: "Other Campaign",
+	}
+	foreignNPC := domain.Record{ID: "foreign-npc", Type: domain.NPC, Title: "Foreign NPC", Authority: domain.Canon, Scope: foreignScope}
+	foreignLocation := domain.Record{ID: "foreign-place", Type: domain.Location, Title: "Foreign Place", Authority: domain.Canon, Scope: foreignScope}
+	model.workspace.Records = append(model.workspace.Records, foreignNPC, foreignLocation)
+	plan := domain.PlannedNotes{
+		ID: "stale-plan", Title: "Stale plan", Scope: model.workspace.Scope,
+		LocationID: foreignLocation.ID, LocationName: foreignLocation.Title,
+		Links: []domain.EntityLink{{Text: foreignNPC.Title, RecordID: foreignNPC.ID}},
+	}
+	model.workspace.PlannedNotes = append(model.workspace.PlannedNotes, plan)
+	model.selectedPlanID = plan.ID
+	model.review = &foreignNPC
+
+	updated, _ := model.startSession()
+	model = updated.(Model)
+	if model.session == nil {
+		t.Fatal("expected a session")
+	}
+	if model.session.LocationID == foreignLocation.ID || model.session.HasLink(foreignNPC.ID) {
+		t.Fatalf("foreign planned context leaked into session: %#v", model.session)
+	}
+	if model.review != nil {
+		t.Fatalf("foreign review survived session start: %#v", model.review)
 	}
 }
 
@@ -2850,5 +3016,140 @@ func TestDetailPgDnDoesNotMoveHopCursor(t *testing.T) {
 	model = updated.(Model)
 	if model.historyCursor != 1 {
 		t.Fatalf("j should still move hop cursor, got %d", model.historyCursor)
+	}
+}
+
+func liveSessionModel(t *testing.T) Model {
+	t.Helper()
+	model := New()
+	model.width = 120
+	model.height = 40
+	updated, _ := model.startSession()
+	model = updated.(Model)
+	if model.session == nil {
+		t.Fatal("expected a live session")
+	}
+	return model
+}
+
+func TestLiveSearchOpensWithoutEndingCapture(t *testing.T) {
+	model := liveSessionModel(t)
+	model.sessionInput.SetValue("the party enters")
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '/', Text: "/"}))
+	model = updated.(Model)
+
+	if !model.searching {
+		t.Fatal("/ should open search during a live session")
+	}
+	if model.session == nil {
+		t.Fatal("search must not end live capture")
+	}
+	if model.sessionInput.Value() != "the party enters" {
+		t.Fatalf("captured input should survive search: %q", model.sessionInput.Value())
+	}
+	if strings.Contains(model.renderSearchOverlay(), "Esc close") {
+		t.Fatal("live search footer should return to capture, not close")
+	}
+	if !strings.Contains(model.renderSearchOverlay(), "Esc back to capture") {
+		t.Fatal("expected live search footer wording")
+	}
+}
+
+func TestLiveSearchEscapeRestoresCaptureFocus(t *testing.T) {
+	model := liveSessionModel(t)
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: '/', Text: "/"}))
+	model = updated.(Model)
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	model = updated.(Model)
+
+	if model.searching {
+		t.Fatal("esc should close live search")
+	}
+	if model.session == nil {
+		t.Fatal("esc must not end the session")
+	}
+	if !model.sessionInput.Focused() {
+		t.Fatal("capture input should regain focus after live search")
+	}
+}
+
+func TestLiveSearchResultInspectsInPreview(t *testing.T) {
+	model := liveSessionModel(t)
+	model.searching = true
+	model.sessionInput.Blur()
+	model.searchInput.SetValue("vale")
+	model.refreshResults()
+	if len(model.results) == 0 {
+		t.Fatal("expected search hits for the fixture campaign")
+	}
+	before := len(model.session.Entries)
+
+	updated, _ := model.openSearchResult(model.results[0])
+	model = updated.(Model)
+
+	if model.searching {
+		t.Fatal("opening a result should close the search overlay")
+	}
+	if model.preview == nil {
+		t.Fatal("a live search result should open a read-only preview")
+	}
+	if model.session == nil {
+		t.Fatal("inspecting a result must not end live capture")
+	}
+	if len(model.session.Entries) != before {
+		t.Fatal("inspection must not write transcript entries")
+	}
+	if !strings.Contains(model.View().Content, "SESSION") {
+		t.Fatal("preview should float over the live session view")
+	}
+}
+
+func TestLivePreviewEnterReturnsToCapture(t *testing.T) {
+	model := liveSessionModel(t)
+	model.searching = true
+	model.sessionInput.Blur()
+	model.searchInput.SetValue("vale")
+	model.refreshResults()
+	updated, _ := model.openSearchResult(model.results[0])
+	model = updated.(Model)
+	if model.preview == nil {
+		t.Fatal("expected a preview to inspect")
+	}
+	navCursor := model.navCursor
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(Model)
+
+	if model.preview != nil {
+		t.Fatal("enter should dismiss the live preview")
+	}
+	if model.session == nil {
+		t.Fatal("enter must not navigate away from live capture")
+	}
+	if model.navCursor != navCursor {
+		t.Fatal("live preview must not move the browser navigator")
+	}
+	if !model.sessionInput.Focused() {
+		t.Fatal("capture input should regain focus after inspection")
+	}
+}
+
+func TestLiveSearchRefusesReconciliationResults(t *testing.T) {
+	model := liveSessionModel(t)
+	if _, ok := model.searchResultPreviewHop(searchsvc.Result{Kind: searchsvc.KindRecon}); ok {
+		t.Fatal("reconciliation review is not inspectable during live capture")
+	}
+	updated, _ := model.openSearchResult(searchsvc.Result{Kind: searchsvc.KindRecon})
+	model = updated.(Model)
+	if model.preview != nil || model.reconciling {
+		t.Fatal("reconciliation must not open during live capture")
+	}
+	if model.session == nil {
+		t.Fatal("refusing a result must not end the session")
+	}
+	if !strings.Contains(model.status, "End live capture") {
+		t.Fatalf("expected an explanatory status, got %q", model.status)
 	}
 }

@@ -140,7 +140,7 @@ func (m Model) bindReferenceMentions(mentions []domain.Mention) []domain.Mention
 }
 
 func (m Model) resolveMentions(text string) []domain.Mention {
-	return m.bindReferenceMentions(domain.MentionsIn(text, m.workspace.Records))
+	return m.bindReferenceMentions(domain.MentionsIn(text, m.operationalRecords()))
 }
 
 func (m Model) referenceSuggestions(query string, limit int) []Suggestion {

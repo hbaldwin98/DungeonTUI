@@ -405,7 +405,10 @@ session focus or transcript state.
 Named **collections** are optional named groups of wiki records (a watchlist,
 a sit's likely cast, a mystery board). They sit on top of tags and never
 replace the campaign tree. `c` filters the current section to a collection,
-`g` names a new one, and `a` adds or removes the selected entity.
+`g` names a new one, and `a` adds or removes the selected entity. Collection,
+tag, type, and list-scope filters affect only this browser; live session
+resolution and context always use the active campaign's full visible record
+set.
 
 The **Sessions** list is itself a small folder tree so long campaigns stay
 scannable. Named slash paths live on `SessionRecord.Folder`; nights without a

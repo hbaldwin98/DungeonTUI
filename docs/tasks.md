@@ -41,6 +41,12 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   (Argus #28–#29).
 - Live sessions started from prep show its rendered Markdown as a scrollable run
   sheet beside scene/cast context (Argus #93; D-041).
+- Browser scope, tag, type, and collection filters no longer alter live
+  references, suggestions, scene context, threads, or counts (Argus #94;
+  D-042).
+- `/` searches the wiki, prep, sessions, and transcripts during live capture and
+  inspects hits in a read-only overlay without ending the sit (Argus #95;
+  D-043).
 - Entity create/edit uses a single markdown document (`type:` / `# Title` /
   summary / body) instead of form fields (Argus #33).
 - Close focused type/session panes with `-`; delete and supersede require `y`

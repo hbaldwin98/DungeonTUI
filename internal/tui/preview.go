@@ -47,10 +47,18 @@ func (m *Model) closePreview() {
 	}
 	m.preview = nil
 	m.status = "Closed preview"
+	if m.session != nil {
+		m.setSessionFocus(m.sessionFocus())
+	}
 }
 
 func (m Model) commitPreview() (tea.Model, tea.Cmd) {
 	if m.preview == nil {
+		return m, nil
+	}
+	if m.session != nil {
+		m.closePreview()
+		m.status = "Returned to live session"
 		return m, nil
 	}
 	hop := m.preview.Hop

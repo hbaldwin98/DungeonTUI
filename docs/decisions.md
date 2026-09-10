@@ -337,3 +337,22 @@ a scrollable prep run sheet. The title stays visible while `j`/`k`,
 `PgUp`/`PgDn`, and `Home`/`End` move through the rendered Markdown body. The
 right pane continues to show scene and cast context, and the transcript remains
 a separate pane. A session without linked prep keeps the campaign navigator.
+
+## D-042 — Browser filters never define live session scope
+
+List scope, tag, type, and collection filters only change the browser display.
+Live `@` completion and resolution, location lookup, scene context, thread lists,
+and type counts always use records visible to the active campaign: its own
+records, world-shared records, and records from enabled sources. Expanding the
+browser to world or library scope cannot expose another campaign's records to a
+live session.
+
+## D-043 — Search and wiki inspection are non-destructive overlays during live capture
+
+`/` opens search while a session is live. The search and preview overlays float
+over the session view; the transcript, its entries, and the pending capture text
+are untouched. `Enter` on a result opens a read-only preview instead of
+navigating the browser, and `Enter`, `Esc`, or `q` in that preview returns
+directly to capture with the input refocused. Reconciliation results are refused
+with an explanatory status because reviewing them requires leaving the session.
+Inspection never ends capture, so a table question no longer costs the sit.
