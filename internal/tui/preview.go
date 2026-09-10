@@ -15,6 +15,7 @@ import (
 type previewBuf struct {
 	Hop           detailHop
 	Scroll        int
+	ruleText      string
 	bodyWidth     int
 	bodyRevision  uint64
 	bodyLines     []string
@@ -62,6 +63,11 @@ func (m Model) commitPreview() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	hop := m.preview.Hop
+	if hop.Kind == hopRule {
+		// A rules lookup has nowhere to jump: keep it open to read.
+		m.status = "5e reference · not campaign canon · Esc closes"
+		return m, nil
+	}
 	m.preview = nil
 	return m.jumpToHop(hop)
 }
@@ -242,9 +248,29 @@ func (m Model) previewBody(width int) string {
 		return m.previewPrepBody(hop, width)
 	case hopSession, hopHistory:
 		return m.previewSessionBody(hop, width)
+	case hopRule:
+		return m.previewRuleBody(hop, width)
 	default:
 		return surface(mutedStyle).Render("Nothing to preview")
 	}
+}
+
+func (m Model) previewRuleBody(_ detailHop, width int) string {
+	fill := previewFill()
+	text := strings.TrimSpace(m.preview.ruleText)
+	if text == "" {
+		text = "Loading 5e reference…"
+	}
+	return renderPlainPreviewBody(fill, text, width)
+}
+
+func renderPlainPreviewBody(fill lipgloss.Style, text string, width int) string {
+	var builder strings.Builder
+	for _, line := range strings.Split(text, "\n") {
+		builder.WriteString(fill.Render(truncateImportLine(line, max(1, width))))
+		builder.WriteRune('\n')
+	}
+	return strings.TrimRight(builder.String(), "\n")
 }
 
 func (m Model) previewWikiBody(hop detailHop, width int) string {
@@ -454,6 +480,9 @@ func (m Model) previewFrame() string {
 	kind := strings.ToUpper(string(hop.Kind))
 	if hop.Kind == hopHistory {
 		kind = "SESSION"
+	}
+	if hop.Kind == hopRule {
+		kind = "5E RULE"
 	}
 	fill := previewFill()
 	var builder strings.Builder

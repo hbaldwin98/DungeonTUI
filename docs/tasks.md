@@ -48,8 +48,13 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   inspects hits in a read-only overlay without ending the sit (Argus #95;
   D-043).
 - `internal/fivecli` runs the external `5e` binary over its `--json` boundary
-  and reports typed setup diagnostics; the integration is optional and degrades
-  to a typed unavailable state (Argus #96; D-044).
+  and reports typed setup diagnostics; `/` search's **5e rules** scope (Ctrl+S)
+  queries it live and inspects hits read-only during capture (Argus #96; D-044,
+  D-047). Lookups are debounced and always run off the update loop. The
+  integration is optional and degrades to a typed unavailable state.
+- A settings overlay (`,`, or `Ctrl+G` from the rules scope) sets the path to
+  the `5e` binary in `preferences.json`, so the tool does not have to be on
+  PATH (D-048).
 - Saving the workspace writes only the rows that changed, and the sidecar
   backup is throttled instead of copied per save, so capturing one transcript
   line no longer rewrites the campaign (Argus #98; D-045).

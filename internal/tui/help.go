@@ -5,6 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	searchsvc "github.com/hbaldwin98/DungeonTUI/internal/search"
 )
 
 func (m Model) updateHelp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -75,7 +77,16 @@ func (m Model) helpSections() [][]string {
 		return [][]string{
 			{"Reconciliation", "j/k move", "e edit mutation", "a apply to wiki", "x reject", "Esc close", "Transcript stays immutable"},
 		}
+	case m.settingsOpen:
+		return [][]string{
+			{"Settings", "Personal preferences for this machine", "5e path locates the external 5e binary", "Empty falls back to DUNGEON_5E_BIN, then PATH", "Enter save and check", "Esc close"},
+		}
 	case m.searching:
+		if m.searchScope == searchsvc.RulesReference {
+			return [][]string{
+				{"Search 5e rules", "Ctrl+S cycles campaign/world/library/5e rules", "Type to query the external 5e index", "Ctrl+G set the 5e binary path", "↑↓ select", "Enter inspect", "Esc close"},
+			}
+		}
 		return [][]string{
 			{"Search", "Type to filter wiki, prep, sessions, notes, recon", "↑↓ select", "Enter inspect", "Ctrl+S scope", "Ctrl+A AI proposals", "Esc close"},
 		}

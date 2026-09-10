@@ -128,7 +128,9 @@ resizing. Each cap writes `.screen.txt` (readable), `.ansi.txt`, and `.meta.txt`
 | `s` | Start a live session (uses selected/latest planned notes as context) |
 | `m` | File the selected sit (or folder group) into a session folder |
 | `Tab` / `Shift+Tab` | In editor: move fields; in session: suggest/cycle focus |
-| `Ctrl+S` | Save markdown editor / planned notes, or change search scope while searching |
+| `Ctrl+S` | Save markdown editor / planned notes, or cycle search scope (campaign → world → library → **5e rules**) while searching |
+| `,` | Open settings (path to the external `5e` binary) |
+| `Ctrl+G` | While searching 5e rules: set the `5e` binary path |
 | `Ctrl+T` | Cycle entity type while editing markdown |
 | `Enter` / `Ctrl+Enter` | Capture a transcript entry during a session |
 | `Shift+Enter` | Insert a newline in the transcript editor |

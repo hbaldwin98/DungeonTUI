@@ -16,6 +16,9 @@ const (
 	Proposal   Authority = "proposal"
 	Unknown    Authority = "unknown"
 	Superseded Authority = "superseded"
+	// Reference marks external material Dungeon does not own, such as 5e-cli
+	// rules text. It is never campaign canon and is never written to the wiki.
+	Reference Authority = "reference"
 )
 
 func (a Authority) Marker() string {
@@ -32,6 +35,8 @@ func (a Authority) Marker() string {
 		return "?"
 	case Superseded:
 		return "×"
+	case Reference:
+		return "§"
 	default:
 		return "?"
 	}
@@ -51,6 +56,8 @@ func (a Authority) Label() string {
 		return "UNKNOWN"
 	case Superseded:
 		return "SUPERSEDED"
+	case Reference:
+		return "REFERENCE"
 	default:
 		return "UNCLASSIFIED"
 	}

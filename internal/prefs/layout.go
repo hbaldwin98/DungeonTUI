@@ -80,6 +80,12 @@ type Layout struct {
 	ActiveWorldID    string `json:"active_world_id,omitempty"`
 	ActiveCampaignID string `json:"active_campaign_id,omitempty"`
 
+	// FiveCLIBinary locates the external 5e-cli tool for rules lookup. Empty
+	// means the DUNGEON_5E_BIN environment variable, then PATH. It is set from
+	// the in-app settings overlay so a workstation without 5e on PATH does not
+	// have to relaunch the TUI through a wrapper.
+	FiveCLIBinary string `json:"fivecli_binary,omitempty"`
+
 	// ImportHarness is unused. Kept so older preferences.json still load.
 	ImportHarness string `json:"import_harness,omitempty"`
 }
@@ -190,6 +196,7 @@ func (l Layout) Normalize() Layout {
 	if out.Focus == "" {
 		out.Focus = PaneInput
 	}
+	out.FiveCLIBinary = strings.TrimSpace(out.FiveCLIBinary)
 	switch strings.ToLower(strings.TrimSpace(out.ImportHarness)) {
 	case "", "off", "none":
 		out.ImportHarness = ""

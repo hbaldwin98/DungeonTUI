@@ -14,6 +14,7 @@ const (
 	CurrentCampaign Scope = iota
 	CurrentWorld
 	EntireLibrary
+	RulesReference
 )
 
 func (s Scope) Label() string {
@@ -24,6 +25,8 @@ func (s Scope) Label() string {
 		return "world"
 	case EntireLibrary:
 		return "library"
+	case RulesReference:
+		return "5e rules"
 	default:
 		return "unknown"
 	}
@@ -38,6 +41,7 @@ const (
 	KindTranscript Kind = "transcript"
 	KindRecon      Kind = "recon"
 	KindReference  Kind = "reference"
+	KindRule       Kind = "rule"
 )
 
 type Filter struct {
@@ -59,6 +63,10 @@ type Result struct {
 	Snippet   string
 	Record    domain.Record
 	Score     int
+
+	// RuleKind and RuleSource describe an external 5e-cli hit (KindRule).
+	RuleKind   string
+	RuleSource string
 }
 
 func (r Result) TargetID() string {
@@ -87,6 +95,11 @@ func (r Result) TypeLabel() string {
 		return "recon"
 	case KindReference:
 		return "reference"
+	case KindRule:
+		if r.RuleKind != "" {
+			return r.RuleKind
+		}
+		return "rule"
 	default:
 		return string(r.Record.Type)
 	}
@@ -99,6 +112,8 @@ func (r Result) Authority() domain.Authority {
 	switch r.Kind {
 	case KindPrep, KindRecon:
 		return domain.Draft
+	case KindRule:
+		return domain.Reference
 	default:
 		return domain.Canon
 	}

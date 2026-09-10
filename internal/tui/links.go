@@ -20,18 +20,21 @@ const (
 	hopPrep      hopKind = "prep"
 	hopSession   hopKind = "session"
 	hopHistory   hopKind = "history"
+	hopRule      hopKind = "rule"
 )
 
 type detailHop struct {
-	Kind      hopKind
-	Section   string
-	Prefix    string
-	Label     string
-	Relation  string
-	RecordID  string
-	SessionID string
-	PlanID    string
-	EntryID   string
+	Kind       hopKind
+	Section    string
+	Prefix     string
+	Label      string
+	Relation   string
+	RecordID   string
+	SessionID  string
+	PlanID     string
+	EntryID    string
+	RuleKind   string
+	RuleSource string
 }
 
 func (m Model) detailHops() []detailHop {

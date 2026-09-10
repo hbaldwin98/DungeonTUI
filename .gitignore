@@ -17,3 +17,6 @@ bin/
 .5etools-cache/
 .5etools/
 
+
+# Compiled Go test binaries left by `go test -c`
+*.test

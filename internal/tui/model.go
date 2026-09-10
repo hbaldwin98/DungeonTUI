@@ -107,6 +107,13 @@ type Model struct {
 	selectedFolderPath string
 	namingFolder       bool
 	preview            *previewBuf
+	rulesNote          string
+	rulesSearchSeq     uint64
+	rulesQuerySeq      uint64
+	rulesStatus        rulesStatus
+	settingsOpen       bool
+	settingsFromSearch bool
+	settingsInput      textinput.Model
 	importing          bool
 	importFromPicker   bool
 	importFocus        string // "sources", "tools", or "files"
@@ -197,6 +204,11 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	name.Prompt = "Name: "
 	name.CharLimit = 80
 
+	settings := textinput.New()
+	settings.Placeholder = "/usr/local/bin/5e"
+	settings.Prompt = "5e path: "
+	settings.CharLimit = 400
+
 	model := Model{
 		workspace:        workspace,
 		app:              app.New(store),
@@ -208,6 +220,7 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 		includeIdeas:     false,
 		listScope:        searchsvc.CurrentCampaign,
 		collectionName:   name,
+		settingsInput:    settings,
 		collapsedFolders: map[string]bool{},
 		expandedFolders:  map[string]bool{},
 		detailView:       &paneScroll{},
@@ -264,6 +277,14 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleToolsCatalog(msg)
 	case toolsIngestMsg:
 		return m.handleToolsIngest(msg)
+	case rulesDebounceMsg:
+		return m.handleRulesDebounce(msg)
+	case rulesSearchMsg:
+		return m.handleRulesSearch(msg)
+	case rulesStatusMsg:
+		return m.handleRulesStatus(msg)
+	case ruleEntityMsg:
+		return m.handleRuleEntity(msg)
 	case ingestTickMsg:
 		return m.handleIngestTick()
 	case tea.WindowSizeMsg:
@@ -283,6 +304,9 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if m.helping {
 			return m.updateHelp(msg)
+		}
+		if m.settingsOpen {
+			return m.updateSettings(msg)
 		}
 		if m.preview != nil {
 			if msg.String() == "?" {
@@ -377,6 +401,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "/":
 			return m.openSearch()
+		case ",":
+			return m.openSettings()
 		case "n":
 			if m.deleteConfirm {
 				m.clearDestructiveConfirm("Cancelled")
@@ -1906,11 +1932,20 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "ctrl+s":
-		m.searchScope = (m.searchScope + 1) % 3
+		m.searchScope = (m.searchScope + 1) % 4
 		m.selected = 0
+		if m.searchScope == searchsvc.RulesReference {
+			return m, m.scheduleRulesSearch()
+		}
+		m.rulesNote = ""
 		m.refreshResults()
 		return m, nil
+	case "ctrl+g":
+		return m.openSettings()
 	case "ctrl+a":
+		if m.searchScope == searchsvc.RulesReference {
+			return m, nil
+		}
 		m.includeIdeas = !m.includeIdeas
 		m.selected = 0
 		m.refreshResults()
@@ -1937,6 +1972,10 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.searchInput, cmd = m.searchInput.Update(msg)
 	m.selected = 0
+	if m.searchScope == searchsvc.RulesReference {
+		return m, tea.Batch(cmd, m.scheduleRulesSearch())
+	}
+	m.rulesNote = ""
 	m.refreshResults()
 	return m, cmd
 }
@@ -1944,10 +1983,14 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) openSearch() (tea.Model, tea.Cmd) {
 	m.searching = true
 	m.selected = 0
+	m.rulesNote = ""
 	if m.session != nil {
 		m.sessionInput.Blur()
 	}
 	m.searchInput.Focus()
+	if m.searchScope == searchsvc.RulesReference {
+		return m, tea.Batch(textinput.Blink, m.scheduleRulesSearch())
+	}
 	m.refreshResults()
 	return m, textinput.Blink
 }
@@ -2422,6 +2465,9 @@ func (m *Model) refreshResults() {
 		m.results = nil
 		return
 	}
+	if m.searchScope == searchsvc.RulesReference {
+		return
+	}
 	m.results = m.search.Find(searchsvc.Filter{
 		Query:            m.searchInput.Value(),
 		Scope:            m.searchScope,
@@ -2433,6 +2479,9 @@ func (m *Model) refreshResults() {
 }
 
 func (m Model) openSearchResult(result searchsvc.Result) (tea.Model, tea.Cmd) {
+	if result.Kind == searchsvc.KindRule {
+		return m.openRuleSearchResult(result)
+	}
 	if m.session != nil {
 		return m.openLiveSearchResult(result)
 	}
@@ -2713,6 +2762,9 @@ func (m Model) View() tea.View {
 		} else if m.preview != nil {
 			result.Content = m.renderPreviewOverlay(result.Content)
 		}
+		if m.settingsOpen {
+			result.Content = m.renderSettingsOverlay(result.Content)
+		}
 		return result
 	}
 
@@ -2757,6 +2809,9 @@ func (m Model) View() tea.View {
 	}
 	if m.preview != nil {
 		view = m.renderPreviewOverlay(view)
+	}
+	if m.settingsOpen {
+		view = m.renderSettingsOverlay(view)
 	}
 
 	result := tea.NewView(view)
@@ -3090,7 +3145,12 @@ func (m Model) renderSearchOverlay() string {
 	builder.WriteString("\n\n")
 
 	if len(m.results) == 0 {
-		builder.WriteString(mutedStyle.Render("No matching results in this scope."))
+		note := strings.TrimSpace(m.rulesNote)
+		if m.searchScope == searchsvc.RulesReference && note != "" {
+			builder.WriteString(mutedStyle.Render(note))
+		} else {
+			builder.WriteString(mutedStyle.Render("No matching results in this scope."))
+		}
 	} else {
 		start := 0
 		if m.selected >= visibleRows {
@@ -3113,7 +3173,7 @@ func (m Model) renderSearchOverlay() string {
 				authority.Label(),
 				result.DisplayTitle(),
 			)
-			if context := m.searchResultContext(result); context != "" {
+			if context := m.searchResultContextFor(result); context != "" {
 				line += "  · " + context
 			}
 			line = truncateImportLine(line, max(1, width-4))
@@ -3123,9 +3183,16 @@ func (m Model) renderSearchOverlay() string {
 	}
 
 	builder.WriteString("\n")
-	footer := "Ctrl+S scope  Ctrl+A include AI  ↑/↓ select  Enter open  Esc close"
+	closing := "Esc close"
 	if m.session != nil {
-		footer = "Ctrl+S scope  Ctrl+A include AI  ↑/↓ select  Enter inspect  Esc back to capture"
+		closing = "Esc back to capture"
+	}
+	footer := "Ctrl+S scope  Ctrl+A include AI  ↑/↓ select  Enter open  " + closing
+	if m.session != nil {
+		footer = "Ctrl+S scope  Ctrl+A include AI  ↑/↓ select  Enter inspect  " + closing
+	}
+	if m.searchScope == searchsvc.RulesReference {
+		footer = "Ctrl+S scope  Ctrl+G 5e path  ↑/↓ select  Enter inspect  " + closing
 	}
 	builder.WriteString(helpStyle.Render(footer))
 	overlay := searchPanelStyle.

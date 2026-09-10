@@ -374,6 +374,18 @@ decoded when present, and an `ExitError` carrying stderr is returned only when
 the tool produced no JSON to interpret. A tool that is installed but not
 ingested is a diagnosis to report, not an error to raise.
 
+Readiness for lookup is not the tool's own `ready` flag. `5e doctor` reports
+not-ready when the 5etools data directory is unset, but that only blocks
+re-ingesting the index; search and get keep answering from the existing sqlite
+index. `Doctor.CanLookup` therefore gates on the index, and `LookupSummary`
+still surfaces the tool's remedy for the setup that is genuinely blocked, so a
+working index is never reported to the DM as a broken installation.
+
+Decoded fields follow the tool, not the shape that reads best here: `5e get`
+prints `page` as a JSON number, so `fivecli.Page` accepts a number or a string.
+A contract test runs the installed binary when one is present and skips
+otherwise, which is what catches the JSON drifting from these structs.
+
 Every run is bounded by a timeout and a `WaitDelay`, because killing the
 subprocess does not close output pipes a grandchild still holds; without the
 delay a wedged lookup outlives its own deadline and blocks the TUI.
@@ -430,4 +442,31 @@ when only the remote changed, merges when both machines edited distinct
 records, and aborts on a same-file conflict without touching sqlite.
 `dungeon sync pull -force` takes origin as-is.
 
+## D-047 — Live rules lookup uses the search overlay's 5e rules scope
+
+Mechanical lookup stays out of the campaign wiki (D-029). During play or prep,
+`/` still opens the same non-destructive search overlay (D-043). **Ctrl+S** now
+cycles a fourth scope, **5e rules**, that queries the external `5e` binary
+through `internal/fivecli` instead of the local FTS index. Hits carry the
+`reference` authority — never canon — open in the existing read-only preview,
+and never write campaign canon. A workstation without `5e` installed keeps
+working: the scope shows the typed setup diagnosis from `5e doctor --json`
+rather than failing the TUI.
+
+Every subprocess runs as a command, never inline in `Update`. Keystrokes only
+schedule a 180 ms debounce, so typing a word costs one lookup instead of one
+per character, and the `5e doctor` diagnosis is fetched once and cached per
+configured binary. A wedged or missing tool can therefore delay a result line
+but never freeze capture.
+
+## D-048 — The 5e binary is configured in the app, not only on PATH
+
+`,` opens a settings overlay (`Ctrl+G` from the rules search scope) that stores
+the path to the external `5e` binary in `preferences.json` alongside pane
+layout. Preferences are personal and machine-local, so the path belongs there
+rather than in the campaign workspace, which syncs between machines. The
+configured path wins over `DUNGEON_5E_BIN`, which still wins over `PATH`, so an
+existing environment-based setup keeps working. Saving re-runs the diagnosis and
+shows it in place, making the overlay the one screen that answers "why is rules
+lookup not working here".
 

@@ -71,6 +71,27 @@ func (d Doctor) State() State {
 	}
 }
 
+// CanLookup reports whether search and get can be served.
+//
+// Lookups read the sqlite index only. The 5etools data tree is needed to
+// (re-)ingest that index, so `5e doctor` reports not-ready when the data
+// directory is unset even though every lookup still answers. Dungeon only
+// consults the tool for lookups, so it gates on the index, not on readiness.
+func (d Doctor) CanLookup() bool { return d.IndexExists }
+
+// LookupSummary describes the tool from a lookup caller's point of view: an
+// index that works despite an unconfigured data tree reads as usable, with the
+// tool's own remedy kept for the setup it does block.
+func (d Doctor) LookupSummary() string {
+	if !d.CanLookup() {
+		return d.Summary()
+	}
+	if issue := strings.TrimSpace(d.Issue); issue != "" && !d.Ready {
+		return "5e-cli lookups ready · re-ingest blocked: " + issue
+	}
+	return "5e-cli ready: " + d.IndexPath
+}
+
 // Summary is a single line naming the state and, when the tool supplied one,
 // its own remedy. The tool's issue text already names the command to run, so
 // it is preferred over anything reconstructed here.
@@ -107,6 +128,16 @@ func (a Adapter) Status(ctx context.Context) (State, string) {
 		return StateUnavailable, unavailableSummary(err)
 	}
 	return doctor.State(), doctor.Summary()
+}
+
+// LookupStatus reports whether lookups can be served and why not, for a caller
+// that wants answers rather than a full setup verdict. See Doctor.CanLookup.
+func (a Adapter) LookupStatus(ctx context.Context) (bool, string) {
+	doctor, err := a.Diagnose(ctx)
+	if err != nil {
+		return false, unavailableSummary(err)
+	}
+	return doctor.CanLookup(), doctor.LookupSummary()
 }
 
 func unavailableSummary(err error) string {
