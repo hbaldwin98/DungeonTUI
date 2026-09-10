@@ -63,6 +63,29 @@ func insertMarkdownText(ta *textarea.Model, msg tea.KeyPressMsg) bool {
 	return true
 }
 
+// editorListKey moves through the @ suggestions with ↑↓ and scrolls the peek
+// with PgUp/PgDn. It reports false when that list is not showing, so the
+// key reaches the text instead.
+func (m *Model) editorListKey(key string) bool {
+	switch key {
+	case "up", "down":
+		if len(m.suggestions) == 0 {
+			return false
+		}
+		delta := map[string]int{"up": -1, "down": 1}[key]
+		m.suggestion = clamp(m.suggestion+delta, 0, len(m.suggestions)-1)
+		m.refreshPeek()
+		return true
+	case "pgup", "pgdown":
+		if m.peek == nil {
+			return false
+		}
+		m.scrollPeek(map[string]int{"pgup": -1, "pgdown": 1}[key])
+		return true
+	}
+	return false
+}
+
 func sizeMarkdownTextArea(ta *textarea.Model, termWidth, termHeight int) {
 	sizeMarkdownTextAreaReserved(ta, termWidth, termHeight, 0)
 }
@@ -97,10 +120,18 @@ func focusTitleHeading(ta *textarea.Model) {
 	restoreTextAreaCursor(ta, target, col)
 }
 
+// restoreTextAreaCursor places the cursor at a logical line and column.
+// CursorDown steps visual rows, so a soft-wrapped line takes several steps;
+// it walks until the logical line is reached or the cursor stops moving.
 func restoreTextAreaCursor(ta *textarea.Model, line, col int) {
 	ta.MoveToBegin()
-	for i := 0; i < line && i < ta.LineCount(); i++ {
+	line = clamp(line, 0, max(0, ta.LineCount()-1))
+	for ta.Line() < line {
+		row, column := ta.Line(), ta.Column()
 		ta.CursorDown()
+		if ta.Line() == row && ta.Column() == column {
+			break
+		}
 	}
 	ta.SetCursorColumn(col)
 }

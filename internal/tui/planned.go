@@ -58,7 +58,41 @@ func (m Model) openPlannedNotes(create bool) (tea.Model, tea.Cmd) {
 		model.planTitle.SetValue(notes.Title)
 		model.planBody.SetValue(notes.Body)
 	}
+	model.vim = newVimState(model.planBody.Value())
 	return model, model.focusPlanEditor()
+}
+
+func (m Model) closePlannedNotes() (tea.Model, tea.Cmd) {
+	m.planning = false
+	m.suggestions = nil
+	m.status = "Closed planned notes"
+	return m, nil
+}
+
+// updatePlannedNotesVim carries out what a Vim key in the prep body asked for.
+func (m Model) updatePlannedNotesVim(action vimAction) (tea.Model, tea.Cmd) {
+	switch action {
+	case vimWrite:
+		next, ok := m.commitPlannedNotes()
+		if ok {
+			// :w keeps the prep open, as Vim stays in the buffer.
+			next.planning = true
+			next.planDraft = *next.plannedByID(next.planID)
+			next.vim.saved = next.planBody.Value()
+		}
+		return next, nil
+	case vimWriteQuit:
+		return m.savePlannedNotes()
+	case vimQuit:
+		if m.vim.modified(m.planBody.Value()) {
+			m.status = vimQuitRefusal
+			return m, nil
+		}
+		return m.closePlannedNotes()
+	case vimForceQuit:
+		return m.closePlannedNotes()
+	}
+	return m, nil
 }
 
 func (m Model) plannedByID(id string) *domain.PlannedNotes {
@@ -82,12 +116,15 @@ func (m *Model) focusPlanEditor() tea.Cmd {
 }
 
 func (m Model) updatePlannedNotes(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Vim covers the Markdown body only; the title stays a plain field.
+	if m.planField == 1 {
+		if action, handled := m.vimEditorKey(&m.planBody, msg, "ctrl+s", "ctrl+p", "ctrl+o", "tab", "shift+tab"); handled {
+			return m.updatePlannedNotesVim(action)
+		}
+	}
 	switch msg.String() {
 	case "esc":
-		m.planning = false
-		m.suggestions = nil
-		m.status = "Closed planned notes"
-		return m, nil
+		return m.closePlannedNotes()
 	case "tab":
 		if m.planField == 1 && m.acceptEditorSuggestion() {
 			return m, nil
@@ -105,28 +142,11 @@ func (m Model) updatePlannedNotes(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.openPeekPreview() {
 			return m, nil
 		}
-	case "up":
-		if m.planField == 1 && len(m.suggestions) > 0 {
-			m.suggestion = clamp(m.suggestion-1, 0, len(m.suggestions)-1)
-			m.refreshPeek()
-			return m, nil
-		}
-	case "down":
-		if m.planField == 1 && len(m.suggestions) > 0 {
-			m.suggestion = clamp(m.suggestion+1, 0, len(m.suggestions)-1)
-			m.refreshPeek()
-			return m, nil
-		}
-	case "pgup":
-		if m.peek != nil {
-			m.scrollPeek(-1)
-			return m, nil
-		}
-	case "pgdown":
-		if m.peek != nil {
-			m.scrollPeek(1)
-			return m, nil
-		}
+	}
+	// The title field clears suggestions on every key, so only the body
+	// ever has a list to move through.
+	if m.editorListKey(msg.String()) {
+		return m, nil
 	}
 	var cmd tea.Cmd
 	if m.planField == 0 {
@@ -178,6 +198,13 @@ func (m Model) renderPlanLiveSits() string {
 }
 
 func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
+	next, _ := m.commitPlannedNotes()
+	return next, nil
+}
+
+// commitPlannedNotes saves the prep and closes it; ok is false when the save
+// was refused or rolled back.
+func (m Model) commitPlannedNotes() (Model, bool) {
 	before := m.workspace.Clone()
 	now := time.Now().UTC()
 	notes := m.planDraft
@@ -192,7 +219,7 @@ func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
 	notes = notes.RefreshPlannedLinks(m.operationalRecords())
 	if err := notes.Validate(); err != nil {
 		m.status = err.Error()
-		return m, nil
+		return m, false
 	}
 	updated := false
 	for index := range m.workspace.PlannedNotes {
@@ -211,10 +238,10 @@ func (m Model) savePlannedNotes() (tea.Model, tea.Cmd) {
 	m.suggestions = nil
 	if err := m.persistWorkspace(); err != nil {
 		m.replaceWorkspace(before)
-		return m, nil
+		return m, false
 	}
 	m.status = "Saved planned notes · s starts another live sit from this prep"
-	return m, nil
+	return m, true
 }
 
 func (m Model) renderPlannedNotesOverlay() string {
@@ -281,6 +308,9 @@ func (m Model) renderPlannedNotesOverlay() string {
 		body = lipgloss.JoinVertical(lipgloss.Left, append([]string{body, ""}, extras...)...)
 	}
 	help := "? help · Tab fields · Ctrl+S save · Ctrl+P prior sits · Esc · @Entity"
+	if m.planField == 1 {
+		help = m.vimEditorHelp(help)
+	}
 	return renderFullScreenEditor(width, height, chrome.String(), body, help)
 }
 

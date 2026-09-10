@@ -83,7 +83,8 @@ func (m Model) paletteCommands() []paletteCommand {
 	case commandPicker, commandPreview, commandPlayback, commandReconciliation:
 		return commands
 	}
-	return append(commands, m.presetCommands()...)
+	commands = append(commands, m.presetCommands()...)
+	return append(commands, m.vimCommand())
 }
 
 func (m Model) basePaletteCommands() []paletteCommand {
@@ -288,6 +289,7 @@ func paletteCommandExecutors() map[string]paletteCommandExecutor {
 	for id, execute := range presetExecutors() {
 		executors[id] = execute
 	}
+	executors["editor.vim"] = func(m Model) (tea.Model, tea.Cmd) { return m.toggleVimEditing() }
 	return executors
 }
 

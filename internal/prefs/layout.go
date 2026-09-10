@@ -94,6 +94,9 @@ type Layout struct {
 	PresetTrees map[Preset]SplitTree `json:"preset_trees,omitempty"`
 	Previous    *PresetStash         `json:"previous_layout,omitempty"`
 
+	// VimEditing turns on Vim keys in the full-screen Markdown editors.
+	VimEditing bool `json:"vim_editing,omitempty"`
+
 	// ImportHarness is unused. Kept so older preferences.json still load.
 	ImportHarness string `json:"import_harness,omitempty"`
 }

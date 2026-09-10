@@ -50,6 +50,7 @@ type Model struct {
 	editID             string
 	editType           domain.EntityType
 	editBody           textarea.Model
+	vim                vimState // Vim session for whichever Markdown editor is open
 	session            *domain.SessionRecord
 	sessionInput       textarea.Model
 	review             *domain.Record
@@ -2261,17 +2262,51 @@ func (m Model) openEditor(create bool) (tea.Model, tea.Cmd) {
 		model.editBody.SetValue(domain.FormatEntityMarkdown(*record))
 	}
 	focusTitleHeading(&model.editBody)
+	model.vim = newVimState(model.editBody.Value())
 	return model, model.editBody.Focus()
 }
 
+func (m Model) cancelEditor() (tea.Model, tea.Cmd) {
+	m.editing = false
+	m.suggestions = nil
+	m.status = "Cancelled edit"
+	return m, nil
+}
+
+// updateEditorVim carries out what a Vim key in the entity editor asked for.
+func (m Model) updateEditorVim(action vimAction) (tea.Model, tea.Cmd) {
+	switch action {
+	case vimWrite:
+		next, ok := m.commitEditor()
+		if ok {
+			// :w keeps editing the record it just saved, as Vim stays in
+			// the buffer; a new entity is from then on an existing one.
+			next.editing, next.creating = true, false
+			next.vim.saved = next.editBody.Value()
+		}
+		return next, nil
+	case vimWriteQuit:
+		return m.saveEditor()
+	case vimQuit:
+		if m.vim.modified(m.editBody.Value()) {
+			m.status = vimQuitRefusal
+			return m, nil
+		}
+		return m.cancelEditor()
+	case vimForceQuit:
+		return m.cancelEditor()
+	}
+	return m, nil
+}
+
 func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if action, handled := m.vimEditorKey(&m.editBody, msg, "ctrl+s", "ctrl+enter", "ctrl+t", "ctrl+o"); handled {
+		return m.updateEditorVim(action)
+	}
 	model := m
 	switch msg.String() {
 	case "esc":
-		model.editing = false
-		model.suggestions = nil
-		model.status = "Cancelled edit"
-		return model, nil
+		return model.cancelEditor()
 	case "ctrl+t":
 		model.editType = nextEntityType(model.editType)
 		rewriteTypePreservingCursor(&model.editBody, model.editType)
@@ -2287,28 +2322,9 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if model.acceptEditorSuggestion() {
 			return model, nil
 		}
-	case "up":
-		if len(model.suggestions) > 0 {
-			model.suggestion = clamp(model.suggestion-1, 0, len(model.suggestions)-1)
-			model.refreshPeek()
-			return model, nil
-		}
-	case "down":
-		if len(model.suggestions) > 0 {
-			model.suggestion = clamp(model.suggestion+1, 0, len(model.suggestions)-1)
-			model.refreshPeek()
-			return model, nil
-		}
-	case "pgup":
-		if model.peek != nil {
-			model.scrollPeek(-1)
-			return model, nil
-		}
-	case "pgdown":
-		if model.peek != nil {
-			model.scrollPeek(1)
-			return model, nil
-		}
+	}
+	if model.editorListKey(msg.String()) {
+		return model, nil
 	}
 	if insertMarkdownText(&model.editBody, msg) {
 		model.refreshEditorSuggestions()
@@ -2332,10 +2348,17 @@ func rewriteMarkdownType(doc string, entityType domain.EntityType) string {
 }
 
 func (m Model) saveEditor() (tea.Model, tea.Cmd) {
+	next, _ := m.commitEditor()
+	return next, nil
+}
+
+// commitEditor saves the entity editor and closes it; ok is false when the
+// save was refused and the editor stays open.
+func (m Model) commitEditor() (Model, bool) {
 	parsed, err := domain.ParseEntityMarkdown(m.editBody.Value(), m.editType)
 	if err != nil {
 		m.status = err.Error()
-		return m, nil
+		return m, false
 	}
 	scope := m.workspace.Scope
 	if parsed.ScopeLevel == domain.WorldScope {
@@ -2375,7 +2398,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 				} else if wasWorldScoped {
 					if record.Scope.WorldID != m.workspace.Scope.WorldID {
 						m.status = "Open a campaign in this record's world before changing its scope"
-						return m, nil
+						return m, false
 					}
 					record.Scope = m.workspace.Scope
 				}
@@ -2386,12 +2409,12 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 		if !found {
 			m.status = "Entity no longer exists"
 			m.editing = false
-			return m, nil
+			return m, false
 		}
 	}
 	if err := record.Validate(); err != nil {
 		m.status = err.Error()
-		return m, nil
+		return m, false
 	}
 	if m.creating {
 		m.workspace.Records = append(m.workspace.Records, record)
@@ -2407,6 +2430,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 	m.rebuildSearch()
 	m.refreshResults()
 	m.editing = false
+	m.editID = record.ID
 	m.suggestions = nil
 	m.status = "Saved " + strings.ToLower(record.Authority.Label()) + " in " + entityScopeLabel(record.Scope) + ": " + record.Title
 	if m.store != nil {
@@ -2414,7 +2438,7 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 			m.status = "Saved in memory; persistence failed: " + err.Error()
 		}
 	}
-	return m, nil
+	return m, true
 }
 
 func (m Model) updateSearchClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
@@ -3426,7 +3450,7 @@ func (m Model) renderEditorOverlay() string {
 	if len(extras) > 0 {
 		body = lipgloss.JoinVertical(lipgloss.Left, append([]string{body, ""}, extras...)...)
 	}
-	help := markdownEditorHelp(m.editType)
+	help := m.vimEditorHelp(markdownEditorHelp(m.editType))
 	return renderFullScreenEditor(width, height, chrome, body, help)
 }
 
