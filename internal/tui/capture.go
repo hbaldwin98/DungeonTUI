@@ -112,6 +112,9 @@ func (m Model) openQuickCapture() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	input := textarea.New()
+	// The bubbles default paints the cursor line black; capture sits over
+	// live play, so it must not fight the terminal background (decision #27).
+	input.SetStyles(dungeonTextAreaStyles())
 	input.Prompt = "│ "
 	input.Placeholder = "An unclassified thought…"
 	input.ShowLineNumbers = false
@@ -210,10 +213,10 @@ func (m Model) renderQuickCapture(background string) string {
 	overlay := searchPanelStyle.Width(width).Render(builder.String())
 	x := max(0, (m.width-lipgloss.Width(overlay))/2)
 	y := max(0, (m.height-lipgloss.Height(overlay))/3)
-	return lipgloss.NewCompositor(
+	return fillFrame(lipgloss.NewCompositor(
 		lipgloss.NewLayer(background).X(0).Y(0).Z(0),
 		lipgloss.NewLayer(overlay).X(x).Y(y).Z(1),
-	).Render()
+	).Render(), m.width, m.height)
 }
 
 func truncateLine(value string, width int) string {

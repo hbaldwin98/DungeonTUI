@@ -14,8 +14,17 @@ func main() {
 	outDir := flag.String("out", "testdata/harness", "directory for screencaps")
 	width := flag.Int("width", 100, "terminal width")
 	height := flag.Int("height", 30, "terminal height")
-	scenario := flag.String("scenario", "smoke", "built-in scenario: smoke|scroll|resize|search|all")
+	scenario := flag.String("scenario", "smoke", "built-in scenario: smoke|scroll|resize|search|journeys|all")
 	flag.Parse()
+
+	if *scenario == "journeys" || *scenario == "all" {
+		if !runJourneys(filepath.Join(*outDir, "journeys")) {
+			os.Exit(1)
+		}
+		if *scenario == "journeys" {
+			return
+		}
+	}
 
 	scenarios := map[string]tui.Scenario{
 		"smoke": {
@@ -110,4 +119,27 @@ func main() {
 			os.Exit(1)
 		}
 	}
+}
+
+// runJourneys runs the core DM journeys at every journey size, prints one
+// line each, and captures every final frame. It reports whether all passed.
+func runJourneys(dir string) bool {
+	ok := true
+	passed := 0
+	results := tui.RunCoreJourneys()
+	for _, result := range results {
+		fmt.Printf("journey %s\n", result.Summary())
+		stem := fmt.Sprintf("%s-%dx%d", result.Journey, result.Width, result.Height)
+		if _, err := result.Final.Screencap(dir, stem); err != nil {
+			fmt.Fprintf(os.Stderr, "journey cap %s: %v\n", stem, err)
+			ok = false
+		}
+		if result.OK() {
+			passed++
+		} else {
+			ok = false
+		}
+	}
+	fmt.Printf("scenario=journeys status=%s passed=%d/%d out=%s\n", map[bool]string{true: "ok", false: "FAIL"}[ok], passed, len(results), dir)
+	return ok
 }

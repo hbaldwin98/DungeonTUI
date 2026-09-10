@@ -576,7 +576,7 @@ func (m Model) renderPreviewOverlay(background string) string {
 	}
 	base := lipgloss.NewLayer(background).X(0).Y(0).Z(0)
 	float := lipgloss.NewLayer(overlay).X(x).Y(y).Z(1)
-	return lipgloss.NewCompositor(base, float).Render()
+	return fillFrame(lipgloss.NewCompositor(base, float).Render(), m.width, m.height)
 }
 
 func (m Model) updatePreviewClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {

@@ -235,6 +235,9 @@ func newModel(workspace domain.Workspace, store storage.Store, prefStore prefs.S
 	model.sessionInput.Prompt = "│ "
 	model.sessionInput.Placeholder = "Start a session to capture play…"
 	model.sessionInput.SetHeight(5)
+	// The bubbles default paints the cursor line black, which fights the
+	// terminal's own background (decision #27); reuse the editor's styles.
+	model.sessionInput.SetStyles(dungeonTextAreaStyles())
 	model.transcriptView = viewport.New()
 	model.transcriptView.SoftWrap = true
 	model.transcriptView.MouseWheelEnabled = true
@@ -727,7 +730,9 @@ func (m Model) updateSessionLeadingKey(msg tea.KeyPressMsg, focus prefs.Pane) (t
 	case "-":
 		return m.closeFocusedSessionPane(), nil, true
 	case "tab":
-		if focus == prefs.PaneInput && len(m.suggestions) > 0 {
+		// Tab completes only mid-draft. On an empty draft the suggestion list
+		// is just a hint, and Tab must cycle panes as the help promises.
+		if focus == prefs.PaneInput && len(m.suggestions) > 0 && strings.TrimSpace(m.sessionInput.Value()) != "" {
 			m.acceptSuggestion()
 		} else {
 			m.cycleSessionFocus()

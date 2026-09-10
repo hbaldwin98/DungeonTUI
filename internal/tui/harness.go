@@ -209,67 +209,47 @@ func stripANSI(input string) string {
 	return ansiEscape.ReplaceAllString(input, "")
 }
 
+// namedKeys maps harness key names to the keys a real terminal sends. None
+// carry Text: Key.String() prefers Text, so a named key with Text would
+// report the wrong name to the model.
+var namedKeys = map[string]tea.Key{
+	"enter":       {Code: tea.KeyEnter},
+	"return":      {Code: tea.KeyEnter},
+	"ctrl+enter":  {Code: tea.KeyEnter, Mod: tea.ModCtrl},
+	"shift+enter": {Code: tea.KeyEnter, Mod: tea.ModShift},
+	"esc":         {Code: tea.KeyEscape},
+	"escape":      {Code: tea.KeyEscape},
+	"tab":         {Code: tea.KeyTab},
+	"shift+tab":   {Code: tea.KeyTab, Mod: tea.ModShift},
+	"backspace":   {Code: tea.KeyBackspace},
+	"up":          {Code: tea.KeyUp},
+	"down":        {Code: tea.KeyDown},
+	"left":        {Code: tea.KeyLeft},
+	"right":       {Code: tea.KeyRight},
+	"alt+left":    {Code: tea.KeyLeft, Mod: tea.ModAlt},
+	"alt+right":   {Code: tea.KeyRight, Mod: tea.ModAlt},
+	"ctrl+up":     {Code: tea.KeyUp, Mod: tea.ModCtrl},
+	"ctrl+down":   {Code: tea.KeyDown, Mod: tea.ModCtrl},
+	"pgup":        {Code: tea.KeyPgUp},
+	"pageup":      {Code: tea.KeyPgUp},
+	"pgdown":      {Code: tea.KeyPgDown},
+	"pagedown":    {Code: tea.KeyPgDown},
+	"home":        {Code: tea.KeyHome},
+	"end":         {Code: tea.KeyEnd},
+}
+
 func parseKey(name string) tea.KeyPressMsg {
 	name = strings.TrimSpace(strings.ToLower(name))
-	switch name {
-	case "enter", "return":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Text: "\r"})
-	case "ctrl+enter":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModCtrl})
-	case "shift+enter":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift})
-	case "esc", "escape":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape})
-	case "tab":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyTab})
-	case "shift+tab":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
-	case "up":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
-	case "down":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyDown})
-	case "left":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft})
-	case "right":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyRight})
-	case "pgup", "pageup":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp})
-	case "pgdown", "pagedown":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown})
-	case "home":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyHome})
-	case "end":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnd})
-	case "ctrl+c":
-		return tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl})
-	case "ctrl+e":
-		return tea.KeyPressMsg(tea.Key{Code: 'e', Mod: tea.ModCtrl})
-	case "ctrl+p":
-		return tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl})
-	case "ctrl+s":
-		return tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModCtrl})
-	case "ctrl+a":
-		return tea.KeyPressMsg(tea.Key{Code: 'a', Mod: tea.ModCtrl})
-	case "ctrl+z":
-		return tea.KeyPressMsg(tea.Key{Code: 'z', Mod: tea.ModCtrl})
-	case "ctrl+y":
-		return tea.KeyPressMsg(tea.Key{Code: 'y', Mod: tea.ModCtrl})
-	case "ctrl+t":
-		return tea.KeyPressMsg(tea.Key{Code: 't', Mod: tea.ModCtrl})
-	case "ctrl+up":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyUp, Mod: tea.ModCtrl})
-	case "ctrl+down":
-		return tea.KeyPressMsg(tea.Key{Code: tea.KeyDown, Mod: tea.ModCtrl})
-	}
-
-	if strings.HasPrefix(name, "ctrl+") && len(name) == 6 {
-		r := rune(name[5])
-		return tea.KeyPressMsg(tea.Key{Code: r, Mod: tea.ModCtrl, Text: string(r)})
+	if key, ok := namedKeys[name]; ok {
+		return tea.KeyPressMsg(key)
 	}
 	runes := []rune(name)
+	if strings.HasPrefix(name, "ctrl+") && len(runes) == 6 {
+		// Control chords produce no text in a real terminal.
+		return tea.KeyPressMsg(tea.Key{Code: runes[5], Mod: tea.ModCtrl})
+	}
 	if len(runes) == 1 {
-		r := runes[0]
-		return tea.KeyPressMsg(tea.Key{Code: r, Text: string(r)})
+		return tea.KeyPressMsg(tea.Key{Code: runes[0], Text: name})
 	}
 	// Fallback: treat as printable text key with first rune.
 	r := '/'

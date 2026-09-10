@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -206,8 +207,16 @@ func (m Model) sessionCampaignContentLines(width, height int) []contentLine {
 	if len(bodyLines) > pageSize {
 		position += " · " + strconv.Itoa(scroll+1) + "-" + strconv.Itoa(end) + "/" + strconv.Itoa(len(bodyLines))
 	}
+	// The current beat leads the header so it survives a pane too short for
+	// the run sheet body, such as the upper panes at 80x24.
+	header := "PREP · " + plan.Title
+	// Heading-free prep parses as one implicit beat; its title says nothing
+	// the plan title does not, so only a real outline gets a beat header.
+	if beats, index := m.currentPrepBeat(*plan); len(beats) > 1 {
+		header = fmt.Sprintf("PREP %d/%d · %s", index+1, len(beats), beats[index].Title)
+	}
 	lines := []contentLine{
-		{Text: xansi.Truncate("PREP · "+plan.Title, width, "…"), PinX: -1, ClearX: -1},
+		{Text: xansi.Truncate(header, width, "…"), PinX: -1, ClearX: -1},
 		{Text: xansi.Truncate(position, width, "…"), PinX: -1, ClearX: -1},
 		{Text: "", PinX: -1, ClearX: -1},
 	}
