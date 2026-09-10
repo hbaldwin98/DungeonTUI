@@ -409,3 +409,25 @@ compare it. That is the same order as the validation pass a save already runs,
 and removing it would mean threading change information down from the model
 through the whole save API.
 
+## D-046 — Git sync is a per-entity mirror, not the operational store
+
+SQLite remains the campaign store (D-024, D-032). `dungeon sync` mirrors that
+workspace into a git repository the owner already authenticates with, so a
+second machine can pull the same campaigns. The repository is backup and
+transport, not a second database Dungeon opens at runtime.
+
+A single JSON export is one enormous blob: git cannot show which NPC changed,
+and two machines that edited different records cannot merge. The mirror writes
+one JSON file per entity under `workspace/`, so diffs stay readable and git
+can merge edits that did not touch the same record. Files outside `workspace/`
+belong to the owner and are never rewritten. Layout preferences stay on the
+machine that owns them (D-005).
+
+The workstation `git` binary is the client. SSH agents and credential helpers
+already know the owner; a vendored library would not. Push refuses when origin
+is ahead, so the other machine's work is not overwritten. Pull fast-forwards
+when only the remote changed, merges when both machines edited distinct
+records, and aborts on a same-file conflict without touching sqlite.
+`dungeon sync pull -force` takes origin as-is.
+
+

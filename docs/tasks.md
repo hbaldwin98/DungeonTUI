@@ -115,6 +115,9 @@ and task-oriented; detailed product rationale lives in [design.md](design.md).
   `make build`, and GitHub Actions CI (Argus #100).
 - SQLite is the campaign store (`workspace.sqlite`); JSON is export and
   migrate-from (Argus #107).
+- Git sync mirrors the workspace as one JSON file per entity so a second
+  machine can pull the same campaigns without replacing sqlite as the
+  operational store (D-046).
 
 ## In progress
 

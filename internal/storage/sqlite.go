@@ -210,6 +210,13 @@ func (s *SQLiteStore) ExportTo(path string) error {
 	return NewJSON(path).Save(ws)
 }
 
+// Replace overwrites the workspace with the given one, even when the current
+// database cannot be read. Callers that already hold a validated workspace
+// (a git sync pull, for instance) use this instead of round-tripping a file.
+func (s *SQLiteStore) Replace(workspace domain.Workspace) error {
+	return s.write(workspace, true)
+}
+
 func (s *SQLiteStore) RestoreFrom(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -219,7 +226,7 @@ func (s *SQLiteStore) RestoreFrom(path string) error {
 	if err != nil {
 		return fmt.Errorf("invalid restore source: %w", err)
 	}
-	return s.write(ws, true)
+	return s.Replace(ws)
 }
 
 func (s *SQLiteStore) RestoreBackup() error {

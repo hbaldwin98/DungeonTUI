@@ -60,6 +60,12 @@ go run ./cmd/dungeon export -o campaign.json
 go run ./cmd/dungeon restore campaign.json
 go run ./cmd/dungeon restore
 
+# Back up to a git repository and pull onto another machine
+go run ./cmd/dungeon sync init git@github.com:me/dungeon-campaigns.git
+go run ./cmd/dungeon sync push
+go run ./cmd/dungeon sync pull
+go run ./cmd/dungeon sync status
+
 ```
 
 Inside a campaign or the library picker, `I` opens **Import**: SOURCES |
@@ -75,9 +81,19 @@ Adventure sites from **markdown FILES** are classified from structure (front
 matter, numbered rooms) **before** wiki rows are written.
 
 Campaign data and FTS5 search live in `workspace.sqlite` (D-024, D-032). JSON
-is export/restore (and a one-time migrate from `workspace.json`). Adventure
-JSON dumps stay in the local 5e.tools cache as ingest source. Embeddings stay
-out.
+is export/restore (and a one-time migrate from `workspace.json`). `dungeon sync`
+mirrors that workspace into a git repository as one JSON file per entity so you
+can back it up and carry it between machines (D-046). Layout preferences stay
+on the machine. Adventure JSON dumps stay in the local 5e.tools cache as ingest
+source. Embeddings stay out.
+
+Create an empty git repository (GitHub, a bare repo on a NAS, a local path),
+then point Dungeon at it. Git uses your existing SSH keys or credential helper.
+On the first machine, `sync push` uploads the campaign. On the next, `sync init`
+with the same URL and `sync pull` fills the local workspace. If both machines
+edited different records, pull merges them; if they edited the same record, pull
+refuses and leaves sqlite alone. `sync pull -force` takes the remote as-is.
+
 
 
 ## Validate / screencap

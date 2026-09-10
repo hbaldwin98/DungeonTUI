@@ -44,6 +44,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "sync":
+			if err := runSync(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "dungeon sync: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 	program := tea.NewProgram(tui.NewPersistent())

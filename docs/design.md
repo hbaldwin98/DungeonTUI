@@ -805,7 +805,7 @@ Deliver value without requiring AI:
 - Canon, secret, draft, unknown, and superseded states.
 - Manual cross-links and source/provenance fields.
 - Fast typed fuzzy and full-text search.
-- Portable backup/export and restore/import.
+- Portable backup/export and restore/import, including git sync across machines.
 - One stable workspace with manual note capture and entity-level drafts.
 - Explicitly separated entity-type sections and type-aware create/edit views.
 - Configurable panes with persisted personal layout preferences.
