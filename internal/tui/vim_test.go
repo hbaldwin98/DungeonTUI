@@ -498,6 +498,21 @@ func TestRestoreTextAreaCursorReachesALineBelowSoftWrappedText(t *testing.T) {
 	}
 }
 
+// The cursor steps from where it is, so going up across soft-wrapped lines
+// must land on the target line and column just as going down does.
+func TestRestoreTextAreaCursorStepsUpAcrossSoftWrappedText(t *testing.T) {
+	ta := newMarkdownTextArea(60, 20)
+	long := strings.Repeat("wrapping words ", 20)
+	ta.SetValue("first\n" + long + "\n" + long + "\nlast")
+	restoreTextAreaCursor(&ta, 3, 2)
+	for _, target := range []vimPos{{2, 40}, {1, 5}, {0, 3}, {3, 1}, {0, 0}} {
+		restoreTextAreaCursor(&ta, target.row, target.col)
+		if ta.Line() != target.row || ta.Column() != target.col {
+			t.Fatalf("cursor at %d,%d, want %v", ta.Line(), ta.Column(), target)
+		}
+	}
+}
+
 func TestVimWritesBackOnlyChangedText(t *testing.T) {
 	ta := newMarkdownTextArea(60, 20)
 	ta.SetValue("a\nb")

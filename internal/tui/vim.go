@@ -896,7 +896,11 @@ func readVimBuffer(ta *textarea.Model) vimBuffer {
 
 func writeVimBuffer(ta *textarea.Model, before, after vimBuffer) {
 	if text := after.text(); text != before.text() {
+		// SetValue leaves the cursor at the end; start from the nearer end.
 		ta.SetValue(text)
+		if after.row < len(after.lines)/2 {
+			ta.MoveToBegin()
+		}
 	}
 	restoreTextAreaCursor(ta, after.row, after.col)
 }

@@ -179,7 +179,9 @@ func (m Model) resolveReferenceAtCursor(line string, col int) *domain.Record {
 		return best
 	}
 	token := domain.ScanMentionName(remaining)
-	if token == "" {
+	// Like a record match, a source reference counts only while the cursor
+	// is on it; typing on past a finished reference looks nothing up.
+	if token == "" || col > start+1+len(token) {
 		return nil
 	}
 	if rec, ok := m.lookupReference(token); ok {

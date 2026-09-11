@@ -41,6 +41,27 @@ func TestAdventurePeekResolvesEnabledSourceWithoutWikiRecord(t *testing.T) {
 	}
 }
 
+// Typing on past a finished source reference must not keep resolving it.
+func TestAdventurePeekEndsWithTheReference(t *testing.T) {
+	ws := demoWorkspace()
+	ws.EnsureLibrary()
+	ws.Sources = append(ws.Sources, domain.SourceDocument{
+		ID: "src-5e-adv", Title: "The Hollow Crown", Kind: domain.SourceAdventure, Edition: "2014",
+	})
+	ws.EnableSource(ws.Scope.WorldID, ws.Scope.CampaignID, "src-5e-adv")
+	model := newModel(ws, nil, nil)
+	model.toolsFetcher = adventureTestFetcher()
+	model.attachReferences()
+
+	line := "Meet @Mira Holt at the bar."
+	if peek := model.resolveReferenceAtCursor(line, len("Meet @Mira Holt")); peek == nil || peek.Title != "Mira Holt" {
+		t.Fatalf("the cursor at the reference's end should still peek it, peek=%#v", peek)
+	}
+	if peek := model.resolveReferenceAtCursor(line, len("Meet @Mira Holt at the")); peek != nil {
+		t.Fatalf("past the reference nothing should resolve, peek=%#v", peek)
+	}
+}
+
 func TestAdventurePeekRequiresEnabledSource(t *testing.T) {
 	ws := demoWorkspace()
 	ws.EnsureLibrary()

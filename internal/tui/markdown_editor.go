@@ -125,8 +125,16 @@ func focusTitleHeading(ta *textarea.Model) {
 // CursorDown steps visual rows, so a soft-wrapped line takes several steps;
 // it walks until the logical line is reached or the cursor stops moving.
 func restoreTextAreaCursor(ta *textarea.Model, line, col int) {
-	ta.MoveToBegin()
 	line = clamp(line, 0, max(0, ta.LineCount()-1))
+	// Step from where the cursor already is: every step re-measures the rows
+	// above it, so walking from the top made each Vim key quadratic.
+	for ta.Line() > line {
+		row, column := ta.Line(), ta.Column()
+		ta.CursorUp()
+		if ta.Line() == row && ta.Column() == column {
+			break
+		}
+	}
 	for ta.Line() < line {
 		row, column := ta.Line(), ta.Column()
 		ta.CursorDown()
