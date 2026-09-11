@@ -438,10 +438,6 @@ func (v vimState) status() string {
 		return string(prefix) + v.command
 	}
 	label := v.mode.label()
-	if v.visual() {
-		// The textarea cannot paint the selection, so name where it began.
-		label += " from " + strconv.Itoa(v.anchor.row+1) + ":" + strconv.Itoa(v.anchor.col+1)
-	}
 	pending := v.pending + v.count
 	if v.pending != "" && v.opCount > 1 {
 		pending = strconv.Itoa(v.opCount) + pending
@@ -929,6 +925,7 @@ func (m *Model) vimEditorKey(ta *textarea.Model, msg tea.KeyPressMsg, passthroug
 	before := readVimBuffer(ta)
 	after, action := m.vim.apply(before.clone(), key)
 	writeVimBuffer(ta, before, after)
+	paintVimSelection(ta, m.vim, after)
 	m.suggestions = nil
 	if m.vim.notice != "" {
 		m.status, m.vim.notice = m.vim.notice, ""
@@ -970,7 +967,7 @@ func (m Model) withVimHelp(sections [][]string) [][]string {
 	return append(sections, []string{"Vim keys", "Normal: h j k l · w b e · 0 ^ $ · gg G · { } · counts",
 		"i a I A o O insert · Esc back to Normal",
 		"d c y + motion · dd cc yy · x X D C s S Y · p P · J ~ r",
-		"v V visual (footer shows where it began) · o other end · d y c x ~ J",
+		"v V visual · o other end · d y c x ~ J",
 		"iw aw ip ap text objects · diw yap viw",
 		"/ search · n N next/previous · lower-case ignores case",
 		". repeat last change · \"a register prefix · \"A appends",

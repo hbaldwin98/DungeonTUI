@@ -83,7 +83,7 @@ func TestVimVisualModeOperatesOnTheSelection(t *testing.T) {
 		t.Fatalf("V y register %q linewise=%v", state.register, state.linewise)
 	}
 	_, state, _ = vimRun("abc", 0, 1, "v")
-	if got := state.status(); got != "VISUAL from 1:2" {
+	if got := state.status(); got != "VISUAL" {
 		t.Fatalf("status %q", got)
 	}
 	_, state, _ = vimRun("abc", 0, 0, "v", "V")
@@ -229,8 +229,8 @@ func TestVimEditorRepeatsSearchesAndKeepsRegistersAcrossEdits(t *testing.T) {
 		t.Fatalf("ciw then . in the editor: %q", model.editBody.Value())
 	}
 	model = vimPress(t, model, "v")
-	if !strings.Contains(model.View().Content, "VISUAL from") {
-		t.Fatal("the footer should show the Visual selection's start")
+	if !strings.Contains(model.View().Content, "VISUAL") || !model.editBody.HasSelection() {
+		t.Fatal("v should show VISUAL and select the character under the cursor")
 	}
 	model = vimPress(t, model, "esc", "/", "z", "q", "x", "enter")
 	if !strings.Contains(model.status, "Pattern not found") {

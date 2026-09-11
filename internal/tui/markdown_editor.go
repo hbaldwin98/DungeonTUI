@@ -25,7 +25,8 @@ func dungeonTextAreaStyles() textarea.Styles {
 		Placeholder:      lipgloss.NewStyle().Foreground(colorMuted),
 		Prompt:           lipgloss.NewStyle().Foreground(colorMuted),
 		EndOfBuffer:      lipgloss.NewStyle().Foreground(colorBorder),
-		Selection:        lipgloss.NewStyle().Background(lipgloss.Color("#3D59A1")).Foreground(colorText),
+		// Reverse video marks a selection without painting a background (#27).
+		Selection: lipgloss.NewStyle().Reverse(true),
 	}
 	styles.Blurred = styles.Focused
 	styles.Blurred.Text = lipgloss.NewStyle().Foreground(colorMuted)
