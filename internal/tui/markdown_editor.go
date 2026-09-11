@@ -191,5 +191,5 @@ func renderFullScreenEditor(termWidth, termHeight int, chrome, body, help string
 }
 
 func markdownEditorHelp(entityType domain.EntityType) string {
-	return fmt.Sprintf("? help · Ctrl+S save · Ctrl+T type (%s) · @ suggest · Esc", entityType)
+	return fmt.Sprintf("Ctrl+G help · Ctrl+S save · Ctrl+T type (%s) · @ suggest · Esc", entityType)
 }

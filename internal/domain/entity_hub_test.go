@@ -20,8 +20,8 @@ func TestEntityBacklinksAndHistory(t *testing.T) {
 			EndedAt:   &ended,
 			Links:     []EntityLink{{Text: "Vale", RecordID: "npc-vale"}},
 			Entries: []TranscriptEntry{{
-				ID:   "e1",
-				Text: "@Captain Vale opens the door",
+				ID:    "e1",
+				Text:  "@Captain Vale opens the door",
 				Links: []EntityLink{{Text: "Captain Vale", RecordID: "npc-vale"}},
 			}},
 		}},

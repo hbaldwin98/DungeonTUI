@@ -58,7 +58,7 @@ func (m Model) openPlannedNotes(create bool) (tea.Model, tea.Cmd) {
 		model.planTitle.SetValue(notes.Title)
 		model.planBody.SetValue(notes.Body)
 	}
-	model.vim = newVimState(model.planBody.Value())
+	model.vim = model.vim.reopen(model.planBody.Value())
 	return model, model.focusPlanEditor()
 }
 
@@ -307,7 +307,7 @@ func (m Model) renderPlannedNotesOverlay() string {
 	if len(extras) > 0 {
 		body = lipgloss.JoinVertical(lipgloss.Left, append([]string{body, ""}, extras...)...)
 	}
-	help := "? help · Tab fields · Ctrl+S save · Ctrl+P prior sits · Esc · @Entity"
+	help := "Ctrl+G help · Tab fields · Ctrl+S save · Ctrl+P prior sits · Esc · @Entity"
 	if m.planField == 1 {
 		help = m.vimEditorHelp(help)
 	}

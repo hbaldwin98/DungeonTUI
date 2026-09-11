@@ -38,9 +38,14 @@ func (h *Harness) Resize(width, height int) Frame {
 }
 
 // Key sends a key press identified by bubbletea's Key.String() form
-// (for example "s", "ctrl+e", "enter", "shift+enter").
+// (for example "s", "G", "ctrl+e", "enter", "shift+enter"). A name that is
+// not a named key or chord, such as "ZZ" or "gg", presses each rune in turn.
 func (h *Harness) Key(name string) Frame {
-	return h.Send(parseKey(name))
+	var frame Frame
+	for _, key := range parseKeys(name) {
+		frame = h.Send(key)
+	}
+	return frame
 }
 
 // Type injects plain runes into the focused editor/input by sending KeyPressMsg
@@ -48,7 +53,7 @@ func (h *Harness) Key(name string) Frame {
 func (h *Harness) Type(text string) Frame {
 	var frame Frame
 	for _, r := range text {
-		frame = h.Send(tea.KeyPressMsg(tea.Key{Code: r, Text: string(r)}))
+		frame = h.Send(runeKey(r))
 	}
 	return frame
 }
@@ -238,25 +243,43 @@ var namedKeys = map[string]tea.Key{
 	"end":         {Code: tea.KeyEnd},
 }
 
+// parseKey resolves one harness key name. Named keys and chords match in any
+// case; a single rune keeps its case, so "G" and "g" are different keys.
 func parseKey(name string) tea.KeyPressMsg {
-	name = strings.TrimSpace(strings.ToLower(name))
-	if key, ok := namedKeys[name]; ok {
-		return tea.KeyPressMsg(key)
+	return parseKeys(name)[0]
+}
+
+// parseKeys resolves a harness key name into the presses a terminal sends:
+// one for a named key, chord, or rune, and one per rune for anything else.
+func parseKeys(name string) []tea.KeyPressMsg {
+	name = strings.TrimSpace(name)
+	lower := strings.ToLower(name)
+	if key, ok := namedKeys[lower]; ok {
+		return []tea.KeyPressMsg{tea.KeyPressMsg(key)}
 	}
-	runes := []rune(name)
-	if strings.HasPrefix(name, "ctrl+") && len(runes) == 6 {
+	if runes := []rune(lower); strings.HasPrefix(lower, "ctrl+") && len(runes) == 6 {
 		// Control chords produce no text in a real terminal.
-		return tea.KeyPressMsg(tea.Key{Code: runes[5], Mod: tea.ModCtrl})
+		return []tea.KeyPressMsg{tea.KeyPressMsg(tea.Key{Code: runes[5], Mod: tea.ModCtrl})}
 	}
-	if len(runes) == 1 {
-		return tea.KeyPressMsg(tea.Key{Code: runes[0], Text: name})
+	if name == "" {
+		name = "/"
 	}
-	// Fallback: treat as printable text key with first rune.
-	r := '/'
-	if len(runes) > 0 {
-		r = runes[0]
+	var keys []tea.KeyPressMsg
+	for _, r := range name {
+		keys = append(keys, runeKey(r))
 	}
-	return tea.KeyPressMsg(tea.Key{Code: r, Text: name})
+	return keys
+}
+
+// runeKey is a printable key as the terminal decoder reports it: a capital
+// letter arrives as its lower-case code with Shift, carrying the capital as
+// ShiftedCode and Text.
+func runeKey(r rune) tea.KeyPressMsg {
+	key := tea.Key{Code: r, Text: string(r)}
+	if unicode.IsUpper(r) {
+		key.Code, key.ShiftedCode, key.Mod = unicode.ToLower(r), r, tea.ModShift
+	}
+	return tea.KeyPressMsg(key)
 }
 
 // Scenario runs a scripted sequence used by tests and the harness CLI.

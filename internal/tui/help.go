@@ -29,11 +29,11 @@ func (m Model) helpSections() [][]string {
 	switch {
 	case m.editing:
 		return m.withVimHelp([][]string{
-			{"Markdown editor", "Ctrl+N quick capture", "Ctrl+S save", "Ctrl+T cycle type", "@ reference · Tab insert · Ctrl+O preview", "↑↓ choose · peek PgUp/PgDn", "Esc cancel"},
+			{"Markdown editor", "Ctrl+G help · ? types a ? (opens help from Vim Normal)", "Ctrl+N quick capture", "Ctrl+S save", "Ctrl+T cycle type", "@ reference · Tab insert · Ctrl+O preview", "↑↓ choose · peek PgUp/PgDn", "Esc cancel"},
 		})
 	case m.planning:
 		return m.withVimHelp([][]string{
-			{"Planned notes", "Ctrl+N quick capture", "Tab title/body", "Ctrl+S save", "Ctrl+P prior sits", "@ / #location · peek · Ctrl+O preview", "Esc cancel"},
+			{"Planned notes", "Ctrl+G help · ? types a ? (opens help from Vim Normal)", "Ctrl+N quick capture", "Tab title/body", "Ctrl+S save", "Ctrl+P prior sits", "@ / #location · peek · Ctrl+O preview", "Esc cancel"},
 		})
 	case m.preview != nil:
 		if m.session != nil {

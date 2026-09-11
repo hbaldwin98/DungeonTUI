@@ -20,11 +20,18 @@ type vimMode int
 const (
 	vimNormal vimMode = iota
 	vimInsert
+	vimVisual
+	vimVisualLine
 )
 
 func (mode vimMode) label() string {
-	if mode == vimInsert {
+	switch mode {
+	case vimInsert:
 		return "INSERT"
+	case vimVisual:
+		return "VISUAL"
+	case vimVisualLine:
+		return "VISUAL LINE"
 	}
 	return "NORMAL"
 }
@@ -381,6 +388,25 @@ type vimState struct {
 	insertMark bool
 	// saved is the text as of the last save, so :q can refuse to drop work.
 	saved string
+	// cmdPrefix is ':' for an ex command and '/' for a search.
+	cmdPrefix rune
+	search    string
+	// notice is a message for the editor's status line, such as a failed search.
+	notice string
+	// anchor is where a Visual selection began; the cursor is its other end.
+	anchor vimPos
+	// regSel is the register a "x prefix chose for the command in progress,
+	// regFresh marks the key that chose it, and named holds a-z.
+	regSel   rune
+	regFresh bool
+	named    map[rune]vimRegister
+	// Dot repeat: rec collects the command in progress and lastChange the
+	// keys of the last one that changed text; lastInsert is what its Insert
+	// session typed. edits counts undo snapshots so a change is detectable.
+	rec, lastChange, insertRec []string
+	lastInsert, insertBase     string
+	insertAt, edits, editMark  int
+	replaying                  bool
 }
 
 const vimUndoLimit = 200
@@ -390,6 +416,7 @@ func newVimState(saved string) vimState { return vimState{saved: saved} }
 func (v vimState) modified(text string) bool { return text != v.saved }
 
 func (v *vimState) snapshot(b vimBuffer) {
+	v.edits++
 	v.undo = append(v.undo, vimSnapshot{b.text(), b.row, b.col})
 	if len(v.undo) > vimUndoLimit {
 		v.undo = v.undo[len(v.undo)-vimUndoLimit:]
@@ -404,14 +431,25 @@ func (v *vimState) reset() {
 // status is the Vim part of the editor footer.
 func (v vimState) status() string {
 	if v.commandL {
-		return ":" + v.command
+		prefix := v.cmdPrefix
+		if prefix == 0 {
+			prefix = ':'
+		}
+		return string(prefix) + v.command
 	}
 	label := v.mode.label()
+	if v.visual() {
+		// The textarea cannot paint the selection, so name where it began.
+		label += " from " + strconv.Itoa(v.anchor.row+1) + ":" + strconv.Itoa(v.anchor.col+1)
+	}
 	pending := v.pending + v.count
 	if v.pending != "" && v.opCount > 1 {
 		pending = strconv.Itoa(v.opCount) + pending
 	}
-	if pending != "" && v.mode == vimNormal {
+	if v.regSel != 0 {
+		pending = `"` + string(v.regSel) + pending
+	}
+	if pending != "" && v.mode != vimInsert {
 		label += " " + pending
 	}
 	return label
@@ -430,6 +468,10 @@ func (v *vimState) enterInsert(b vimBuffer, pushUndo bool) {
 // character as Vim does, and drops an undo step for an insert that typed
 // nothing.
 func (v *vimState) leaveInsert(b vimBuffer) vimBuffer {
+	if !v.replaying && v.insertRec != nil {
+		v.lastChange, v.lastInsert = v.insertRec, insertedText(v.insertBase, v.insertAt, b.text())
+		v.insertRec = nil
+	}
 	if v.insertMark && len(v.undo) > 0 && v.undo[len(v.undo)-1].text == b.text() {
 		v.undo = v.undo[:len(v.undo)-1]
 	}
@@ -448,21 +490,38 @@ func (v *vimState) takeCount() (int, bool) {
 	return min(count, 10000), true
 }
 
-// apply runs one Normal-mode key. It returns the updated buffer and any
-// editor action the key requested.
-func (v *vimState) apply(b vimBuffer, key string) (vimBuffer, vimAction) {
+// applyKey runs one Normal- or Visual-mode key. It returns the updated
+// buffer and any editor action the key requested.
+func (v *vimState) applyKey(b vimBuffer, key string) (vimBuffer, vimAction) {
 	if v.commandL {
+		if v.cmdPrefix == '/' {
+			return v.searchLineKey(b, key), vimNone
+		}
 		return b, v.commandKey(key)
 	}
 	if key == "esc" {
-		v.reset()
+		return v.escape(b), vimNone
+	}
+	if v.pending == `"` {
+		v.pending = ""
+		v.selectRegister(key)
 		return b, vimNone
 	}
-	if isVimDigit(key) && (key != "0" || v.count != "") {
+	// r takes any character, digits included.
+	if isVimDigit(key) && (key != "0" || v.count != "") && v.pending != "r" {
 		v.count += key
 		return b, vimNone
 	}
+	if key == `"` && v.pending == "" {
+		v.pending = `"`
+		return b, vimNone
+	}
+	if v.visual() {
+		return v.visualKey(b, key), vimNone
+	}
 	switch v.pending {
+	case "di", "da", "ci", "ca", "yi", "ya":
+		return v.objectOperator(b, key), vimNone
 	case "r":
 		return v.replaceChar(b, key), vimNone
 	case "Z":
@@ -496,22 +555,8 @@ func isVimDigit(key string) bool {
 
 func (v *vimState) normalKey(b vimBuffer, key string) (vimBuffer, vimAction) {
 	count, explicit := v.takeCount()
-	if m, ok := b.motion(key, count, explicit); ok {
-		// j and k aim for the column the owner was last on, so crossing a
-		// short or empty line does not lose it; $ aims for every line end.
-		if vimVertical[key] {
-			if !v.hasWant {
-				v.want, v.hasWant = b.col, true
-			}
-			m.to.col = v.want
-		} else {
-			v.hasWant = false
-		}
-		b.moveTo(m.to)
-		if key == "$" || key == "end" {
-			v.want, v.hasWant = int(^uint(0)>>1), true
-		}
-		return b, vimNone
+	if m, ok := v.motion(b, key, count, explicit); ok {
+		return v.moveCursor(b, key, m), vimNone
 	}
 	v.hasWant = false
 	switch key {
@@ -519,8 +564,11 @@ func (v *vimState) normalKey(b vimBuffer, key string) (vimBuffer, vimAction) {
 		v.pending = key
 		v.opCount = count
 		return b, vimNone
-	case ":":
-		v.commandL, v.command = true, ""
+	case ":", "/":
+		v.commandL, v.command, v.cmdPrefix = true, "", []rune(key)[0]
+		return b, vimNone
+	case "v", "V":
+		v.mode, v.anchor = map[string]vimMode{"v": vimVisual, "V": vimVisualLine}[key], b.pos()
 		return b, vimNone
 	case "u":
 		return v.undoStep(b, count), vimNone
@@ -534,6 +582,36 @@ func (v *vimState) normalKey(b vimBuffer, key string) (vimBuffer, vimAction) {
 		return v.toggleCase(b, count), vimNone
 	}
 	return v.editKey(b, key, count), vimNone
+}
+
+// moveCursor carries out a motion. j and k aim for the column the owner was
+// last on, so crossing a short or empty line does not lose it; $ aims for
+// every line end.
+func (v *vimState) moveCursor(b vimBuffer, key string, m vimMotion) vimBuffer {
+	if vimVertical[key] {
+		if !v.hasWant {
+			v.want, v.hasWant = b.col, true
+		}
+		m.to.col = v.want
+	} else {
+		v.hasWant = false
+	}
+	b.moveTo(m.to)
+	if key == "$" || key == "end" {
+		v.want, v.hasWant = int(^uint(0)>>1), true
+	}
+	return b
+}
+
+// escape leaves Visual mode and drops anything half-typed.
+func (v *vimState) escape(b vimBuffer) vimBuffer {
+	if v.visual() {
+		v.mode = vimNormal
+		b.col = b.normalCol(b.row, b.col)
+	}
+	v.reset()
+	v.regSel, v.regFresh = 0, false
+	return b
 }
 
 // editKey handles the insert entries and the one-key edits that are short
@@ -579,7 +657,7 @@ func (v *vimState) deleteChars(b vimBuffer, backward bool, count int) vimBuffer 
 	if backward {
 		from, to = vimPos{b.row, max(0, b.col-count)}, vimPos{b.row, b.col}
 	}
-	v.register, v.linewise = b.deleteRange(from, to), false
+	v.setRegister(b.deleteRange(from, to), false)
 	b.col = b.normalCol(b.row, b.col)
 	return b
 }
@@ -590,8 +668,8 @@ func (v *vimState) operatorKey(b vimBuffer, key string) vimBuffer {
 	motionCount, explicit := v.takeCount()
 	count := max(1, v.opCount) * motionCount
 	explicit = explicit || v.opCount > 1
-	if key == "g" {
-		v.pending = op + "g"
+	if key == "g" || key == "i" || key == "a" {
+		v.pending = op + key
 		return b
 	}
 	v.reset()
@@ -604,7 +682,7 @@ func (v *vimState) operatorKey(b vimBuffer, key string) vimBuffer {
 		m, _ = b.motion("e", count, explicit)
 	default:
 		var ok bool
-		if m, ok = b.motion(key, count, explicit); !ok {
+		if m, ok = v.motion(b, key, count, explicit); !ok {
 			return b
 		}
 		if key == "w" && m.to.row > b.row {
@@ -619,7 +697,7 @@ func (v *vimState) operate(b vimBuffer, op string, m vimMotion) vimBuffer {
 	start := b.pos()
 	if m.linewise {
 		from, to := min(start.row, m.to.row), max(start.row, m.to.row)
-		v.register, v.linewise = b.lineText(from, to), true
+		v.setRegister(b.lineText(from, to), true)
 		if op == "y" {
 			b.moveTo(vimPos{from, b.col})
 			return b
@@ -646,12 +724,12 @@ func (v *vimState) operate(b vimBuffer, op string, m vimMotion) vimBuffer {
 	}
 	if op == "y" {
 		scratch := b.clone()
-		v.register, v.linewise = scratch.deleteRange(from, to), false
+		v.setRegister(scratch.deleteRange(from, to), false)
 		b.moveTo(from)
 		return b
 	}
 	v.snapshot(b)
-	v.register, v.linewise = b.deleteRange(from, to), false
+	v.setRegister(b.deleteRange(from, to), false)
 	if op == "c" {
 		v.enterInsert(b, false)
 		return b
@@ -661,13 +739,14 @@ func (v *vimState) operate(b vimBuffer, op string, m vimMotion) vimBuffer {
 }
 
 func (v *vimState) put(b vimBuffer, before bool, count int) vimBuffer {
-	if v.register == "" && !v.linewise {
+	register, linewise := v.getRegister()
+	if register == "" && !linewise {
 		return b
 	}
 	v.snapshot(b)
-	text := strings.Repeat(v.register, count)
-	if v.linewise {
-		text = strings.TrimSuffix(strings.Repeat(v.register+"\n", count), "\n")
+	text := strings.Repeat(register, count)
+	if linewise {
+		text = strings.TrimSuffix(strings.Repeat(register+"\n", count), "\n")
 		at := b.row + 1
 		if before {
 			at = b.row
@@ -721,12 +800,7 @@ func (v *vimState) toggleCase(b vimBuffer, count int) vimBuffer {
 	line := b.lines[b.row]
 	end := min(len(line), b.col+count)
 	for index := b.col; index < end; index++ {
-		r := line[index]
-		if unicode.IsUpper(r) {
-			line[index] = unicode.ToLower(r)
-		} else {
-			line[index] = unicode.ToUpper(r)
-		}
+		line[index] = flipCase(line[index])
 	}
 	b.col = b.normalCol(b.row, end)
 	return b
@@ -779,6 +853,20 @@ func (v *vimState) redoStep(b vimBuffer, count int) vimBuffer {
 }
 
 func (v *vimState) commandKey(key string) vimAction {
+	command, done := v.lineKey(key)
+	if !done {
+		return vimNone
+	}
+	return map[string]vimAction{
+		"w": vimWrite, "write": vimWrite,
+		"q": vimQuit, "quit": vimQuit,
+		"q!": vimForceQuit, "quit!": vimForceQuit,
+		"wq": vimWriteQuit, "x": vimWriteQuit, "xit": vimWriteQuit,
+	}[strings.TrimSpace(command)]
+}
+
+// lineKey edits the : or / line; done reports Enter with the typed line.
+func (v *vimState) lineKey(key string) (string, bool) {
 	switch key {
 	case "esc":
 		v.commandL, v.command = false, ""
@@ -790,14 +878,9 @@ func (v *vimState) commandKey(key string) vimAction {
 			v.command = string(runes[:len(runes)-1])
 		}
 	case "enter":
-		command := strings.TrimSpace(v.command)
+		command := v.command
 		v.commandL, v.command = false, ""
-		return map[string]vimAction{
-			"w": vimWrite, "write": vimWrite,
-			"q": vimQuit, "quit": vimQuit,
-			"q!": vimForceQuit, "quit!": vimForceQuit,
-			"wq": vimWriteQuit, "x": vimWriteQuit, "xit": vimWriteQuit,
-		}[command]
+		return command, true
 	case "space":
 		v.command += " "
 	default:
@@ -805,7 +888,7 @@ func (v *vimState) commandKey(key string) vimAction {
 			v.command += key
 		}
 	}
-	return vimNone
+	return "", false
 }
 
 // readVimBuffer and writeVimBuffer bridge the engine and a textarea. Only a
@@ -847,7 +930,22 @@ func (m *Model) vimEditorKey(ta *textarea.Model, msg tea.KeyPressMsg, passthroug
 	after, action := m.vim.apply(before.clone(), key)
 	writeVimBuffer(ta, before, after)
 	m.suggestions = nil
+	if m.vim.notice != "" {
+		m.status, m.vim.notice = m.vim.notice, ""
+	}
 	return action, true
+}
+
+// editorHelpKey reports whether key opens help from a Markdown editor. ? is
+// ordinary text there, so it opens help only from Vim Normal mode with
+// nothing pending (r? still replaces with ?); Ctrl+G works in every mode.
+func (m Model) editorHelpKey(key string) bool {
+	if key == "ctrl+g" {
+		return true
+	}
+	vimBody := m.editing || m.planField == 1
+	return key == "?" && vimBody && m.layout.VimEditing && m.vim.mode == vimNormal &&
+		!m.vim.commandL && m.vim.pending == "" && m.vim.count == ""
 }
 
 // vimEditorHelp prefixes an editor footer with the Vim mode when enabled.
@@ -857,6 +955,9 @@ func (m Model) vimEditorHelp(help string) string {
 	}
 	if m.vim.mode == vimNormal && !m.vim.commandL {
 		return m.vim.status() + " · i insert · :w save · :q close · u undo · " + help
+	}
+	if m.vim.visual() {
+		return m.vim.status() + " · d y c ~ J · o other end · Esc normal · " + help
 	}
 	return m.vim.status() + " · Esc normal · " + help
 }
@@ -869,6 +970,10 @@ func (m Model) withVimHelp(sections [][]string) [][]string {
 	return append(sections, []string{"Vim keys", "Normal: h j k l · w b e · 0 ^ $ · gg G · { } · counts",
 		"i a I A o O insert · Esc back to Normal",
 		"d c y + motion · dd cc yy · x X D C s S Y · p P · J ~ r",
+		"v V visual (footer shows where it began) · o other end · d y c x ~ J",
+		"iw aw ip ap text objects · diw yap viw",
+		"/ search · n N next/previous · lower-case ignores case",
+		". repeat last change · \"a register prefix · \"A appends",
 		"u undo · Ctrl+R redo",
 		":w save · :wq or ZZ save and close · :q close · :q! or ZQ discard"})
 }

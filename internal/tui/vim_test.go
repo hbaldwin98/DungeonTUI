@@ -3,8 +3,6 @@ package tui
 import (
 	"strings"
 	"testing"
-
-	tea "charm.land/bubbletea/v2"
 )
 
 // vimRun applies Normal-mode keys to text with the cursor at row, col.
@@ -256,12 +254,7 @@ func vimModel(t *testing.T) Model {
 func vimPress(t *testing.T, model Model, keys ...string) Model {
 	t.Helper()
 	for _, key := range keys {
-		// parseKey folds case, and Vim needs G, C, and ZZ as typed.
-		msg := parseKey(key)
-		if runes := []rune(key); len(runes) == 1 {
-			msg = tea.KeyPressMsg(tea.Key{Code: runes[0], Text: key})
-		}
-		updated, _ := model.Update(msg)
+		updated, _ := model.Update(parseKey(key))
 		model = updated.(Model)
 	}
 	return model
